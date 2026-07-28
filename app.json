@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "豆遊",
+    "slug": "travel-companion",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.personal.travelcompanion",
+      "buildNumber": "1"
+    },
+    "scheme": "travelcompanion",
+    "experiments": {
+      "baseUrl": "/bean"
+    },
+    "splash": {
+      "backgroundColor": "#F5F0E7"
+    }
+  }
+}
