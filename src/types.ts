@@ -63,6 +63,16 @@ export type TripShoppingItem = {
   category?: string;
   imageUrl?: string;
   purchased?: boolean;
+  scope?: "shared" | "personal";
+  owner?: string;
+};
+
+export type TripChecklistItem = {
+  id: string;
+  text: string;
+  completed?: boolean;
+  scope?: "shared" | "personal";
+  owner?: string;
 };
 
 export type TripPlan = {
@@ -75,4 +85,5 @@ export type TripPlan = {
   flights: FlightInfo[];
   accommodations: AccommodationInfo[];
   shopping: TripShoppingItem[];
+  checklist: TripChecklistItem[];
 };

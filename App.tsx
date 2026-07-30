@@ -30,6 +30,7 @@ type Tab = "home" | "itinerary" | "toolbox" | "expenses";
 const STORE_KEY = "travel-companion-v2";
 const EXPENSE_KEY = "travel-expenses-v1";
 const CLOUD_LINK_KEY = "douyou-cloud-links-v1";
+const CLOUD_MEMBER_KEY = "douyou-cloud-members-v1";
 const AUTH_KEY = "douyou-google-auth-v1";
 const SYNC_URL = "https://script.google.com/macros/s/AKfycbx59WE7iqgehx4nsE4xxxp_Q8-eQrd59VSfR4xSa3IlU7lIBtikr1gvG3EZgxWHEOwj/exec";
 const GOOGLE_CLIENT_ID = "280761518317-gdvrt4provk183vi87j6uoapmu5umn30.apps.googleusercontent.com";
@@ -152,6 +153,18 @@ const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: 
   }
 };
 
+const parseListMeta = (value: unknown): { scope?: "shared" | "personal"; owner?: string } => {
+  try {
+    const parsed = JSON.parse(String(value || "{}"));
+    return {
+      scope: parsed.scope === "personal" ? "personal" : "shared",
+      owner: typeof parsed.owner === "string" ? parsed.owner : ""
+    };
+  } catch {
+    return { scope: "shared", owner: "" };
+  }
+};
+
 const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   trip: {
     "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination,
@@ -179,8 +192,12 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   shopping: trip.shopping.map((item) => ({
     "商品ID": item.id, "商品名稱": item.name, "分類": item.category || "",
     "價格": item.price || "", "幣別": item.currency || "", "圖片網址": item.imageUrl || "",
-    "購買地點": "", "備註": "", "已購買": !!item.purchased
-  })),
+    "購買地點": "", "備註": JSON.stringify({ scope: item.scope || "shared", owner: item.owner || "" }), "已購買": !!item.purchased
+  })).concat((trip.checklist || []).map((item) => ({
+    "商品ID": item.id, "商品名稱": item.text, "分類": "__PREP__", "價格": "", "幣別": "",
+    "圖片網址": "", "購買地點": "", "備註": JSON.stringify({ scope: item.scope || "shared", owner: item.owner || "" }),
+    "已購買": !!item.completed
+  }))),
   expenses: tripExpenses.map((item) => ({
     "支出ID": item.id, "項目": item.title, "金額": item.amount,
     "幣別": item.currency || "TWD", "付款人": item.payer, "分攤成員": JSON.stringify(item.splitBetween || []),
@@ -228,11 +245,23 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
       address: String(row["地址"] || ""), checkIn: formatCloudDateTime(row["入住時間"]), checkOut: formatCloudDateTime(row["退房時間"]),
       facilities: String(row["設施"] || ""), frontDesk: String(row["櫃檯資訊"] || ""), note: String(row["備註"] || "")
     })),
-    shopping: (data.shopping || []).map((row: any) => ({
-      id: String(row["商品ID"]), name: String(row["商品名稱"] || ""), price: String(row["價格"] || ""),
-      currency: String(row["幣別"] || ""), category: String(row["分類"] || ""), imageUrl: String(row["圖片網址"] || ""),
-      purchased: row["已購買"] === true || String(row["已購買"]).toUpperCase() === "TRUE"
-    }))
+    shopping: (data.shopping || []).filter((row: any) => String(row["分類"] || "") !== "__PREP__").map((row: any) => {
+      const meta = parseListMeta(row["備註"]);
+      return {
+        id: String(row["商品ID"]), name: String(row["商品名稱"] || ""), price: String(row["價格"] || ""),
+        currency: String(row["幣別"] || ""), category: String(row["分類"] || ""), imageUrl: String(row["圖片網址"] || ""),
+        purchased: row["已購買"] === true || String(row["已購買"]).toUpperCase() === "TRUE",
+        scope: meta.scope, owner: meta.owner
+      };
+    }),
+    checklist: (data.shopping || []).filter((row: any) => String(row["分類"] || "") === "__PREP__").map((row: any) => {
+      const meta = parseListMeta(row["備註"]);
+      return {
+        id: String(row["商品ID"]), text: String(row["商品名稱"] || ""),
+        completed: row["已購買"] === true || String(row["已購買"]).toUpperCase() === "TRUE",
+        scope: meta.scope, owner: meta.owner
+      };
+    })
   };
   const expenses = (data.expenses || []).map((row: any) => {
     let splitBetween: string[] = [];
@@ -259,7 +288,8 @@ const starterTrips: TripPlan[] = [{
   days: [{ id: "welcome-day-1", label: "DAY 1", date: "第 1 天", title: "尚未安排", stops: [] }],
   flights: [],
   accommodations: [],
-  shopping: []
+  shopping: [],
+  checklist: []
 }];
 
 const transportIcon = (mode: Stop["transportMode"]) =>
@@ -356,6 +386,12 @@ export default function App() {
   const [shoppingCurrency, setShoppingCurrency] = useState("KRW");
   const [shoppingCategory, setShoppingCategory] = useState("");
   const [shoppingImageUrl, setShoppingImageUrl] = useState("");
+  const [shoppingScope, setShoppingScope] = useState<"shared" | "personal">("shared");
+  const [shoppingOwner, setShoppingOwner] = useState("");
+  const [shoppingView, setShoppingView] = useState<"shared" | "mine">("shared");
+  const [checklistText, setChecklistText] = useState("");
+  const [checklistScope, setChecklistScope] = useState<"shared" | "personal">("shared");
+  const [checklistView, setChecklistView] = useState<"shared" | "mine">("shared");
   const [previousStops, setPreviousStops] = useState<Stop[] | null>(null);
   const [cloudLinks, setCloudLinks] = useState<CloudLinks>({});
   const [cloudMembers, setCloudMembers] = useState<Record<string, string[]>>({});
@@ -390,6 +426,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    AsyncStorage.getItem(CLOUD_MEMBER_KEY).then((value) => {
+      if (value) setCloudMembers(JSON.parse(value));
+    }).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
     AsyncStorage.getItem(STORE_KEY).then((value) => {
       if (value) {
         const savedTrips = (JSON.parse(value) as TripPlan[]).map((trip) => {
@@ -402,7 +444,8 @@ export default function App() {
               const verified = verifiedHotels.find((item) => item.id === hotel.id || item.name.toLowerCase().includes(hotel.name.toLowerCase().split(" ").slice(0, 2).join(" ")));
               return verified ? { ...verified, ...hotel, address: hotel.address || verified.address, checkIn: hotel.checkIn || verified.checkIn, checkOut: hotel.checkOut || verified.checkOut, facilities: hotel.facilities || verified.facilities, frontDesk: hotel.frontDesk || verified.frontDesk, note: hotel.note?.includes("資料來源") ? hotel.note : verified.note } : hotel;
             }),
-            shopping: trip.shopping ?? []
+            shopping: trip.shopping ?? [],
+            checklist: trip.checklist ?? []
           };
         });
         if (Array.isArray(savedTrips) && savedTrips.length) {
@@ -568,9 +611,20 @@ export default function App() {
       const incomingTrip = shouldRecoverBusan
         ? { ...converted.trip, days: localStopCount > 0 ? localTrip!.days : busanInitialTrip }
         : converted.trip;
-      if (requestStartedAt < localMutationAtRef.current) return null;
+      const localSelectedDay = localTrip?.days.find((day) => day.id === selectedDayId);
+      const incomingSelectedDay = incomingTrip.days.find((day) => day.id === selectedDayId);
+      if (quiet && localSelectedDay && incomingSelectedDay &&
+          JSON.stringify(localSelectedDay.stops) !== JSON.stringify(incomingSelectedDay.stops)) {
+        setPreviousStops([...localSelectedDay.stops]);
+      }
       const memberNames = (result.data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter((name: string) => name && name !== "我");
-      setCloudMembers((current) => ({ ...current, [tripId]: [...new Set(memberNames)] as string[] }));
+      setCloudMembers((current) => {
+        const nextNames = memberNames.length ? [...new Set(memberNames)] as string[] : (current[tripId] || []);
+        const next = { ...current, [tripId]: nextNames };
+        AsyncStorage.setItem(CLOUD_MEMBER_KEY, JSON.stringify(next)).catch(() => undefined);
+        return next;
+      });
+      if (requestStartedAt < localMutationAtRef.current) return null;
       setTrips((current) => {
         const exists = current.some((trip) => trip.id === incomingTrip.id);
         const next = exists ? current.map((trip) => trip.id === incomingTrip.id ? incomingTrip : trip) : [...current, incomingTrip];
@@ -604,7 +658,7 @@ export default function App() {
       pullCloudTrip(activeTrip.id, link.inviteCode, true);
     }, 3000);
     return () => clearInterval(timer);
-  }, [activeTrip.id, googleUser?.sub, cloudLinks[activeTrip.id]?.inviteCode]);
+  }, [activeTrip.id, selectedDayId, googleUser?.sub, cloudLinks[activeTrip.id]?.inviteCode]);
 
   const persistTrips = (next: TripPlan[]) => {
     setTrips(next);
@@ -614,6 +668,7 @@ export default function App() {
   };
 
   const updateStops = (stops: Stop[]) => {
+    if (stops !== selectedDay.stops) setPreviousStops([...selectedDay.stops]);
     const next = trips.map((trip) => trip.id !== activeTrip.id ? trip : {
       ...trip,
       days: trip.days.map((day) => day.id === selectedDay.id ? { ...day, stops } : day)
@@ -925,6 +980,7 @@ export default function App() {
     setCloudMembers({});
     saveCloudLinks({});
     AsyncStorage.removeItem(AUTH_KEY).catch(() => undefined);
+    AsyncStorage.removeItem(CLOUD_MEMBER_KEY).catch(() => undefined);
     if (Platform.OS === "web") (globalThis as any).google?.accounts?.id?.disableAutoSelect?.();
   };
 
@@ -1096,6 +1152,7 @@ export default function App() {
       flights: [],
       accommodations: [],
       shopping: [],
+      checklist: [],
       days: Array.from({ length: count }, (_, index) => ({
         id: `${id}-day-${index + 1}`,
         label: `DAY ${index + 1}`,
@@ -1176,6 +1233,7 @@ export default function App() {
       setJoiningTrip(false);
       setJoinTripId(""); setJoinInviteCode(""); setJoinMemberName("");
       showToast(`已加入「${converted.trip.title}」，現在會與旅伴同步`);
+      setTimeout(() => pullCloudTrip(tripId, inviteCode, true), 500);
     } catch (error: any) {
       setSyncStatus("error");
       const message = error?.message || "請確認旅行 ID 與邀請碼";
@@ -1206,6 +1264,8 @@ export default function App() {
       transport,
       transportMode,
       note: newStopNote.trim(),
+      openingHours: newStopOpeningHours.trim(),
+      openingHoursSource: newStopOpeningHours.trim() ? "OpenStreetMap 地點資料" : "",
       latitude: newStopLatitude,
       longitude: newStopLongitude,
       durationMinutes: Math.max(0, Number.parseInt(newStopDuration, 10) || 0),
@@ -1217,6 +1277,7 @@ export default function App() {
     setNewStopAddress("");
     setNewStopTransport("");
     setNewStopNote("");
+    setNewStopOpeningHours("");
     setNewStopDuration("");
     setNewStopLatitude(undefined);
     setNewStopLongitude(undefined);
@@ -1231,8 +1292,20 @@ export default function App() {
     }
     setAddressLookupStatus("loading");
     try {
-      const query = `${title} ${activeTrip.destination}`.trim();
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&accept-language=zh-TW&q=${encodeURIComponent(query)}`);
+      const destination = activeTrip.destination;
+      const isKorea = /韓國|釜山|首爾|濟州|大邱|仁川|busan|seoul|jeju/i.test(destination);
+      const isJapan = /日本|沖繩|東京|大阪|京都|北海道|福岡|japan|okinawa|tokyo|osaka|kyoto/i.test(destination);
+      const countryCode = isKorea ? "kr" : isJapan ? "jp" : "";
+      const busanBounds = /釜山|busan/i.test(destination) ? "&viewbox=128.75,35.40,129.35,34.85&bounded=1" : "";
+      const commonPlaceAliases: Record<string, string> = {
+        "釜山車站": "Busan Station", "釜山站": "Busan Station", "金海機場": "Gimhae International Airport",
+        "首爾車站": "Seoul Station", "東京車站": "Tokyo Station", "大阪車站": "Osaka Station",
+        "京都車站": "Kyoto Station", "那霸機場": "Naha Airport"
+      };
+      const searchTitle = commonPlaceAliases[title] || title;
+      const query = `${searchTitle} ${destination}`.trim();
+      const countryFilter = countryCode ? `&countrycodes=${countryCode}` : "";
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=3&addressdetails=1&extratags=1&namedetails=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryFilter}${busanBounds}`);
       if (!response.ok) throw new Error("搜尋服務暫時無法使用");
       const rows = await response.json();
       const match = rows?.[0];
@@ -1244,6 +1317,12 @@ export default function App() {
       setNewStopAddress(String(match.display_name));
       setNewStopLatitude(Number(match.lat));
       setNewStopLongitude(Number(match.lon));
+      const hours = String(match.extratags?.opening_hours || "");
+      setNewStopOpeningHours(hours);
+      if (!newStopNote.trim()) {
+        const kind = String(match.type || match.category || "景點");
+        setNewStopNote(hours ? `營業時間：${hours}。地點類型：${kind}。` : `地點類型：${kind}；營業時間尚未查證。`);
+      }
       setAddressLookupStatus("found");
     } catch {
       setAddressLookupStatus("error");
@@ -1435,10 +1514,12 @@ export default function App() {
     }
     updateActiveTrip({ shopping: [...activeTrip.shopping, {
       id: `shopping-${Date.now()}`, name: shoppingName.trim(), price: shoppingPrice.trim(),
-      currency: shoppingCurrency, category: shoppingCategory.trim(), imageUrl: shoppingImageUrl.trim()
+      currency: shoppingCurrency, category: shoppingCategory.trim(), imageUrl: shoppingImageUrl.trim(),
+      scope: shoppingScope, owner: shoppingScope === "personal" ? (shoppingOwner || myDisplayName || "") : ""
     }] });
     setAddingShoppingItem(false);
     setShoppingName(""); setShoppingPrice(""); setShoppingCurrency("KRW"); setShoppingCategory(""); setShoppingImageUrl("");
+    setShoppingScope("shared"); setShoppingOwner("");
   };
 
   const deleteShoppingItem = (id: string) => {
@@ -1459,9 +1540,44 @@ export default function App() {
     }
     updateActiveTrip({ shopping: [...activeTrip.shopping, {
       id: `shopping-${Date.now()}`, name: catalogItem.name, price: catalogItem.price, currency: "KRW",
-      category: catalogItem.category, imageUrl: catalogItem.imageUrl, purchased: true
+      category: catalogItem.category, imageUrl: catalogItem.imageUrl, purchased: true, scope: "shared"
     }] });
   };
+
+  const visibleShoppingItems = activeTrip.shopping.filter((item) =>
+    shoppingView === "shared"
+      ? (item.scope || "shared") === "shared"
+      : item.scope === "personal" && item.owner === myDisplayName
+  );
+
+  const createChecklistItem = () => {
+    const text = checklistText.trim();
+    if (!text) {
+      Alert.alert("請輸入準備事項");
+      return;
+    }
+    updateActiveTrip({
+      checklist: [...(activeTrip.checklist || []), {
+        id: `prep-${Date.now()}`, text, completed: false, scope: checklistScope,
+        owner: checklistScope === "personal" ? (myDisplayName || "") : ""
+      }]
+    });
+    setChecklistText("");
+  };
+
+  const toggleChecklistItem = (id: string) => {
+    updateActiveTrip({ checklist: (activeTrip.checklist || []).map((item) => item.id === id ? { ...item, completed: !item.completed } : item) });
+  };
+
+  const deleteChecklistItem = (id: string) => {
+    updateActiveTrip({ checklist: (activeTrip.checklist || []).filter((item) => item.id !== id) });
+  };
+
+  const visibleChecklistItems = (activeTrip.checklist || []).filter((item) =>
+    checklistView === "shared"
+      ? (item.scope || "shared") === "shared"
+      : item.scope === "personal" && item.owner === myDisplayName
+  );
 
   const weatherLabel = (code: number) =>
     code === 0 ? "晴朗" : code <= 3 ? "多雲" : code <= 48 ? "有霧" : code <= 67 ? "下雨" : code <= 77 ? "下雪" : code <= 82 ? "陣雨" : code <= 86 ? "陣雪" : "雷雨";
@@ -1870,7 +1986,7 @@ export default function App() {
           <TabButton icon="⌂" label="首頁" active={tab === "home"} onPress={() => setTab("home")} />
           <TabButton icon="≣" label="行程" active={tab === "itinerary"} onPress={() => setTab("itinerary")} />
           <TabButton icon="✦" label="工具箱" active={tab === "toolbox"} onPress={() => setTab("toolbox")} />
-          <TabButton icon="₩" label="記帳" active={tab === "expenses"} onPress={() => setTab("expenses")} />
+          <TabButton icon="🧾" label="記帳" active={tab === "expenses"} onPress={() => setTab("expenses")} />
         </View>
 
         <Modal visible={cloudPanelVisible} animationType="fade" transparent onRequestClose={() => setCloudPanelVisible(false)}>
@@ -2111,6 +2227,24 @@ export default function App() {
                     </View>
                     <Text style={styles.fieldLabel}>分類</Text><TextInput value={shoppingCategory} onChangeText={setShoppingCategory} placeholder="伴手禮／藥妝／食品" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                     <Text style={styles.fieldLabel}>商品圖片網址</Text><TextInput value={shoppingImageUrl} onChangeText={setShoppingImageUrl} placeholder="貼上圖片網址（可留空）" placeholderTextColor="#AAA198" style={styles.fieldInput} autoCapitalize="none" />
+                    <Text style={styles.fieldLabel}>這是誰的清單？</Text>
+                    <View style={styles.currencyChoices}>
+                      <Pressable onPress={() => setShoppingScope("shared")} style={[styles.currencyChoice, shoppingScope === "shared" && styles.currencyChoiceActive]}>
+                        <Text style={[styles.currencyChoiceText, shoppingScope === "shared" && styles.currencyChoiceTextActive]}>共享</Text>
+                      </Pressable>
+                      <Pressable onPress={() => { setShoppingScope("personal"); setShoppingOwner(myDisplayName || ""); }} style={[styles.currencyChoice, shoppingScope === "personal" && styles.currencyChoiceActive]}>
+                        <Text style={[styles.currencyChoiceText, shoppingScope === "personal" && styles.currencyChoiceTextActive]}>指定成員</Text>
+                      </Pressable>
+                    </View>
+                    {shoppingScope === "personal" && (
+                      <View style={styles.payerChoices}>
+                        {activeMemberNames.map((name) => (
+                          <Pressable key={name} onPress={() => setShoppingOwner(name)} style={[styles.payerChoice, shoppingOwner === name && styles.payerChoiceActive]}>
+                            <Text style={[styles.payerChoiceText, shoppingOwner === name && styles.payerChoiceTextActive]}>{name}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
                     <Pressable style={styles.imageSearchButton} onPress={() => Linking.openURL(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(shoppingName || activeTrip.destination + " 必買商品")}`)}>
                       <Text style={styles.imageSearchText}>用 Google 搜尋商品圖片 ↗</Text>
                     </Pressable>
@@ -2118,23 +2252,27 @@ export default function App() {
                     <Pressable style={styles.cancelButton} onPress={() => setAddingShoppingItem(false)}><Text style={styles.cancelText}>返回必買清單</Text></Pressable>
                   </> : <>
                     <View style={styles.shoppingHeader}>
-                      <View><Text style={styles.detailTitle}>{activeTrip.destination} 必買清單</Text><Text style={styles.detailHint}>{activeTrip.shopping.length} 項自訂商品</Text></View>
+                      <View><Text style={styles.detailTitle}>{activeTrip.destination} 必買清單</Text><Text style={styles.detailHint}>共享與個人商品分開管理</Text></View>
                       <Pressable style={styles.smallAddButton} onPress={() => setAddingShoppingItem(true)}><Text style={styles.smallAddButtonText}>＋</Text></Pressable>
                     </View>
-                    {!!activeTrip.shopping.filter((item) => !item.purchased).length && <Text style={styles.shoppingSectionTitle}>待購買</Text>}
-                    {activeTrip.shopping.filter((item) => !item.purchased).map((item) => (
+                    <View style={styles.sourceTabs}>
+                      <Pressable onPress={() => setShoppingView("shared")} style={[styles.sourceTab, shoppingView === "shared" && styles.sourceTabActive]}><Text style={[styles.sourceTabText, shoppingView === "shared" && styles.sourceTabTextActive]}>大家共享</Text></Pressable>
+                      <Pressable onPress={() => setShoppingView("mine")} style={[styles.sourceTab, shoppingView === "mine" && styles.sourceTabActive]}><Text style={[styles.sourceTabText, shoppingView === "mine" && styles.sourceTabTextActive]}>只看我的</Text></Pressable>
+                    </View>
+                    {!!visibleShoppingItems.filter((item) => !item.purchased).length && <Text style={styles.shoppingSectionTitle}>待購買</Text>}
+                    {visibleShoppingItems.filter((item) => !item.purchased).map((item) => (
                       <View key={item.id} style={[styles.shoppingItem, item.purchased && styles.shoppingItemPurchased]}>
                         <Pressable accessibilityLabel={item.purchased ? "取消已購買" : "標記已購買"} onPress={() => toggleShoppingItem(item.id)} style={[styles.shoppingCheck, item.purchased && styles.shoppingCheckActive]}>
                           <Text style={styles.shoppingCheckText}>{item.purchased ? "✓" : ""}</Text>
                         </Pressable>
                         {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
-                        <View style={styles.shoppingInfo}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.purchased ? "已購買" : item.category || "未分類"}</Text></View>
+                        <View style={styles.shoppingInfo}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.owner ? `${item.owner}・` : ""}{item.category || "未分類"}</Text></View>
                         <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
                         <Pressable onPress={() => deleteShoppingItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
                       </View>
                     ))}
-                    {!!activeTrip.shopping.filter((item) => item.purchased).length && <Text style={styles.shoppingSectionTitle}>已購買</Text>}
-                    {activeTrip.shopping.filter((item) => item.purchased).map((item) => (
+                    {!!visibleShoppingItems.filter((item) => item.purchased).length && <Text style={styles.shoppingSectionTitle}>已購買</Text>}
+                    {visibleShoppingItems.filter((item) => item.purchased).map((item) => (
                       <View key={item.id} style={[styles.shoppingItem, styles.shoppingItemPurchased]}>
                         <Pressable accessibilityLabel="取消已購買" onPress={() => toggleShoppingItem(item.id)} style={[styles.shoppingCheck, styles.shoppingCheckActive]}>
                           <Text style={styles.shoppingCheckText}>✓</Text>
@@ -2145,7 +2283,7 @@ export default function App() {
                         <Pressable onPress={() => deleteShoppingItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
                       </View>
                     ))}
-                    {activeTrip.shopping.length === 0 && <Text style={styles.emptyListText}>尚未新增商品，點右上角 ＋ 建立第一項。</Text>}
+                    {visibleShoppingItems.length === 0 && <Text style={styles.emptyListText}>這個清單目前沒有商品，點右上角 ＋ 新增。</Text>}
                     {isKoreaTrip && <>
                       <Text style={styles.catalogTitle}>韓國商品參考</Text>
                       <View style={styles.sourceTabs}>
@@ -2169,6 +2307,35 @@ export default function App() {
                       </View>
                     </>}
                   </>}
+                </View>
+              )}
+              {selectedTool === "行前準備" && (
+                <View style={styles.detailBlock}>
+                  <Text style={styles.detailTitle}>行前準備清單</Text>
+                  <Text style={styles.detailHint}>共享事項全員可見；個人事項只有自己的清單會顯示。</Text>
+                  <View style={styles.sourceTabs}>
+                    <Pressable onPress={() => setChecklistView("shared")} style={[styles.sourceTab, checklistView === "shared" && styles.sourceTabActive]}><Text style={[styles.sourceTabText, checklistView === "shared" && styles.sourceTabTextActive]}>大家共享</Text></Pressable>
+                    <Pressable onPress={() => setChecklistView("mine")} style={[styles.sourceTab, checklistView === "mine" && styles.sourceTabActive]}><Text style={[styles.sourceTabText, checklistView === "mine" && styles.sourceTabTextActive]}>只看我的</Text></Pressable>
+                  </View>
+                  <TextInput value={checklistText} onChangeText={setChecklistText} placeholder="例如：購買網卡、確認護照效期" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                  <View style={styles.currencyChoices}>
+                    <Pressable onPress={() => setChecklistScope("shared")} style={[styles.currencyChoice, checklistScope === "shared" && styles.currencyChoiceActive]}><Text style={[styles.currencyChoiceText, checklistScope === "shared" && styles.currencyChoiceTextActive]}>共享事項</Text></Pressable>
+                    <Pressable onPress={() => setChecklistScope("personal")} style={[styles.currencyChoice, checklistScope === "personal" && styles.currencyChoiceActive]}><Text style={[styles.currencyChoiceText, checklistScope === "personal" && styles.currencyChoiceTextActive]}>我的事項</Text></Pressable>
+                  </View>
+                  <Pressable style={styles.primaryButton} onPress={createChecklistItem}><Text style={styles.primaryButtonText}>＋ 新增準備事項</Text></Pressable>
+                  <View style={styles.shoppingList}>
+                    {visibleChecklistItems.map((item) => (
+                      <View key={item.id} style={[styles.shoppingItem, item.completed && styles.shoppingItemPurchased]}>
+                        <Pressable onPress={() => toggleChecklistItem(item.id)} style={[styles.shoppingCheck, item.completed && styles.shoppingCheckActive]}><Text style={styles.shoppingCheckText}>{item.completed ? "✓" : ""}</Text></Pressable>
+                        <View style={styles.shoppingInfo}>
+                          <Text style={[styles.shoppingName, item.completed && styles.shoppingNamePurchased]}>{item.text}</Text>
+                          <Text style={styles.shoppingCategory}>{item.scope === "personal" ? item.owner || "我的事項" : "共享事項"}</Text>
+                        </View>
+                        <Pressable onPress={() => deleteChecklistItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
+                      </View>
+                    ))}
+                    {!visibleChecklistItems.length && <Text style={styles.emptyListText}>目前沒有準備事項。</Text>}
+                  </View>
                 </View>
               )}
               {!addingFlight && !addingAccommodation && !addingShoppingItem && <Pressable style={styles.cancelButton} onPress={() => setSelectedTool(null)}><Text style={styles.cancelText}>關閉</Text></Pressable>}
