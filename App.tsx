@@ -119,7 +119,7 @@ const VERIFIED_OPENING_HOURS: Record<string, { hours: string; source: string }> 
   "d5-9": { hours: "依航班時間", source: "航空公司航班資訊" }
 };
 
-type Expense = { id: string; title: string; amount: number; payer: string; currency?: string };
+type Expense = { id: string; title: string; amount: number; payer: string; currency?: string; splitBetween?: string[] };
 type CloudLink = { inviteCode: string; memberName?: string; memberId?: string; role?: "owner" | "member" };
 type CloudLinks = Record<string, CloudLink>;
 
@@ -183,7 +183,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   })),
   expenses: tripExpenses.map((item) => ({
     "支出ID": item.id, "項目": item.title, "金額": item.amount,
-    "幣別": item.currency || "TWD", "付款人": item.payer, "分攤成員": "",
+    "幣別": item.currency || "TWD", "付款人": item.payer, "分攤成員": JSON.stringify(item.splitBetween || []),
     "日期": "", "分類": "", "備註": "", "建立時間": ""
   }))
 });
@@ -234,10 +234,19 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
       purchased: row["已購買"] === true || String(row["已購買"]).toUpperCase() === "TRUE"
     }))
   };
-  const expenses = (data.expenses || []).map((row: any) => ({
-    id: String(row["支出ID"]), title: String(row["項目"] || ""), amount: Number(row["金額"] || 0),
-    payer: String(row["付款人"] || "我"), currency: String(row["幣別"] || "TWD")
-  }));
+  const expenses = (data.expenses || []).map((row: any) => {
+    let splitBetween: string[] = [];
+    try {
+      const parsed = JSON.parse(String(row["分攤成員"] || "[]"));
+      if (Array.isArray(parsed)) splitBetween = parsed.map(String).filter(Boolean);
+    } catch {
+      splitBetween = String(row["分攤成員"] || "").split(/[、,]/).map((name) => name.trim()).filter(Boolean);
+    }
+    return {
+      id: String(row["支出ID"]), title: String(row["項目"] || ""), amount: Number(row["金額"] || 0),
+      payer: String(row["付款人"] || "我"), currency: String(row["幣別"] || "TWD"), splitBetween
+    };
+  });
   return { trip, expenses };
 };
 
@@ -303,14 +312,18 @@ export default function App() {
   const [newStopNote, setNewStopNote] = useState("");
   const [newStopOpeningHours, setNewStopOpeningHours] = useState("");
   const [newStopDuration, setNewStopDuration] = useState("");
+  const [newStopLatitude, setNewStopLatitude] = useState<number | undefined>();
+  const [newStopLongitude, setNewStopLongitude] = useState<number | undefined>();
+  const [addressLookupStatus, setAddressLookupStatus] = useState<"idle" | "loading" | "found" | "error">("idle");
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
   const [shoppingSource, setShoppingSource] = useState<"Olive Young" | "韓國藥局">("Olive Young");
-  const [expenses, setExpenses] = useState<Record<string, { id: string; title: string; amount: number; payer: string; currency?: string }[]>>({});
+  const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
   const [addingExpense, setAddingExpense] = useState(false);
   const [expenseTitle, setExpenseTitle] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expensePayer, setExpensePayer] = useState("我");
   const [expenseCurrency, setExpenseCurrency] = useState("KRW");
+  const [expenseParticipants, setExpenseParticipants] = useState<string[]>([]);
   const [krwAmount, setKrwAmount] = useState("10000");
   const [addingFlight, setAddingFlight] = useState(false);
   const [editingFlightId, setEditingFlightId] = useState<string | null>(null);
@@ -1193,6 +1206,8 @@ export default function App() {
       transport,
       transportMode,
       note: newStopNote.trim(),
+      latitude: newStopLatitude,
+      longitude: newStopLongitude,
       durationMinutes: Math.max(0, Number.parseInt(newStopDuration, 10) || 0),
       routeMode: transport.includes("步行") ? "walking" : "driving"
     }]);
@@ -1203,6 +1218,37 @@ export default function App() {
     setNewStopTransport("");
     setNewStopNote("");
     setNewStopDuration("");
+    setNewStopLatitude(undefined);
+    setNewStopLongitude(undefined);
+    setAddressLookupStatus("idle");
+  };
+
+  const findStopAddress = async () => {
+    const title = newStopTitle.trim();
+    if (!title) {
+      Alert.alert("請先輸入景點名稱");
+      return;
+    }
+    setAddressLookupStatus("loading");
+    try {
+      const query = `${title} ${activeTrip.destination}`.trim();
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&accept-language=zh-TW&q=${encodeURIComponent(query)}`);
+      if (!response.ok) throw new Error("搜尋服務暫時無法使用");
+      const rows = await response.json();
+      const match = rows?.[0];
+      if (!match?.display_name) {
+        setAddressLookupStatus("error");
+        Alert.alert("找不到地址", "請嘗試輸入更完整的景點名稱，例如加上分店或城市。");
+        return;
+      }
+      setNewStopAddress(String(match.display_name));
+      setNewStopLatitude(Number(match.lat));
+      setNewStopLongitude(Number(match.lon));
+      setAddressLookupStatus("found");
+    } catch {
+      setAddressLookupStatus("error");
+      Alert.alert("目前無法搜尋地址", "請稍後再試，或先手動貼上 Google Maps 地址。");
+    }
   };
 
   const tripExpenses = expenses[activeTrip.id] ?? [];
@@ -1215,7 +1261,11 @@ export default function App() {
   const expenseMemberNames = activeMemberNames;
   const openExpenseModal = () => {
     setExpensePayer(expenseMemberNames[0] || "");
+    setExpenseParticipants(expenseMemberNames);
     setAddingExpense(true);
+  };
+  const toggleExpenseParticipant = (name: string) => {
+    setExpenseParticipants((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name]);
   };
   const currencyTotals = tripExpenses.reduce<Record<string, number>>((totals, item) => {
     const currency = item.currency || "KRW";
@@ -1228,6 +1278,35 @@ export default function App() {
     totals[item.payer]![currency] = (totals[item.payer]![currency] ?? 0) + item.amount;
     return totals;
   }, {}));
+  const settlements = useMemo(() => {
+    const balances: Record<string, Record<string, number>> = {};
+    tripExpenses.forEach((item) => {
+      const currency = item.currency || "KRW";
+      const participants = item.splitBetween?.length ? item.splitBetween : activeMemberNames;
+      const people = participants.length ? participants : [item.payer];
+      balances[currency] ??= {};
+      people.forEach((name) => { balances[currency]![name] = balances[currency]![name] || 0; });
+      balances[currency]![item.payer] = (balances[currency]![item.payer] || 0) + item.amount;
+      const share = item.amount / people.length;
+      people.forEach((name) => { balances[currency]![name] = (balances[currency]![name] || 0) - share; });
+    });
+    return Object.entries(balances).flatMap(([currency, values]) => {
+      const creditors = Object.entries(values).filter(([, value]) => value > 0.005).map(([name, value]) => ({ name, value }));
+      const debtors = Object.entries(values).filter(([, value]) => value < -0.005).map(([name, value]) => ({ name, value: -value }));
+      const rows: { from: string; to: string; amount: number; currency: string }[] = [];
+      let debtorIndex = 0;
+      let creditorIndex = 0;
+      while (debtorIndex < debtors.length && creditorIndex < creditors.length) {
+        const amount = Math.min(debtors[debtorIndex]!.value, creditors[creditorIndex]!.value);
+        rows.push({ from: debtors[debtorIndex]!.name, to: creditors[creditorIndex]!.name, amount, currency });
+        debtors[debtorIndex]!.value -= amount;
+        creditors[creditorIndex]!.value -= amount;
+        if (debtors[debtorIndex]!.value < 0.005) debtorIndex += 1;
+        if (creditors[creditorIndex]!.value < 0.005) creditorIndex += 1;
+      }
+      return rows;
+    });
+  }, [tripExpenses, activeMemberNames.join("|")]);
   const saveExpenses = (next: typeof expenses) => {
     localMutationAtRef.current = Date.now();
     setExpenses(next);
@@ -1244,13 +1323,18 @@ export default function App() {
       Alert.alert("請先選擇付款成員");
       return;
     }
+    if (!expenseParticipants.length) {
+      Alert.alert("請至少選擇一位分帳成員");
+      return;
+    }
     saveExpenses({
       ...expenses,
-      [activeTrip.id]: [...tripExpenses, { id: `expense-${Date.now()}`, title: expenseTitle.trim(), amount, payer: expensePayer.trim(), currency: expenseCurrency }]
+      [activeTrip.id]: [...tripExpenses, { id: `expense-${Date.now()}`, title: expenseTitle.trim(), amount, payer: expensePayer.trim(), currency: expenseCurrency, splitBetween: expenseParticipants }]
     });
     setExpenseTitle("");
     setExpenseAmount("");
     setExpensePayer("");
+    setExpenseParticipants([]);
     setAddingExpense(false);
   };
   const deleteExpense = (id: string) => {
@@ -1748,6 +1832,19 @@ export default function App() {
                 </View>
               </View>
             )}
+            {tripExpenses.length > 0 && (
+              <View style={styles.settlementCard}>
+                <Text style={styles.summaryTitle}>分帳結算</Text>
+                {settlements.length === 0
+                  ? <Text style={styles.settlementDone}>目前已平衡，不需要互相轉帳。</Text>
+                  : settlements.map((row, index) => (
+                    <View key={`${row.currency}-${row.from}-${row.to}-${index}`} style={styles.settlementRow}>
+                      <Text style={styles.settlementText}><Text style={styles.settlementName}>{row.from}</Text> 應付給 <Text style={styles.settlementName}>{row.to}</Text></Text>
+                      <Text style={styles.settlementAmount}>{row.currency} {Math.round(row.amount).toLocaleString()}</Text>
+                    </View>
+                  ))}
+              </View>
+            )}
             {tripExpenses.length === 0 ? (
               <Pressable style={styles.emptyExpense} onPress={openExpenseModal}>
                 <Text style={styles.emptyExpenseIcon}>₩</Text>
@@ -1760,6 +1857,7 @@ export default function App() {
                 <View style={styles.expenseInfo}>
                   <Text style={styles.expenseName}>{item.title}</Text>
                   <Text style={styles.expensePayer}>付款人：{item.payer}</Text>
+                  <Text style={styles.expensePayer}>分帳：{(item.splitBetween?.length ? item.splitBetween : activeMemberNames).join("、") || item.payer}</Text>
                 </View>
                 <Text style={styles.expenseValue}>{item.currency || "KRW"} {item.amount.toLocaleString()}</Text>
                 <Pressable onPress={() => deleteExpense(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
@@ -2106,6 +2204,14 @@ export default function App() {
                 ))}
               </View>
               {expenseMemberNames.length === 0 && <TextInput value={expensePayer} onChangeText={setExpensePayer} placeholder="尚無成員，請先輸入付款人" placeholderTextColor="#AAA198" style={styles.fieldInput} />}
+              <Text style={styles.fieldLabel}>一起分帳的成員（平均分攤）</Text>
+              <View style={styles.payerChoices}>
+                {expenseMemberNames.map((name) => (
+                  <Pressable key={name} onPress={() => toggleExpenseParticipant(name)} style={[styles.payerChoice, expenseParticipants.includes(name) && styles.payerChoiceActive]}>
+                    <Text style={[styles.payerChoiceText, expenseParticipants.includes(name) && styles.payerChoiceTextActive]}>{expenseParticipants.includes(name) ? "✓ " : ""}{name}</Text>
+                  </Pressable>
+                ))}
+              </View>
               <Pressable style={styles.primaryButton} onPress={createExpense}><Text style={styles.primaryButtonText}>儲存支出</Text></Pressable>
               <Pressable style={styles.cancelButton} onPress={() => setAddingExpense(false)}><Text style={styles.cancelText}>取消</Text></Pressable>
             </View>
@@ -2254,6 +2360,10 @@ export default function App() {
                 </View>
                 <Text style={styles.fieldLabel}>地址</Text>
                 <TextInput value={newStopAddress} onChangeText={setNewStopAddress} placeholder="貼上地址或地標名稱" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                <Pressable disabled={addressLookupStatus === "loading"} style={styles.addressLookupButton} onPress={findStopAddress}>
+                  <Text style={styles.addressLookupText}>{addressLookupStatus === "loading" ? "正在搜尋地址……" : "⌖ 幫我找地址"}</Text>
+                </Pressable>
+                {addressLookupStatus === "found" && <Text style={styles.addressFoundText}>✓ 已找到地址與地圖座標，你仍可手動修改。</Text>}
                 <Text style={styles.fieldLabel}>預計停留時間（分鐘）</Text>
                 <TextInput value={newStopDuration} onChangeText={setNewStopDuration} keyboardType="number-pad" placeholder="例如：90" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                 <Text style={styles.fieldLabel}>備註</Text>
@@ -2603,4 +2713,15 @@ const styles = StyleSheet.create({
   payerChoiceActive: { backgroundColor: "#2F5147", borderColor: "#2F5147" },
   payerChoiceText: { color: "#776F67", fontSize: 12, fontWeight: "900" },
   payerChoiceTextActive: { color: "#FFF" }
+  ,
+  settlementCard: { backgroundColor: "#F3F7F4", borderRadius: 18, padding: 15, marginBottom: 18, borderWidth: 1, borderColor: "#DDE8E2" },
+  settlementDone: { color: "#607168", fontSize: 12, marginTop: 8 },
+  settlementRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, paddingTop: 11, marginTop: 7, borderTopWidth: 1, borderTopColor: "#DDE8E2" },
+  settlementText: { color: "#665F58", fontSize: 12, flex: 1 },
+  settlementName: { color: "#2F5147", fontWeight: "900" },
+  settlementAmount: { color: "#9A6248", fontSize: 12, fontWeight: "900" }
+  ,
+  addressLookupButton: { alignSelf: "flex-start", backgroundColor: "#E7EFEA", borderRadius: 11, paddingHorizontal: 14, paddingVertical: 10, marginTop: 8 },
+  addressLookupText: { color: "#315248", fontSize: 11, fontWeight: "900" },
+  addressFoundText: { color: "#5E7D72", fontSize: 10, marginTop: 7 }
 });
