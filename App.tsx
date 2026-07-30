@@ -165,6 +165,26 @@ const parseListMeta = (value: unknown): { scope?: "shared" | "personal"; owner?:
   }
 };
 
+const defaultPrepChecklist = () => [
+  "確認全員護照效期至少六個月",
+  "確認簽證、入境及過境規定",
+  "下載或截圖來回機票、住宿與預約憑證",
+  "投保旅遊平安險、海外醫療及緊急救援",
+  "查詢目的地旅遊警示並完成外交部出國登錄",
+  "保存駐外館處、保險公司與緊急聯絡方式",
+  "準備信用卡、少量現金並開通海外交易",
+  "確認網卡、eSIM、漫遊或 Wi-Fi 方案",
+  "準備充電器、轉接頭；行動電源放隨身行李",
+  "準備個人常用藥，保留原包裝與必要處方",
+  "查詢當地疫情、疫苗及旅遊健康建議",
+  "確認托運與手提行李、液體及禁帶物品規定",
+  "查看天氣並準備適合衣物、雨具與好走的鞋",
+  "下載離線地圖、翻譯及當地交通 App",
+  "出發前確認門窗、水電、垃圾與寵物／植物安排"
+].map((text, index) => ({
+  id: `prep-default-${index + 1}`, text, completed: false, scope: "shared" as const, owner: ""
+}));
+
 const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   trip: {
     "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination,
@@ -254,14 +274,18 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
         scope: meta.scope, owner: meta.owner
       };
     }),
-    checklist: (data.shopping || []).filter((row: any) => String(row["分類"] || "") === "__PREP__").map((row: any) => {
+    checklist: (() => {
+      const rows = (data.shopping || []).filter((row: any) => String(row["分類"] || "") === "__PREP__");
+      if (!rows.length) return defaultPrepChecklist();
+      return rows.map((row: any) => {
       const meta = parseListMeta(row["備註"]);
       return {
         id: String(row["商品ID"]), text: String(row["商品名稱"] || ""),
         completed: row["已購買"] === true || String(row["已購買"]).toUpperCase() === "TRUE",
         scope: meta.scope, owner: meta.owner
       };
-    })
+      });
+    })()
   };
   const expenses = (data.expenses || []).map((row: any) => {
     let splitBetween: string[] = [];
@@ -289,7 +313,7 @@ const starterTrips: TripPlan[] = [{
   flights: [],
   accommodations: [],
   shopping: [],
-  checklist: []
+  checklist: defaultPrepChecklist()
 }];
 
 const transportIcon = (mode: Stop["transportMode"]) =>
@@ -445,7 +469,7 @@ export default function App() {
               return verified ? { ...verified, ...hotel, address: hotel.address || verified.address, checkIn: hotel.checkIn || verified.checkIn, checkOut: hotel.checkOut || verified.checkOut, facilities: hotel.facilities || verified.facilities, frontDesk: hotel.frontDesk || verified.frontDesk, note: hotel.note?.includes("資料來源") ? hotel.note : verified.note } : hotel;
             }),
             shopping: trip.shopping ?? [],
-            checklist: trip.checklist ?? []
+            checklist: trip.checklist?.length ? trip.checklist : defaultPrepChecklist()
           };
         });
         if (Array.isArray(savedTrips) && savedTrips.length) {
@@ -1152,7 +1176,7 @@ export default function App() {
       flights: [],
       accommodations: [],
       shopping: [],
-      checklist: [],
+      checklist: defaultPrepChecklist(),
       days: Array.from({ length: count }, (_, index) => ({
         id: `${id}-day-${index + 1}`,
         label: `DAY ${index + 1}`,
