@@ -765,21 +765,15 @@ export default function App() {
       const result = await response.json();
       if (result.ok && Array.isArray(result.data)) {
         const restored = result.data.map((data: any) => cloudToTrip(data));
-        setTrips((current) => {
-          const byId = new Map(current.map((trip) => [trip.id, trip]));
-          restored.forEach(({ trip }: { trip: TripPlan }) => byId.set(trip.id, trip));
-          const next = [...byId.values()];
-          AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
-          return next;
-        });
-        setExpenses((current) => {
-          const next = { ...current };
-          restored.forEach(({ trip, expenses: restoredExpenses }: { trip: TripPlan; expenses: Expense[] }) => { next[trip.id] = restoredExpenses; });
-          AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
-          return next;
-        });
-        const nextLinks = { ...cloudLinksRef.current };
-        restored.forEach(({ trip }: { trip: TripPlan }) => { nextLinks[trip.id] ??= { inviteCode: "", memberName: user.name, memberId: `google:${user.sub}` }; });
+        const visibleTrips = restored.length ? restored.map(({ trip }: { trip: TripPlan }) => trip) : starterTrips;
+        const visibleExpenses: Record<string, Expense[]> = {};
+        restored.forEach(({ trip, expenses: restoredTripExpenses }: { trip: TripPlan; expenses: Expense[] }) => { visibleExpenses[trip.id] = restoredTripExpenses; });
+        setTrips(visibleTrips);
+        setActiveTripId(visibleTrips[0]!.id);
+        setSelectedDayId(visibleTrips[0]!.days[0]?.id ?? "");
+        setExpenses(visibleExpenses);
+        const nextLinks: CloudLinks = {};
+        restored.forEach(({ trip }: { trip: TripPlan }) => { nextLinks[trip.id] = { inviteCode: "", memberName: user.name, memberId: `google:${user.sub}` }; });
         saveCloudLinks(nextLinks);
       }
     } catch {
@@ -789,6 +783,12 @@ export default function App() {
 
   const signOutGoogle = () => {
     setGoogleUser(null);
+    setTrips(starterTrips);
+    setActiveTripId(starterTrips[0]!.id);
+    setSelectedDayId(starterTrips[0]!.days[0]?.id ?? "");
+    setExpenses({});
+    setCloudMembers({});
+    saveCloudLinks({});
     AsyncStorage.removeItem(AUTH_KEY).catch(() => undefined);
     if (Platform.OS === "web") (globalThis as any).google?.accounts?.id?.disableAutoSelect?.();
   };
