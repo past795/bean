@@ -22,6 +22,7 @@ import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { toolboxItems } from "./src/data/toolbox";
 import { shoppingItems } from "./src/data/shopping";
+import { initialTrip as busanInitialTrip } from "./src/data/trip";
 import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 
@@ -458,6 +459,33 @@ export default function App() {
     }
   };
 
+  const syncExpensesNow = async (trip: TripPlan, tripExpenses: Expense[]) => {
+    const link = cloudLinksRef.current[trip.id];
+    if (!link?.inviteCode) {
+      setSyncStatus("error");
+      setSyncErrorMessage("這台裝置缺少邀請碼，請重新輸入一次以恢復同步。");
+      return;
+    }
+    setSyncStatus("syncing");
+    setSyncErrorMessage("");
+    uploadingRef.current = true;
+    try {
+      const expenseRows = tripToCloud(trip, tripExpenses).expenses;
+      await postCloud({
+        action: "syncTrip",
+        tripId: trip.id,
+        inviteCode: link.inviteCode,
+        data: { expenses: expenseRows }
+      });
+      setSyncStatus("synced");
+    } catch (error: any) {
+      setSyncStatus("error");
+      setSyncErrorMessage(error?.message || "支出上傳失敗，請稍後再試。");
+    } finally {
+      uploadingRef.current = false;
+    }
+  };
+
   const queueCloudSync = (trip: TripPlan, tripExpenses: Expense[]) => {
     if (!cloudLinksRef.current[trip.id]) return;
     if (syncTimer.current) clearTimeout(syncTimer.current);
@@ -475,12 +503,19 @@ export default function App() {
       const result = await response.json();
       if (!result.ok) throw new Error(result.error || "讀取失敗");
       const converted = cloudToTrip(result.data);
+      const localTrip = trips.find((trip) => trip.id === tripId);
+      const remoteStopCount = converted.trip.days.reduce((sum, day) => sum + day.stops.length, 0);
+      const localStopCount = localTrip?.days.reduce((sum, day) => sum + day.stops.length, 0) || 0;
+      const shouldRecoverBusan = converted.trip.destination.includes("釜山") && remoteStopCount === 0;
+      const incomingTrip = shouldRecoverBusan
+        ? { ...converted.trip, days: localStopCount > 0 ? localTrip!.days : busanInitialTrip }
+        : converted.trip;
       if (requestStartedAt < localMutationAtRef.current) return null;
       const memberNames = (result.data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter((name: string) => name && name !== "我");
       setCloudMembers((current) => ({ ...current, [tripId]: [...new Set(memberNames)] as string[] }));
       setTrips((current) => {
-        const exists = current.some((trip) => trip.id === converted.trip.id);
-        const next = exists ? current.map((trip) => trip.id === converted.trip.id ? converted.trip : trip) : [...current, converted.trip];
+        const exists = current.some((trip) => trip.id === incomingTrip.id);
+        const next = exists ? current.map((trip) => trip.id === incomingTrip.id ? incomingTrip : trip) : [...current, incomingTrip];
         AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
         return next;
       });
@@ -491,7 +526,8 @@ export default function App() {
       });
       setSyncStatus("synced");
       setSyncErrorMessage("");
-      return converted.trip;
+      if (shouldRecoverBusan) setTimeout(() => syncTripNow(incomingTrip, converted.expenses), 0);
+      return incomingTrip;
     } catch (error: any) {
       setSyncStatus("error");
       setSyncErrorMessage(error?.message || "讀取同步資料失敗。");
@@ -1144,7 +1180,7 @@ export default function App() {
     localMutationAtRef.current = Date.now();
     setExpenses(next);
     AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
-    syncTripNow(activeTrip, next[activeTrip.id] ?? []);
+    syncExpensesNow(activeTrip, next[activeTrip.id] ?? []);
   };
   const createExpense = () => {
     const amount = Number(expenseAmount.replace(/,/g, ""));
