@@ -32,6 +32,17 @@ const CLOUD_LINK_KEY = "douyou-cloud-links-v1";
 const AUTH_KEY = "douyou-google-auth-v1";
 const SYNC_URL = "https://script.google.com/macros/s/AKfycbx59WE7iqgehx4nsE4xxxp_Q8-eQrd59VSfR4xSa3IlU7lIBtikr1gvG3EZgxWHEOwj/exec";
 const GOOGLE_CLIENT_ID = "280761518317-gdvrt4provk183vi87j6uoapmu5umn30.apps.googleusercontent.com";
+const isGoogleTokenFresh = (token: string) => {
+  try {
+    const encoded = token.split(".")[1];
+    if (!encoded) return false;
+    const segment = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse((globalThis as any).atob(segment.padEnd(Math.ceil(segment.length / 4) * 4, "=")));
+    return Number(payload.exp || 0) * 1000 > Date.now() + 60_000;
+  } catch {
+    return false;
+  }
+};
 const screenWidth = Dimensions.get("window").width;
 const KNOWN_COORDINATES: Record<string, [number, number]> = {
   "d3-1": [35.1712, 129.1277], "d3-2": [35.0770, 129.0208],
@@ -313,7 +324,10 @@ export default function App() {
 
   useEffect(() => {
     AsyncStorage.getItem(AUTH_KEY).then((value) => {
-      if (value) setGoogleUser(JSON.parse(value));
+      if (!value) return;
+      const saved = JSON.parse(value) as GoogleUser;
+      if (isGoogleTokenFresh(saved.idToken)) setGoogleUser(saved);
+      else AsyncStorage.removeItem(AUTH_KEY).catch(() => undefined);
     }).catch(() => undefined).finally(() => setAuthReady(true));
   }, []);
 
@@ -953,15 +967,21 @@ export default function App() {
     const inviteCode = joinInviteCode.trim();
     if (!tripId || !inviteCode) {
       Alert.alert("請填寫旅行 ID 與邀請碼");
+      showToast("請填寫旅行 ID 與六位數邀請碼");
+      return;
+    }
+    if (!joinMemberName.trim()) {
+      Alert.alert("請填寫這趟旅行顯示的成員名稱");
+      showToast("請先填寫成員名稱");
       return;
     }
     setSyncStatus("syncing");
     try {
       await postCloud({
-        action: "joinTrip", tripId, inviteCode, idToken: googleUser?.idToken || "",
-        member: { "成員ID": googleUser ? `google:${googleUser.sub}` : `member-${Date.now()}`, "顯示名稱": googleUser?.name || joinMemberName.trim() || "旅伴", "角色": "member" }
+        action: "joinTrip", tripId, inviteCode,
+        member: { "成員ID": googleUser ? `google:${googleUser.sub}` : `member-${Date.now()}`, "顯示名稱": joinMemberName.trim(), "角色": "member" }
       });
-      saveCloudLinks({ ...cloudLinksRef.current, [tripId]: { inviteCode, memberName: googleUser?.name || joinMemberName.trim() || "旅伴", memberId: googleUser ? `google:${googleUser.sub}` : undefined } });
+      saveCloudLinks({ ...cloudLinksRef.current, [tripId]: { inviteCode, memberName: joinMemberName.trim(), memberId: googleUser ? `google:${googleUser.sub}` : undefined } });
       const joined = await pullCloudTrip(tripId, inviteCode);
       if (!joined) return;
       selectTrip(joined);
@@ -970,6 +990,7 @@ export default function App() {
       showToast(`已加入「${joined.title}」，現在會與旅伴同步`);
     } catch (error: any) {
       setSyncStatus("error");
+      showToast(`加入失敗：${error?.message || "請確認資料"}`);
       Alert.alert("無法加入旅行", error?.message || "請確認旅行 ID 與邀請碼");
     }
   };
@@ -1383,7 +1404,7 @@ export default function App() {
                 <Text style={styles.pageSubtitle}>每次出發，都從這裡開始。</Text>
               </View>
               <View style={styles.homeHeaderActions}>
-                <Pressable style={styles.joinTripButton} onPress={() => setJoiningTrip(true)}>
+                <Pressable style={styles.joinTripButton} onPress={() => { setJoinMemberName(googleUser?.name || ""); setJoiningTrip(true); }}>
                   <Text style={styles.joinTripButtonText}>加入旅行</Text>
                 </Pressable>
                 <Pressable style={styles.addTripButton} onPress={() => setCreatingTrip(true)}>
@@ -1883,12 +1904,16 @@ export default function App() {
               <View style={styles.sheetHandle} />
               <Text style={styles.sheetEyebrow}>JOIN JOURNEY</Text>
               <Text style={styles.sheetTitle}>加入旅伴的旅行</Text>
-              <Text style={styles.sheetAddress}>使用目前登入的 Google 帳號「{googleUser?.name}」加入。成功後會出現在你的首頁，行程與記帳會共同同步。</Text>
+              <Text style={styles.sheetAddress}>使用目前登入的 Google 帳號加入。成功後會出現在你的首頁，行程與記帳會共同同步。</Text>
+              <Text style={styles.fieldLabel}>這趟旅行顯示的成員名稱 *</Text>
+              <TextInput value={joinMemberName} onChangeText={setJoinMemberName} placeholder="例如：小豆、Julie" placeholderTextColor="#AAA198" style={styles.fieldInput} />
               <Text style={styles.fieldLabel}>旅行 ID *</Text>
               <TextInput value={joinTripId} onChangeText={setJoinTripId} autoCapitalize="none" placeholder="trip-..." placeholderTextColor="#AAA198" style={styles.fieldInput} />
               <Text style={styles.fieldLabel}>邀請碼 *</Text>
               <TextInput value={joinInviteCode} onChangeText={setJoinInviteCode} keyboardType="number-pad" placeholder="六位數邀請碼" placeholderTextColor="#AAA198" style={styles.fieldInput} />
-              <Pressable style={styles.primaryButton} onPress={joinCloudTrip}><Text style={styles.primaryButtonText}>加入並開始同步</Text></Pressable>
+              <Pressable disabled={syncStatus === "syncing"} style={styles.primaryButton} onPress={joinCloudTrip}>
+                <Text style={styles.primaryButtonText}>{syncStatus === "syncing" ? "正在加入並同步……" : "加入並開始同步"}</Text>
+              </Pressable>
               <Pressable style={styles.cancelButton} onPress={() => setJoiningTrip(false)}><Text style={styles.cancelText}>取消</Text></Pressable>
             </View>
           </View>

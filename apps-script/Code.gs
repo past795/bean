@@ -74,7 +74,7 @@ function doPost(e) {
         const user = verifyGoogleToken_(body.idToken);
         body.member = body.member || {};
         body.member['成員ID'] = 'google:' + user.sub;
-        body.member['顯示名稱'] = user.name || body.member['顯示名稱'] || user.email;
+        body.member['顯示名稱'] = body.member['顯示名稱'] || user.name || user.email;
       }
       return json_({ ok: true, data: createTrip_(body) });
     }
@@ -91,7 +91,7 @@ function doPost(e) {
       const member = body.member || {};
       if (user) {
         member['成員ID'] = 'google:' + user.sub;
-        member['顯示名稱'] = user.name || member['顯示名稱'] || user.email;
+        member['顯示名稱'] = member['顯示名稱'] || user.name || user.email;
       }
       upsertMember_(tripId, member);
       return json_({ ok: true, data: readTrip_(tripId) });
