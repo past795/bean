@@ -245,6 +245,8 @@ export default function App() {
   const [shoppingImageUrl, setShoppingImageUrl] = useState("");
   const [previousStops, setPreviousStops] = useState<Stop[] | null>(null);
   const [cloudLinks, setCloudLinks] = useState<CloudLinks>({});
+  const [cloudMembers, setCloudMembers] = useState<Record<string, string[]>>({});
+  const [memberDraft, setMemberDraft] = useState("");
   const [cloudPanelVisible, setCloudPanelVisible] = useState(false);
   const [bulkImportVisible, setBulkImportVisible] = useState(false);
   const [bulkItineraryText, setBulkItineraryText] = useState("");
@@ -383,6 +385,8 @@ export default function App() {
       const result = await response.json();
       if (!result.ok) throw new Error(result.error || "讀取失敗");
       const converted = cloudToTrip(result.data);
+      const memberNames = (result.data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter(Boolean);
+      setCloudMembers((current) => ({ ...current, [tripId]: [...new Set(memberNames)] as string[] }));
       setTrips((current) => {
         const exists = current.some((trip) => trip.id === converted.trip.id);
         const next = exists ? current.map((trip) => trip.id === converted.trip.id ? converted.trip : trip) : [...current, converted.trip];
@@ -625,6 +629,26 @@ export default function App() {
 
   const showCloudInfo = () => {
     setCloudPanelVisible(true);
+  };
+
+  const addTripMember = async () => {
+    const name = memberDraft.trim();
+    const link = cloudLinksRef.current[activeTrip.id];
+    if (!name || !link) return;
+    setSyncStatus("syncing");
+    try {
+      const data = await postCloud({
+        action: "joinTrip", tripId: activeTrip.id, inviteCode: link.inviteCode,
+        member: { "成員ID": `member-${Date.now()}`, "顯示名稱": name, "角色": "member" }
+      });
+      const memberNames = (data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter(Boolean);
+      setCloudMembers((current) => ({ ...current, [activeTrip.id]: [...new Set(memberNames)] as string[] }));
+      setMemberDraft("");
+      setSyncStatus("synced");
+    } catch (error: any) {
+      setSyncStatus("error");
+      Alert.alert("無法新增成員", error?.message || "請稍後再試。");
+    }
   };
 
   const importBulkItinerary = () => {
@@ -1252,6 +1276,16 @@ export default function App() {
                   <Text selectable style={styles.cloudCode}>{activeTrip.id}</Text>
                   <Text style={styles.cloudLabel}>六位數邀請碼</Text>
                   <Text selectable style={styles.cloudInvite}>{cloudLinks[activeTrip.id]!.inviteCode}</Text>
+                  <Text style={styles.cloudLabel}>這趟旅行的成員</Text>
+                  <View style={styles.memberChips}>
+                    {(cloudMembers[activeTrip.id]?.length ? cloudMembers[activeTrip.id]! : ["我"]).map((name) => (
+                      <View key={name} style={styles.memberChip}><Text style={styles.memberChipText}>● {name}</Text></View>
+                    ))}
+                  </View>
+                  <View style={styles.memberAddRow}>
+                    <TextInput value={memberDraft} onChangeText={setMemberDraft} placeholder="輸入成員名稱" placeholderTextColor="#AAA198" style={styles.memberInput} />
+                    <Pressable style={styles.memberAddButton} onPress={addTripMember}><Text style={styles.memberAddText}>新增</Text></Pressable>
+                  </View>
                   <Text style={styles.sheetAddress}>旅伴在豆遊首頁點「加入旅行」，輸入上面兩項資料。</Text>
                   <Pressable style={styles.primaryButton} onPress={() => shareCloudInfo(activeTrip.id, cloudLinks[activeTrip.id]!.inviteCode)}>
                     <Text style={styles.primaryButtonText}>分享給旅伴</Text>
@@ -1684,6 +1718,13 @@ const styles = StyleSheet.create({
   cloudLabel: { color: "#897E73", fontSize: 11, fontWeight: "800", marginTop: 15 },
   cloudCode: { color: "#233D35", backgroundColor: "#EFF4F1", padding: 12, borderRadius: 12, fontSize: 13, fontWeight: "800", marginTop: 5 },
   cloudInvite: { color: "#233D35", fontSize: 29, letterSpacing: 7, fontWeight: "900", marginTop: 4 },
+  memberChips: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 7 },
+  memberChip: { backgroundColor: "#E7EFEA", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 },
+  memberChipText: { color: "#315248", fontSize: 11, fontWeight: "800" },
+  memberAddRow: { flexDirection: "row", gap: 8, marginTop: 10 },
+  memberInput: { flex: 1, backgroundColor: "#F5F2ED", borderRadius: 11, paddingHorizontal: 11, paddingVertical: 10, color: "#302B27", fontSize: 12 },
+  memberAddButton: { backgroundColor: "#315248", borderRadius: 11, paddingHorizontal: 15, justifyContent: "center" },
+  memberAddText: { color: "#FFF", fontSize: 11, fontWeight: "900" },
   expenseTripId: { color: "#9A9188", fontSize: 9, marginTop: 5 },
   refreshSyncButton: { alignSelf: "flex-start", backgroundColor: "#E7EFEA", borderRadius: 11, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12 },
   refreshSyncText: { color: "#315248", fontSize: 11, fontWeight: "900" },
