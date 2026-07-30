@@ -106,7 +106,7 @@ const VERIFIED_OPENING_HOURS: Record<string, { hours: string; source: string }> 
 };
 
 type Expense = { id: string; title: string; amount: number; payer: string; currency?: string };
-type CloudLink = { inviteCode: string; memberName?: string; memberId?: string };
+type CloudLink = { inviteCode: string; memberName?: string; memberId?: string; role?: "owner" | "member" };
 type CloudLinks = Record<string, CloudLink>;
 
 type RouteMode = "driving" | "walking" | "transit" | "taxi";
@@ -314,6 +314,7 @@ export default function App() {
   const [bulkImportVisible, setBulkImportVisible] = useState(false);
   const [bulkItineraryText, setBulkItineraryText] = useState("");
   const [syncStatus, setSyncStatus] = useState<"local" | "syncing" | "synced" | "error">("local");
+  const [syncErrorMessage, setSyncErrorMessage] = useState("");
   const [joiningTrip, setJoiningTrip] = useState(false);
   const [joinTripId, setJoinTripId] = useState("");
   const [joinInviteCode, setJoinInviteCode] = useState("");
@@ -431,16 +432,22 @@ export default function App() {
 
   const syncTripNow = async (trip: TripPlan, tripExpenses: Expense[]) => {
     const link = cloudLinksRef.current[trip.id];
-    if (!link) return;
+    if (!link?.inviteCode) {
+      setSyncStatus("error");
+      setSyncErrorMessage("這台裝置缺少邀請碼，請重新輸入一次以恢復同步。");
+      return;
+    }
     setSyncStatus("syncing");
+    setSyncErrorMessage("");
     try {
       await postCloud({
         action: "syncTrip", tripId: trip.id, inviteCode: link.inviteCode,
         data: tripToCloud(trip, tripExpenses)
       });
       setSyncStatus("synced");
-    } catch {
+    } catch (error: any) {
       setSyncStatus("error");
+      setSyncErrorMessage(error?.message || "上傳失敗，請稍後再試。");
     }
   };
 
@@ -472,13 +479,24 @@ export default function App() {
         return next;
       });
       setSyncStatus("synced");
+      setSyncErrorMessage("");
       return converted.trip;
     } catch (error: any) {
       setSyncStatus("error");
+      setSyncErrorMessage(error?.message || "讀取同步資料失敗。");
       if (!quiet) Alert.alert("無法加入旅行", error?.message || "請確認旅行 ID 與邀請碼");
       return null;
     }
   };
+
+  useEffect(() => {
+    const link = cloudLinks[activeTrip.id];
+    if (!googleUser || !link?.inviteCode) return;
+    const timer = setInterval(() => {
+      if (syncStatus !== "syncing") pullCloudTrip(activeTrip.id, link.inviteCode, true);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [activeTrip.id, googleUser?.sub, cloudLinks[activeTrip.id]?.inviteCode, syncStatus]);
 
   useEffect(() => {
     const link = cloudLinks[activeTripId];
@@ -912,6 +930,50 @@ export default function App() {
     setDeletingTrip(null);
   };
 
+  const leaveTrip = async (trip: TripPlan) => {
+    const link = cloudLinksRef.current[trip.id];
+    if (!link?.inviteCode || !link.memberId) {
+      Alert.alert("無法退出", "這台裝置缺少同步身分，請先重新輸入邀請碼恢復連線。");
+      return;
+    }
+    setSyncStatus("syncing");
+    try {
+      await postCloud({
+        action: "leaveTrip",
+        tripId: trip.id,
+        inviteCode: link.inviteCode,
+        memberId: link.memberId
+      });
+      const remaining = trips.filter((item) => item.id !== trip.id);
+      const nextTrips = remaining.length ? remaining : starterTrips;
+      persistTrips(nextTrips);
+      const nextLinks = { ...cloudLinksRef.current };
+      delete nextLinks[trip.id];
+      saveCloudLinks(nextLinks);
+      setExpenses((current) => {
+        const next = { ...current };
+        delete next[trip.id];
+        AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
+        return next;
+      });
+      setActiveTripId(nextTrips[0]!.id);
+      setSelectedDayId(nextTrips[0]!.days[0]?.id ?? "");
+      setSyncStatus("synced");
+      showToast(`已退出「${trip.title}」`);
+    } catch (error: any) {
+      setSyncStatus("error");
+      setSyncErrorMessage(error?.message || "退出旅行失敗。");
+      Alert.alert("無法退出旅行", error?.message || "請稍後再試。");
+    }
+  };
+
+  const confirmLeaveTrip = (trip: TripPlan) => {
+    Alert.alert("退出這趟旅行？", "退出後不會刪除其他旅伴的行程；日後仍可用邀請碼重新加入。", [
+      { text: "取消", style: "cancel" },
+      { text: "確認退出", style: "destructive", onPress: () => leaveTrip(trip) }
+    ]);
+  };
+
   const createTrip = async () => {
     const destination = newDestination.trim();
     if (!destination) {
@@ -954,7 +1016,7 @@ export default function App() {
         trip: { "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination, "開始日期": trip.period, "主要幣別": "TWD" },
         member: { "成員ID": googleUser ? `google:${googleUser.sub}` : `member-${Date.now()}`, "顯示名稱": googleUser?.name || "我", "角色": "owner" }
       });
-      saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: googleUser?.name || "我", memberId: googleUser ? `google:${googleUser.sub}` : undefined } });
+      saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: googleUser?.name || "我", memberId: googleUser ? `google:${googleUser.sub}` : undefined, role: "owner" } });
       await syncTripNow(trip, []);
       Alert.alert("旅行已建立並同步", `旅行 ID：${trip.id}\n邀請碼：${inviteCode}\n\n把這兩項傳給旅伴即可加入。`);
     } catch {
@@ -985,7 +1047,7 @@ export default function App() {
         action: "joinTrip", tripId, inviteCode,
         member: { "成員ID": googleUser ? `google:${googleUser.sub}` : `member-${Date.now()}`, "顯示名稱": joinMemberName.trim(), "角色": "member" }
       });
-      saveCloudLinks({ ...cloudLinksRef.current, [tripId]: { inviteCode, memberName: joinMemberName.trim(), memberId: googleUser ? `google:${googleUser.sub}` : undefined } });
+      saveCloudLinks({ ...cloudLinksRef.current, [tripId]: { inviteCode, memberName: joinMemberName.trim(), memberId: googleUser ? `google:${googleUser.sub}` : undefined, role: "member" } });
       const converted = cloudToTrip(data);
       const memberNames = (data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter((name: string) => name && name !== "我");
       setCloudMembers((current) => ({ ...current, [tripId]: [...new Set(memberNames)] as string[] }));
@@ -1076,7 +1138,7 @@ export default function App() {
   const saveExpenses = (next: typeof expenses) => {
     setExpenses(next);
     AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
-    queueCloudSync(activeTrip, next[activeTrip.id] ?? []);
+    syncTripNow(activeTrip, next[activeTrip.id] ?? []);
   };
   const createExpense = () => {
     const amount = Number(expenseAmount.replace(/,/g, ""));
@@ -1474,9 +1536,13 @@ export default function App() {
                     <Pressable
                       accessibilityLabel={`刪除 ${trip.title}`}
                       style={styles.deleteTripButton}
-                      onPress={(event) => { event.stopPropagation?.(); deleteTrip(trip); }}
+                      onPress={(event) => {
+                        event.stopPropagation?.();
+                        if (cloudLinks[trip.id]?.role === "member") confirmLeaveTrip(trip);
+                        else deleteTrip(trip);
+                      }}
                     >
-                      <Text style={styles.deleteTripText}>刪除</Text>
+                      <Text style={styles.deleteTripText}>{cloudLinks[trip.id]?.role === "member" ? "退出" : "刪除"}</Text>
                     </Pressable>
                     <Text style={styles.chevron}>›</Text>
                   </View>
@@ -1505,11 +1571,21 @@ export default function App() {
               <Pressable
                 disabled={syncStatus === "syncing"}
                 style={styles.refreshSyncButton}
-                onPress={() => pullCloudTrip(activeTrip.id, cloudLinks[activeTrip.id]!.inviteCode)}
+                onPress={() => {
+                  const link = cloudLinks[activeTrip.id]!;
+                  if (link.inviteCode) pullCloudTrip(activeTrip.id, link.inviteCode);
+                  else {
+                    setJoinError("請重新輸入原本的六位數邀請碼，恢復這台裝置的同步連線。");
+                    setJoinTripId(activeTrip.id);
+                    setJoinMemberName(link.memberName || googleUser?.name || "");
+                    setJoiningTrip(true);
+                  }
+                }}
               >
                 <Text style={styles.refreshSyncText}>{syncStatus === "syncing" ? "☁ 正在同步……" : "↻ 立即同步記帳"}</Text>
               </Pressable>
             )}
+            {!!syncErrorMessage && <Text style={styles.joinErrorText}>同步失敗｜{syncErrorMessage}</Text>}
             <LinearGradient colors={["#244C43", "#54796D"]} style={styles.totalCard}>
               <Text style={styles.totalLabel}>目前總支出</Text>
               {Object.keys(currencyTotals).length === 0

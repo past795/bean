@@ -96,6 +96,13 @@ function doPost(e) {
       upsertMember_(tripId, member);
       return json_({ ok: true, data: readTrip_(tripId) });
     }
+    if (body.action === 'leaveTrip') {
+      const tripId = required_(body.tripId, '缺少 tripId');
+      verifyTrip_(tripId, required_(body.inviteCode, '缺少 inviteCode'));
+      const memberId = required_(body.memberId, '缺少 memberId');
+      removeMember_(tripId, memberId);
+      return json_({ ok: true, data: { tripId: tripId, memberId: memberId } });
+    }
     throw new Error('不支援的 action');
   } catch (error) {
     return json_({ ok: false, error: String(error.message || error) });
@@ -173,6 +180,13 @@ function upsertMember_(tripId, member) {
   const index = rows.findIndex(row => String(row['旅行ID']) === tripId && String(row['成員ID']) === memberId);
   if (index >= 0) rows[index] = next; else rows.push(next);
   replaceObjects_(table, rows);
+}
+
+function removeMember_(tripId, memberId) {
+  const rows = readObjects_(TABLES.members).filter(row =>
+    !(String(row['旅行ID']) === String(tripId) && String(row['成員ID']) === String(memberId))
+  );
+  replaceObjects_(TABLES.members, rows);
 }
 
 function replaceTripRows_(table, tripId, incoming) {
