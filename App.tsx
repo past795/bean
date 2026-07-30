@@ -252,6 +252,7 @@ export default function App() {
   const [cloudMembers, setCloudMembers] = useState<Record<string, string[]>>({});
   const [memberDraft, setMemberDraft] = useState("");
   const [myNameDraft, setMyNameDraft] = useState("");
+  const [toastMessage, setToastMessage] = useState("");
   const [cloudPanelVisible, setCloudPanelVisible] = useState(false);
   const [bulkImportVisible, setBulkImportVisible] = useState(false);
   const [bulkItineraryText, setBulkItineraryText] = useState("");
@@ -644,6 +645,11 @@ export default function App() {
     setCloudPanelVisible(true);
   };
 
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    setTimeout(() => setToastMessage(""), 2400);
+  };
+
   const handleGoogleCredential = async (credential: string) => {
     try {
       const payload = JSON.parse(decodeURIComponent(Array.prototype.map.call(atob(credential.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")), (char: string) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`).join("")));
@@ -706,6 +712,7 @@ export default function App() {
       setCloudMembers((current) => ({ ...current, [activeTrip.id]: [...new Set(memberNames)] as string[] }));
       setMemberDraft("");
       setSyncStatus("synced");
+      showToast(`${name} 已加入成員名單`);
     } catch (error: any) {
       setSyncStatus("error");
       Alert.alert("無法新增成員", error?.message || "請稍後再試。");
@@ -727,6 +734,8 @@ export default function App() {
       const names = (data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter((memberName: string) => memberName && memberName !== "我");
       setCloudMembers((current) => ({ ...current, [activeTrip.id]: [...new Set(names)] as string[] }));
       setSyncStatus("synced");
+      setMyNameDraft("");
+      showToast(`名稱已儲存：${name}`);
     } catch (error: any) {
       setSyncStatus("error");
       Alert.alert("無法儲存名稱", error?.message || "請稍後再試。");
@@ -1111,6 +1120,7 @@ export default function App() {
     <SafeAreaView style={[styles.safe, Platform.OS === "web" && styles.webViewport]}>
       <StatusBar style="dark" />
       <View style={styles.app}>
+        {!!toastMessage && <View style={styles.toast}><Text style={styles.toastText}>✓ {toastMessage}</Text></View>}
         {tab === "itinerary" && (
           <>
             <LinearGradient colors={["#F6EBDD", "#F7F3EC"]} style={styles.header}>
@@ -1856,6 +1866,8 @@ const styles = StyleSheet.create({
   memberInput: { flex: 1, backgroundColor: "#F5F2ED", borderRadius: 11, paddingHorizontal: 11, paddingVertical: 10, color: "#302B27", fontSize: 12 },
   memberAddButton: { backgroundColor: "#315248", borderRadius: 11, paddingHorizontal: 15, justifyContent: "center" },
   memberAddText: { color: "#FFF", fontSize: 11, fontWeight: "900" },
+  toast: { position: "absolute", top: 18, alignSelf: "center", zIndex: 9999, elevation: 40, backgroundColor: "#244C43", borderRadius: 999, paddingHorizontal: 18, paddingVertical: 11, shadowColor: "#000", shadowOpacity: .18, shadowRadius: 12, shadowOffset: { width: 0, height: 5 } },
+  toastText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
   expenseTripId: { color: "#9A9188", fontSize: 9, marginTop: 5 },
   refreshSyncButton: { alignSelf: "flex-start", backgroundColor: "#E7EFEA", borderRadius: 11, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12 },
   refreshSyncText: { color: "#315248", fontSize: 11, fontWeight: "900" },
