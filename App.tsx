@@ -77,14 +77,15 @@ const formatCloudDateTime = (value: unknown) => {
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date).replace(" ", " ");
 };
 
-const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string } => {
+const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string; durationMinutes?: number } => {
   if (!value) return {};
   try {
     const parsed = JSON.parse(String(value));
     return {
       routeMode: (["walking", "driving", "transit", "taxi"] as RouteMode[]).includes(parsed.routeMode) ? parsed.routeMode : undefined,
       openingHours: typeof parsed.openingHours === "string" ? parsed.openingHours : undefined,
-      openingHoursSource: typeof parsed.openingHoursSource === "string" ? parsed.openingHoursSource : undefined
+      openingHoursSource: typeof parsed.openingHoursSource === "string" ? parsed.openingHoursSource : undefined,
+      durationMinutes: Number.isFinite(Number(parsed.durationMinutes)) ? Number(parsed.durationMinutes) : undefined
     };
   } catch {
     return {};
@@ -99,7 +100,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   members: [],
   itinerary: trip.days.flatMap((day) => day.stops.map((stop, index) => ({
     "日期ID": day.id, "景點ID": stop.id, "日期": day.date, "開始時間": stop.time,
-    "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "" }), "景點名稱": stop.title, "地址": stop.address,
+    "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "", durationMinutes: stop.durationMinutes || 0 }), "景點名稱": stop.title, "地址": stop.address,
     "交通方式": stop.transport, "備註": stop.note, "緯度": stop.latitude ?? "",
     "經度": stop.longitude ?? "", "排序": index
   }))),
@@ -146,7 +147,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
           transport: String(row["交通方式"] || "尚未安排"), transportMode: "其他" as const,
           note: String(row["備註"] || ""), latitude: row["緯度"] === "" ? undefined : Number(row["緯度"]),
           longitude: row["經度"] === "" ? undefined : Number(row["經度"]),
-          routeMode: meta.routeMode || "driving", openingHours: meta.openingHours || "", openingHoursSource: meta.openingHoursSource || ""
+          routeMode: meta.routeMode || "driving", openingHours: meta.openingHours || "", openingHoursSource: meta.openingHoursSource || "", durationMinutes: meta.durationMinutes || 0
         };
       })
     };
@@ -210,6 +211,7 @@ export default function App() {
   const [editing, setEditing] = useState<Stop | null>(null);
   const [draftNote, setDraftNote] = useState("");
   const [draftOpeningHours, setDraftOpeningHours] = useState("");
+  const [draftDuration, setDraftDuration] = useState("");
   const [creatingTrip, setCreatingTrip] = useState(false);
   const [newTripName, setNewTripName] = useState("");
   const [newDestination, setNewDestination] = useState("");
@@ -223,6 +225,7 @@ export default function App() {
   const [newStopTransport, setNewStopTransport] = useState("");
   const [newStopNote, setNewStopNote] = useState("");
   const [newStopOpeningHours, setNewStopOpeningHours] = useState("");
+  const [newStopDuration, setNewStopDuration] = useState("");
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
   const [shoppingSource, setShoppingSource] = useState<"Olive Young" | "韓國藥局">("Olive Young");
   const [expenses, setExpenses] = useState<Record<string, { id: string; title: string; amount: number; payer: string; currency?: string }[]>>({});
@@ -504,9 +507,22 @@ export default function App() {
 
   const saveNote = () => {
     if (!editing) return;
-    updateStops(selectedDay.stops.map((stop) =>
-      stop.id === editing.id ? { ...stop, note: draftNote, openingHours: draftOpeningHours.trim() } : stop
-    ));
+    const durationMinutes = Math.max(0, Number.parseInt(draftDuration, 10) || 0);
+    const next = selectedDay.stops.map((stop) =>
+      stop.id === editing.id ? { ...stop, note: draftNote, openingHours: draftOpeningHours.trim(), durationMinutes } : stop
+    );
+    const index = next.findIndex((stop) => stop.id === editing.id);
+    const current = next[index];
+    const following = next[index + 1];
+    if (current && following) {
+      const travelMinutes = estimatedLegMinutes(current, following, current.routeMode || "driving");
+      const match = current.time.match(/^(\d{1,2}):([0-5]\d)$/);
+      if (travelMinutes != null && match) {
+        const total = (Number(match[1]) * 60 + Number(match[2]) + durationMinutes + travelMinutes) % 1440;
+        next[index + 1] = { ...following, time: `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}` };
+      }
+    }
+    updateStops(next);
     setEditing(null);
   };
 
@@ -554,7 +570,7 @@ export default function App() {
       const minutes = estimatedLegMinutes(current, nextStop, routeMode);
       const match = current.time.match(/^(\d{1,2}):([0-5]\d)$/);
       if (minutes != null && match) {
-        const total = (Number(match[1]) * 60 + Number(match[2]) + minutes) % (24 * 60);
+        const total = (Number(match[1]) * 60 + Number(match[2]) + (current.durationMinutes || 0) + minutes) % (24 * 60);
         next[index + 1] = {
           ...next[index + 1]!,
           time: `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`
@@ -928,6 +944,7 @@ export default function App() {
       transport,
       transportMode,
       note: newStopNote.trim(),
+      durationMinutes: Math.max(0, Number.parseInt(newStopDuration, 10) || 0),
       routeMode: transport.includes("步行") ? "walking" : "driving"
     }]);
     setAddingStop(false);
@@ -936,6 +953,7 @@ export default function App() {
     setNewStopAddress("");
     setNewStopTransport("");
     setNewStopNote("");
+    setNewStopDuration("");
   };
 
   const tripExpenses = expenses[activeTrip.id] ?? [];
@@ -1084,7 +1102,7 @@ export default function App() {
           onLongPress={drag}
           delayLongPress={180}
           style={styles.stopCard}
-          onPress={() => { setEditing(item); setDraftNote(item.note); setDraftOpeningHours(item.openingHours || ""); }}
+          onPress={() => { setEditing(item); setDraftNote(item.note); setDraftOpeningHours(item.openingHours || ""); setDraftDuration(String(item.durationMinutes || "")); }}
         >
           <View style={styles.stopTop}>
             <View style={styles.timePill}><Text style={styles.timeText}>{item.time || "彈性"}</Text></View>
@@ -1128,6 +1146,7 @@ export default function App() {
             </View>
           )}
           {!!item.openingHours && <Text style={styles.openingHours}>營業時間｜{item.openingHours}{item.openingHoursSource ? `・網路查證` : ""}</Text>}
+          {!!item.durationMinutes && <Text style={styles.openingHours}>停留時間｜約 {item.durationMinutes} 分鐘</Text>}
           {!!item.note && <Text style={styles.note} numberOfLines={2}>備註｜{item.note}</Text>}
           <View style={styles.cardBottom}>
             {item.pass ? <Text style={styles.pass}>{item.pass}</Text> : <View />}
@@ -1469,6 +1488,15 @@ export default function App() {
                 style={styles.fieldInput}
               />
               {!!editing?.openingHoursSource && <Text style={styles.sourceHint}>來源｜{editing.openingHoursSource}</Text>}
+              <Text style={styles.fieldLabel}>預計停留時間（分鐘）</Text>
+              <TextInput
+                value={draftDuration}
+                onChangeText={setDraftDuration}
+                keyboardType="number-pad"
+                placeholder="例如：60"
+                placeholderTextColor="#A49C90"
+                style={styles.fieldInput}
+              />
               <Text style={styles.fieldLabel}>備註</Text>
               <TextInput
                 value={draftNote}
@@ -1829,6 +1857,8 @@ export default function App() {
                 </View>
                 <Text style={styles.fieldLabel}>地址</Text>
                 <TextInput value={newStopAddress} onChangeText={setNewStopAddress} placeholder="貼上地址或地標名稱" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                <Text style={styles.fieldLabel}>預計停留時間（分鐘）</Text>
+                <TextInput value={newStopDuration} onChangeText={setNewStopDuration} keyboardType="number-pad" placeholder="例如：90" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                 <Text style={styles.fieldLabel}>備註</Text>
                 <TextInput value={newStopNote} onChangeText={setNewStopNote} multiline placeholder="預約、營業時間、想買的東西……" placeholderTextColor="#AAA198" style={[styles.noteInput, styles.compactNoteInput]} />
                 <Pressable style={styles.primaryButton} onPress={createStop}><Text style={styles.primaryButtonText}>加入這一天</Text></Pressable>

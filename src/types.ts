@@ -22,6 +22,7 @@ export type Stop = {
   routeMode?: "driving" | "walking" | "transit" | "taxi";
   openingHours?: string;
   openingHoursSource?: string;
+  durationMinutes?: number;
 };
 
 export type TripDay = {
