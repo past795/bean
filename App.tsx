@@ -48,16 +48,32 @@ const KNOWN_COORDINATES: Record<string, [number, number]> = {
   "d5-9": [35.1796, 128.9380]
 };
 const VERIFIED_OPENING_HOURS: Record<string, { hours: string; source: string }> = {
+  "d1-1": { hours: "機場航廈依當日航班開放", source: "金海國際機場／航班資訊" },
   "d1-2": { hours: "櫃檯 24 小時・入住 15:00 起", source: "Toyoko Inn Busan Jungang Station 官方網站" },
   "d1-3": { hours: "每日 08:00–21:00", source: "Tabling／店家公開資訊" },
+  "d1-4": { hours: "戶外街區・全天可通行（店家各自營業）", source: "Visit Busan" },
+  "d1-6": { hours: "10 月 04:00–24:00", source: "Visit Busan／太宗臺官方旅遊資訊" },
+  "d1-8": { hours: "公共街區・全天可通行（店家各自營業）", source: "Visit Busan" },
   "d1-11": { hours: "櫃檯 24 小時・入住 15:00 起", source: "Toyoko Inn Busan Jungang Station 官方網站" },
   "d2-2": { hours: "09:00–18:30", source: "Haeundae Blueline Park／VISITKOREA" },
+  "d2-3": { hours: "10 月 09:00–21:00", source: "VISITKOREA／海雲臺區廳" },
   "d2-5": { hours: "09:00–18:30", source: "Haeundae Blueline Park／VISITKOREA" },
+  "d2-6": { hours: "公共海灘・全天開放", source: "Visit Busan" },
   "d2-7": { hours: "10:00–21:00", source: "Busan X the SKY 官方網站" },
+  "d2-10": { hours: "公共海灘・全天開放", source: "Visit Busan" },
   "d3-1": { hours: "10:00–19:00", source: "Museum 1／VISITKOREA（平日）" },
   "d3-3": { hours: "09:00–21:00", source: "Busan Air Cruise 官方網站（10月）" },
+  "d3-4": { hours: "戶外公園・全天開放", source: "Visit Busan" },
+  "d3-7": { hours: "公共街區・全天可通行（店家各自營業）", source: "Visit Busan" },
+  "d4-1": { hours: "08:00–23:00・最晚入場 22:00", source: "新世界百貨 SPA LAND 官方網站" },
+  "d4-6": { hours: "公共海灘・全天開放", source: "Visit Busan" },
+  "d5-2": { hours: "寺院戶外區域每日開放・建議白天參觀", source: "VISITKOREA／海東龍宮寺" },
+  "d5-3": { hours: "Eternal Journey 10:00–21:00", source: "Ananti Cove 官方網站" },
+  "d5-4": { hours: "園區公共空間開放・餐廳各自營業", source: "Osiria Tourist Complex" },
   "d5-5": { hours: "10:00–18:00", source: "Skyline Luge Busan 官方網站" },
-  "d5-6": { hours: "10:30–20:30", source: "Visit Busan（週一至週四）" }
+  "d5-6": { hours: "10:30–20:30", source: "Visit Busan（週一至週四）" },
+  "d5-8": { hours: "機場航廈依當日航班開放", source: "金海國際機場／航班資訊" },
+  "d5-9": { hours: "依航班時間", source: "航空公司航班資訊" }
 };
 
 type Expense = { id: string; title: string; amount: number; payer: string; currency?: string };
@@ -972,6 +988,15 @@ export default function App() {
   };
 
   const tripExpenses = expenses[activeTrip.id] ?? [];
+  const expenseMemberNames = [...new Set([
+    googleUser?.name,
+    cloudLinks[activeTrip.id]?.memberName,
+    ...(cloudMembers[activeTrip.id] || [])
+  ].filter((name): name is string => !!name && name !== "我"))];
+  const openExpenseModal = () => {
+    setExpensePayer(expenseMemberNames[0] || "");
+    setAddingExpense(true);
+  };
   const currencyTotals = tripExpenses.reduce<Record<string, number>>((totals, item) => {
     const currency = item.currency || "KRW";
     totals[currency] = (totals[currency] ?? 0) + item.amount;
@@ -994,13 +1019,17 @@ export default function App() {
       Alert.alert("請填寫品項與正確金額");
       return;
     }
+    if (!expensePayer.trim()) {
+      Alert.alert("請先選擇付款成員");
+      return;
+    }
     saveExpenses({
       ...expenses,
-      [activeTrip.id]: [...tripExpenses, { id: `expense-${Date.now()}`, title: expenseTitle.trim(), amount, payer: expensePayer.trim() || "我", currency: expenseCurrency }]
+      [activeTrip.id]: [...tripExpenses, { id: `expense-${Date.now()}`, title: expenseTitle.trim(), amount, payer: expensePayer.trim(), currency: expenseCurrency }]
     });
     setExpenseTitle("");
     setExpenseAmount("");
-    setExpensePayer("我");
+    setExpensePayer("");
     setAddingExpense(false);
   };
   const deleteExpense = (id: string) => {
@@ -1160,7 +1189,7 @@ export default function App() {
               </View>
             </View>
           )}
-          {!!item.openingHours && <Text style={styles.openingHours}>營業時間｜{item.openingHours}{item.openingHoursSource ? `・網路查證` : ""}</Text>}
+          <Text style={styles.openingHours}>營業時間｜{item.openingHours || "尚未查證"}</Text>
           {!!item.durationMinutes && <Text style={styles.openingHours}>停留時間｜約 {item.durationMinutes} 分鐘</Text>}
           {!!item.note && <Text style={styles.note} numberOfLines={2}>備註｜{item.note}</Text>}
           <View style={styles.cardBottom}>
@@ -1381,7 +1410,7 @@ export default function App() {
                 <Text style={styles.pageSubtitle}>{activeTrip.title}・多幣別支出</Text>
                 <Text selectable style={styles.expenseTripId}>旅行 ID｜{activeTrip.id}</Text>
               </View>
-              <Pressable style={styles.addTripButton} onPress={() => setAddingExpense(true)}><Text style={styles.addTripPlus}>＋</Text></Pressable>
+              <Pressable style={styles.addTripButton} onPress={openExpenseModal}><Text style={styles.addTripPlus}>＋</Text></Pressable>
             </View>
             {cloudLinks[activeTrip.id] && (
               <Pressable
@@ -1413,7 +1442,7 @@ export default function App() {
               </View>
             )}
             {tripExpenses.length === 0 ? (
-              <Pressable style={styles.emptyExpense} onPress={() => setAddingExpense(true)}>
+              <Pressable style={styles.emptyExpense} onPress={openExpenseModal}>
                 <Text style={styles.emptyExpenseIcon}>₩</Text>
                 <Text style={styles.emptyExpenseTitle}>還沒有任何支出</Text>
                 <Text style={styles.emptyExpenseSub}>點這裡新增第一筆餐費、交通或購物</Text>
@@ -1753,7 +1782,14 @@ export default function App() {
                 ))}
               </View>
               <Text style={styles.fieldLabel}>付款人</Text>
-              <TextInput value={expensePayer} onChangeText={setExpensePayer} placeholder="我／旅伴姓名" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+              <View style={styles.payerChoices}>
+                {expenseMemberNames.map((name) => (
+                  <Pressable key={name} onPress={() => setExpensePayer(name)} style={[styles.payerChoice, expensePayer === name && styles.payerChoiceActive]}>
+                    <Text style={[styles.payerChoiceText, expensePayer === name && styles.payerChoiceTextActive]}>{name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              {expenseMemberNames.length === 0 && <TextInput value={expensePayer} onChangeText={setExpensePayer} placeholder="尚無成員，請先輸入付款人" placeholderTextColor="#AAA198" style={styles.fieldInput} />}
               <Pressable style={styles.primaryButton} onPress={createExpense}><Text style={styles.primaryButtonText}>儲存支出</Text></Pressable>
               <Pressable style={styles.cancelButton} onPress={() => setAddingExpense(false)}><Text style={styles.cancelText}>取消</Text></Pressable>
             </View>
@@ -2209,5 +2245,10 @@ const styles = StyleSheet.create({
   currencyChoice: { flex: 1, alignItems: "center", paddingVertical: 11, borderRadius: 12, backgroundColor: "#EEE9E2" },
   currencyChoiceActive: { backgroundColor: "#2F5147" },
   currencyChoiceText: { color: "#776F67", fontSize: 11, fontWeight: "900" },
-  currencyChoiceTextActive: { color: "#FFF" }
+  currencyChoiceTextActive: { color: "#FFF" },
+  payerChoices: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 7, marginBottom: 8 },
+  payerChoice: { paddingHorizontal: 16, paddingVertical: 11, borderRadius: 999, backgroundColor: "#EEE9E2", borderWidth: 1, borderColor: "#E5DED5" },
+  payerChoiceActive: { backgroundColor: "#2F5147", borderColor: "#2F5147" },
+  payerChoiceText: { color: "#776F67", fontSize: 12, fontWeight: "900" },
+  payerChoiceTextActive: { color: "#FFF" }
 });
