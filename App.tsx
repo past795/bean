@@ -935,11 +935,11 @@ export default function App() {
     setSyncStatus("syncing");
     try {
       await postCloud({
-        action: "createTrip", inviteCode,
+        action: "createTrip", inviteCode, idToken: googleUser?.idToken || "",
         trip: { "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination, "開始日期": trip.period, "主要幣別": "TWD" },
-        member: { "成員ID": `member-${Date.now()}`, "顯示名稱": "我", "角色": "owner" }
+        member: { "成員ID": googleUser ? `google:${googleUser.sub}` : `member-${Date.now()}`, "顯示名稱": googleUser?.name || "我", "角色": "owner" }
       });
-      saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: "我" } });
+      saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: googleUser?.name || "我", memberId: googleUser ? `google:${googleUser.sub}` : undefined } });
       await syncTripNow(trip, []);
       Alert.alert("旅行已建立並同步", `旅行 ID：${trip.id}\n邀請碼：${inviteCode}\n\n把這兩項傳給旅伴即可加入。`);
     } catch {
@@ -958,15 +958,16 @@ export default function App() {
     setSyncStatus("syncing");
     try {
       await postCloud({
-        action: "joinTrip", tripId, inviteCode,
-        member: { "成員ID": `member-${Date.now()}`, "顯示名稱": joinMemberName.trim() || "旅伴", "角色": "member" }
+        action: "joinTrip", tripId, inviteCode, idToken: googleUser?.idToken || "",
+        member: { "成員ID": googleUser ? `google:${googleUser.sub}` : `member-${Date.now()}`, "顯示名稱": googleUser?.name || joinMemberName.trim() || "旅伴", "角色": "member" }
       });
-      saveCloudLinks({ ...cloudLinksRef.current, [tripId]: { inviteCode, memberName: joinMemberName.trim() || "旅伴" } });
+      saveCloudLinks({ ...cloudLinksRef.current, [tripId]: { inviteCode, memberName: googleUser?.name || joinMemberName.trim() || "旅伴", memberId: googleUser ? `google:${googleUser.sub}` : undefined } });
       const joined = await pullCloudTrip(tripId, inviteCode);
       if (!joined) return;
       selectTrip(joined);
       setJoiningTrip(false);
       setJoinTripId(""); setJoinInviteCode(""); setJoinMemberName("");
+      showToast(`已加入「${joined.title}」，現在會與旅伴同步`);
     } catch (error: any) {
       setSyncStatus("error");
       Alert.alert("無法加入旅行", error?.message || "請確認旅行 ID 與邀請碼");
@@ -1882,9 +1883,7 @@ export default function App() {
               <View style={styles.sheetHandle} />
               <Text style={styles.sheetEyebrow}>JOIN JOURNEY</Text>
               <Text style={styles.sheetTitle}>加入旅伴的旅行</Text>
-              <Text style={styles.sheetAddress}>請輸入旅伴分享給你的旅行 ID 與六位數邀請碼。</Text>
-              <Text style={styles.fieldLabel}>你的名稱</Text>
-              <TextInput value={joinMemberName} onChangeText={setJoinMemberName} placeholder="例如：小豆" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+              <Text style={styles.sheetAddress}>使用目前登入的 Google 帳號「{googleUser?.name}」加入。成功後會出現在你的首頁，行程與記帳會共同同步。</Text>
               <Text style={styles.fieldLabel}>旅行 ID *</Text>
               <TextInput value={joinTripId} onChangeText={setJoinTripId} autoCapitalize="none" placeholder="trip-..." placeholderTextColor="#AAA198" style={styles.fieldInput} />
               <Text style={styles.fieldLabel}>邀請碼 *</Text>
