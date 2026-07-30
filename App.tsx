@@ -44,10 +44,33 @@ const KNOWN_COORDINATES: Record<string, [number, number]> = {
   "d5-7": [35.3210, 129.2700], "d5-8": [35.1796, 128.9380],
   "d5-9": [35.1796, 128.9380]
 };
+const VERIFIED_OPENING_HOURS: Record<string, { hours: string; source: string }> = {
+  "d2-2": { hours: "09:00–18:30", source: "Haeundae Blueline Park／VISITKOREA" },
+  "d2-5": { hours: "09:00–18:30", source: "Haeundae Blueline Park／VISITKOREA" },
+  "d2-7": { hours: "10:00–21:00", source: "Busan X the SKY 官方網站" },
+  "d3-1": { hours: "10:00–19:00", source: "Museum 1／VISITKOREA（平日）" },
+  "d3-3": { hours: "09:00–21:00", source: "Busan Air Cruise 官方網站（10月）" },
+  "d5-5": { hours: "10:00–18:00", source: "Skyline Luge Busan 官方網站" },
+  "d5-6": { hours: "10:30–20:30", source: "Visit Busan（週一至週四）" }
+};
 
 type Expense = { id: string; title: string; amount: number; payer: string; currency?: string };
 type CloudLink = { inviteCode: string; memberName?: string };
 type CloudLinks = Record<string, CloudLink>;
+
+const parseStopMeta = (value: unknown): { routeMode?: "driving" | "walking"; openingHours?: string; openingHoursSource?: string } => {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(String(value));
+    return {
+      routeMode: parsed.routeMode === "walking" ? "walking" : parsed.routeMode === "driving" ? "driving" : undefined,
+      openingHours: typeof parsed.openingHours === "string" ? parsed.openingHours : undefined,
+      openingHoursSource: typeof parsed.openingHoursSource === "string" ? parsed.openingHoursSource : undefined
+    };
+  } catch {
+    return {};
+  }
+};
 
 const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   trip: {
@@ -57,7 +80,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   members: [],
   itinerary: trip.days.flatMap((day) => day.stops.map((stop, index) => ({
     "日期ID": day.id, "景點ID": stop.id, "日期": day.date, "開始時間": stop.time,
-    "結束時間": "", "景點名稱": stop.title, "地址": stop.address,
+    "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "" }), "景點名稱": stop.title, "地址": stop.address,
     "交通方式": stop.transport, "備註": stop.note, "緯度": stop.latitude ?? "",
     "經度": stop.longitude ?? "", "排序": index
   }))),
@@ -96,13 +119,17 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
     return {
       id: dayId, label: `DAY ${dayIndex + 1}`, date,
       title: `${cloudTrip["目的地"] || "旅行"}・自由安排`,
-      stops: rows.map((row: any) => ({
-        id: String(row["景點ID"]), time: String(row["開始時間"] || "彈性"),
-        title: String(row["景點名稱"] || "未命名景點"), address: String(row["地址"] || "地址待補"),
-        transport: String(row["交通方式"] || "尚未安排"), transportMode: "其他" as const,
-        note: String(row["備註"] || ""), latitude: row["緯度"] === "" ? undefined : Number(row["緯度"]),
-        longitude: row["經度"] === "" ? undefined : Number(row["經度"])
-      }))
+      stops: rows.map((row: any) => {
+        const meta = parseStopMeta(row["結束時間"]);
+        return {
+          id: String(row["景點ID"]), time: String(row["開始時間"] || "彈性"),
+          title: String(row["景點名稱"] || "未命名景點"), address: String(row["地址"] || "地址待補"),
+          transport: String(row["交通方式"] || "尚未安排"), transportMode: "其他" as const,
+          note: String(row["備註"] || ""), latitude: row["緯度"] === "" ? undefined : Number(row["緯度"]),
+          longitude: row["經度"] === "" ? undefined : Number(row["經度"]),
+          routeMode: meta.routeMode || "driving", openingHours: meta.openingHours || "", openingHoursSource: meta.openingHoursSource || ""
+        };
+      })
     };
   });
   const id = String(cloudTrip["旅行ID"]);
@@ -162,6 +189,7 @@ export default function App() {
   const [selectedDayId, setSelectedDayId] = useState("day1");
   const [editing, setEditing] = useState<Stop | null>(null);
   const [draftNote, setDraftNote] = useState("");
+  const [draftOpeningHours, setDraftOpeningHours] = useState("");
   const [creatingTrip, setCreatingTrip] = useState(false);
   const [newTripName, setNewTripName] = useState("");
   const [newDestination, setNewDestination] = useState("");
@@ -174,6 +202,7 @@ export default function App() {
   const [newStopAddress, setNewStopAddress] = useState("");
   const [newStopTransport, setNewStopTransport] = useState("");
   const [newStopNote, setNewStopNote] = useState("");
+  const [newStopOpeningHours, setNewStopOpeningHours] = useState("");
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
   const [shoppingSource, setShoppingSource] = useState<"Olive Young" | "韓國藥局">("Olive Young");
   const [expenses, setExpenses] = useState<Record<string, { id: string; title: string; amount: number; payer: string; currency?: string }[]>>({});
@@ -211,7 +240,7 @@ export default function App() {
   const [shoppingPrice, setShoppingPrice] = useState("");
   const [shoppingCategory, setShoppingCategory] = useState("");
   const [shoppingImageUrl, setShoppingImageUrl] = useState("");
-  const [routeMode, setRouteMode] = useState<"driving" | "walking">("driving");
+  const [previousStops, setPreviousStops] = useState<Stop[] | null>(null);
   const [cloudLinks, setCloudLinks] = useState<CloudLinks>({});
   const [syncStatus, setSyncStatus] = useState<"local" | "syncing" | "synced" | "error">("local");
   const [joiningTrip, setJoiningTrip] = useState(false);
@@ -389,26 +418,32 @@ export default function App() {
 
   useEffect(() => {
     if (!selectedDay || geocodedDaysRef.current.has(`${activeTrip.id}:${selectedDay.id}`)) return;
-    const missing = selectedDay.stops.filter((stop) => stop.latitude == null || stop.longitude == null);
-    if (!missing.length) return;
+    const needsEnrichment = selectedDay.stops.some((stop) =>
+      stop.latitude == null || stop.longitude == null || (!!VERIFIED_OPENING_HOURS[stop.id] && !stop.openingHours)
+    );
+    if (!needsEnrichment) return;
     geocodedDaysRef.current.add(`${activeTrip.id}:${selectedDay.id}`);
     let cancelled = false;
     (async () => {
       const resolved = await Promise.all(selectedDay.stops.map(async (stop) => {
-        if (stop.latitude != null && stop.longitude != null) return stop;
+        const verifiedHours = VERIFIED_OPENING_HOURS[stop.id];
+        const enriched = verifiedHours && !stop.openingHours
+          ? { ...stop, openingHours: verifiedHours.hours, openingHoursSource: verifiedHours.source }
+          : stop;
+        if (enriched.latitude != null && enriched.longitude != null) return enriched;
         const known = KNOWN_COORDINATES[stop.id];
-        if (known) return { ...stop, latitude: known[0], longitude: known[1] };
-        const cleanTitle = stop.title.replace(/^[^A-Za-z0-9\u3400-\u9fff\uac00-\ud7af]+/, "");
+        if (known) return { ...enriched, latitude: known[0], longitude: known[1] };
+        const cleanTitle = enriched.title.replace(/^[^A-Za-z0-9\u3400-\u9fff\uac00-\ud7af]+/, "");
         try {
-          const query = `${cleanTitle} ${stop.address} ${activeTrip.destination}`;
+          const query = `${cleanTitle} ${enriched.address} ${activeTrip.destination}`;
           const response = await fetch(`https://photon.komoot.io/api/?limit=1&q=${encodeURIComponent(query)}`);
           const data = await response.json();
           const coordinates = data.features?.[0]?.geometry?.coordinates;
           return coordinates?.length >= 2
-            ? { ...stop, longitude: Number(coordinates[0]), latitude: Number(coordinates[1]) }
-            : stop;
+            ? { ...enriched, longitude: Number(coordinates[0]), latitude: Number(coordinates[1]) }
+            : enriched;
         } catch {
-          return stop;
+          return enriched;
         }
       }));
       if (!cancelled && resolved.some((stop, index) => stop !== selectedDay.stops[index])) updateStops(resolved);
@@ -423,7 +458,7 @@ export default function App() {
   const saveNote = () => {
     if (!editing) return;
     updateStops(selectedDay.stops.map((stop) =>
-      stop.id === editing.id ? { ...stop, note: draftNote } : stop
+      stop.id === editing.id ? { ...stop, note: draftNote, openingHours: draftOpeningHours.trim() } : stop
     ));
     setEditing(null);
   };
@@ -453,24 +488,66 @@ export default function App() {
       ? `${stop.latitude},${stop.longitude}`
       : stop.address || stop.title;
 
-  const openGoogleRoute = (from: Stop, to: Stop, waypoints: Stop[] = []) => {
+  const openGoogleRoute = (from: Stop, to: Stop, mode: "driving" | "walking", waypoints: Stop[] = []) => {
     const waypointQuery = waypoints.length
       ? `&waypoints=${encodeURIComponent(waypoints.map(stopLocation).join("|"))}`
       : "";
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(stopLocation(from))}&destination=${encodeURIComponent(stopLocation(to))}${waypointQuery}&travelmode=${routeMode}`;
+    const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(stopLocation(from))}&destination=${encodeURIComponent(stopLocation(to))}${waypointQuery}&travelmode=${mode}`;
     Linking.openURL(url).catch(() => Alert.alert("無法開啟 Google Maps"));
   };
 
-  const openWholeDayRoute = () => {
-    if (selectedDay.stops.length < 2) {
-      Alert.alert("至少需要兩個景點");
+  const setLegRouteMode = (stopId: string, routeMode: "driving" | "walking") => {
+    updateStops(selectedDay.stops.map((stop) => stop.id === stopId ? { ...stop, routeMode } : stop));
+  };
+
+  const openingMinutes = (stop: Stop) => {
+    const match = (stop.openingHours || "").match(/(?:^|\D)([01]?\d|2[0-3]):([0-5]\d)/);
+    return match ? Number(match[1]) * 60 + Number(match[2]) : Number.POSITIVE_INFINITY;
+  };
+
+  const sortByOpeningHours = () => {
+    if (selectedDay.stops.length < 2) return;
+    if (!selectedDay.stops.some((stop) => stop.openingHours && stop.openingHoursSource)) {
+      Alert.alert("尚無網路查證資料", "這一天還沒有已查證的營業時間，因此不會用備註內容自行猜測排序。");
       return;
     }
-    openGoogleRoute(
-      selectedDay.stops[0]!,
-      selectedDay.stops[selectedDay.stops.length - 1]!,
-      selectedDay.stops.slice(1, -1)
-    );
+    setPreviousStops([...selectedDay.stops]);
+    updateStops(selectedDay.stops.map((stop, index) => ({ stop, index }))
+      .sort((a, b) => openingMinutes(a.stop) - openingMinutes(b.stop) || a.index - b.index)
+      .map(({ stop }) => stop));
+  };
+
+  const distanceBetween = (a: Stop, b: Stop) => {
+    if (a.latitude == null || a.longitude == null || b.latitude == null || b.longitude == null) return Number.POSITIVE_INFINITY;
+    const toRad = (value: number) => value * Math.PI / 180;
+    const dLat = toRad(b.latitude - a.latitude);
+    const dLon = toRad(b.longitude - a.longitude);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(dLon / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  };
+
+  const sortByShortestRoute = () => {
+    if (selectedDay.stops.length < 2) return;
+    setPreviousStops([...selectedDay.stops]);
+    const remaining = [...selectedDay.stops.slice(1)];
+    const sorted = [selectedDay.stops[0]!];
+    while (remaining.length) {
+      const current = sorted[sorted.length - 1]!;
+      let bestIndex = 0;
+      let bestDistance = distanceBetween(current, remaining[0]!);
+      remaining.forEach((candidate, index) => {
+        const distance = distanceBetween(current, candidate);
+        if (distance < bestDistance) { bestDistance = distance; bestIndex = index; }
+      });
+      sorted.push(remaining.splice(bestIndex, 1)[0]!);
+    }
+    updateStops(sorted);
+  };
+
+  const undoSmartSort = () => {
+    if (!previousStops) return;
+    updateStops(previousStops);
+    setPreviousStops(null);
   };
 
   const selectTrip = (trip: TripPlan) => {
@@ -603,7 +680,8 @@ export default function App() {
       address: newStopAddress.trim() || "地址待補",
       transport,
       transportMode,
-      note: newStopNote.trim()
+      note: newStopNote.trim(),
+      routeMode: transport.includes("步行") ? "walking" : "driving"
     }]);
     setAddingStop(false);
     setNewStopTitle("");
@@ -735,6 +813,7 @@ export default function App() {
   const renderStop = ({ item, drag, isActive, getIndex }: RenderItemParams<Stop>) => {
     const index = getIndex() ?? 0;
     const nextStop = selectedDay.stops[index + 1];
+    const legMode = item.routeMode || (item.transport.includes("步行") ? "walking" : "driving");
     return (
       <View style={[styles.stopWrap, isActive && styles.dragging]}>
         <View style={styles.timeline}>
@@ -745,7 +824,7 @@ export default function App() {
           onLongPress={drag}
           delayLongPress={180}
           style={styles.stopCard}
-          onPress={() => { setEditing(item); setDraftNote(item.note); }}
+          onPress={() => { setEditing(item); setDraftNote(item.note); setDraftOpeningHours(item.openingHours || ""); }}
         >
           <View style={styles.stopTop}>
             <View style={styles.timePill}><Text style={styles.timeText}>{item.time || "彈性"}</Text></View>
@@ -766,10 +845,22 @@ export default function App() {
             </View>
           </View>
           {nextStop && (
-            <Pressable style={styles.fastRouteButton} onPress={() => openGoogleRoute(item, nextStop)}>
-              <Text style={styles.fastRouteButtonText}>用 Google Maps 查看{routeMode === "driving" ? "開車" : "步行"}最快路線 →</Text>
-            </Pressable>
+            <View style={styles.legRouteBox}>
+              <Text style={styles.legRouteLabel}>這一段要怎麼走？</Text>
+              <View style={styles.legRouteActions}>
+                <Pressable onPress={() => setLegRouteMode(item.id, "driving")} style={[styles.legModeButton, legMode === "driving" && styles.legModeButtonActive]}>
+                  <Text style={[styles.legModeText, legMode === "driving" && styles.legModeTextActive]}>🚗 開車</Text>
+                </Pressable>
+                <Pressable onPress={() => setLegRouteMode(item.id, "walking")} style={[styles.legModeButton, legMode === "walking" && styles.legModeButtonActive]}>
+                  <Text style={[styles.legModeText, legMode === "walking" && styles.legModeTextActive]}>🚶 步行</Text>
+                </Pressable>
+                <Pressable style={styles.fastRouteButton} onPress={() => openGoogleRoute(item, nextStop, legMode)}>
+                  <Text style={styles.fastRouteButtonText}>最快路線 ↗</Text>
+                </Pressable>
+              </View>
+            </View>
           )}
+          {!!item.openingHours && <Text style={styles.openingHours}>營業時間｜{item.openingHours}{item.openingHoursSource ? `・網路查證` : ""}</Text>}
           {!!item.note && <Text style={styles.note} numberOfLines={2}>備註｜{item.note}</Text>}
           <View style={styles.cardBottom}>
             {item.pass ? <Text style={styles.pass}>{item.pass}</Text> : <View />}
@@ -860,18 +951,22 @@ export default function App() {
                     <RouteMap stops={routeStops} dayId={selectedDay.id} />
                     <View style={styles.mapFooter}>
                       <Text style={styles.mapFooterTitle}>今日移動路線</Text>
-                      <Text style={styles.mapFooterText}>地圖可拖曳、放大與縮小；選擇交通方式後由 Google Maps 計算最快路線</Text>
-                      <View style={styles.routeModeRow}>
-                        <Pressable onPress={() => setRouteMode("driving")} style={[styles.routeModeButton, routeMode === "driving" && styles.routeModeButtonActive]}>
-                          <Text style={[styles.routeModeText, routeMode === "driving" && styles.routeModeTextActive]}>🚗 開車</Text>
+                      <Text style={styles.mapFooterText}>地圖可拖曳、放大與縮小；每一段可在下方景點卡片分別選擇開車或步行。</Text>
+                      <Text style={styles.smartSortLabel}>一鍵排行程</Text>
+                      <View style={styles.smartSortRow}>
+                        <Pressable onPress={sortByOpeningHours} style={styles.smartSortButton}>
+                          <Text style={styles.smartSortText}>🕒 依營業時間</Text>
                         </Pressable>
-                        <Pressable onPress={() => setRouteMode("walking")} style={[styles.routeModeButton, routeMode === "walking" && styles.routeModeButtonActive]}>
-                          <Text style={[styles.routeModeText, routeMode === "walking" && styles.routeModeTextActive]}>🚶 步行</Text>
+                        <Pressable onPress={sortByShortestRoute} style={styles.smartSortButton}>
+                          <Text style={styles.smartSortText}>↗ 依最短動線</Text>
                         </Pressable>
-                        <Pressable onPress={openWholeDayRoute} style={styles.openDayRouteButton}>
-                          <Text style={styles.openDayRouteText}>Google 最快路線 ↗</Text>
-                        </Pressable>
+                        {previousStops && (
+                          <Pressable onPress={undoSmartSort} style={styles.undoSortButton}>
+                            <Text style={styles.undoSortText}>復原</Text>
+                          </Pressable>
+                        )}
                       </View>
+                      <Text style={styles.smartSortHint}>營業時間只採用網路查證資料；未查到的景點會保留並排在後面。</Text>
                     </View>
                   </View>
                   <View style={styles.dragBanner}>
@@ -1021,6 +1116,16 @@ export default function App() {
               <Text style={styles.sheetEyebrow}>景點備註</Text>
               <Text style={styles.sheetTitle}>{editing?.title}</Text>
               <Text style={styles.sheetAddress}>{editing?.address}</Text>
+              <Text style={styles.fieldLabel}>營業時間（網路查證資料）</Text>
+              <TextInput
+                value={draftOpeningHours}
+                onChangeText={setDraftOpeningHours}
+                placeholder="尚未查證"
+                placeholderTextColor="#A49C90"
+                style={styles.fieldInput}
+              />
+              {!!editing?.openingHoursSource && <Text style={styles.sourceHint}>來源｜{editing.openingHoursSource}</Text>}
+              <Text style={styles.fieldLabel}>備註</Text>
               <TextInput
                 value={draftNote}
                 onChangeText={setDraftNote}
@@ -1030,7 +1135,7 @@ export default function App() {
                 placeholderTextColor="#A49C90"
                 style={styles.noteInput}
               />
-              <Pressable style={styles.primaryButton} onPress={saveNote}><Text style={styles.primaryButtonText}>儲存備註</Text></Pressable>
+              <Pressable style={styles.primaryButton} onPress={saveNote}><Text style={styles.primaryButtonText}>儲存景點資料</Text></Pressable>
               <Pressable style={styles.cancelButton} onPress={() => setEditing(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
             </View>
           </View>
@@ -1405,13 +1510,13 @@ const styles = StyleSheet.create({
   mapFooter: { padding: 14 },
   mapFooterTitle: { fontWeight: "800", color: "#2C2925", fontSize: 15 },
   mapFooterText: { color: "#8C8379", fontSize: 12, marginTop: 3 },
-  routeModeRow: { flexDirection: "row", gap: 7, alignItems: "center", marginTop: 12, flexWrap: "wrap" },
-  routeModeButton: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: "#EEE9E2" },
-  routeModeButtonActive: { backgroundColor: "#2F5147" },
-  routeModeText: { color: "#6F675F", fontSize: 10, fontWeight: "900" },
-  routeModeTextActive: { color: "#FFF" },
-  openDayRouteButton: { flexGrow: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: "#E8EFFB", alignItems: "center" },
-  openDayRouteText: { color: "#3974D8", fontSize: 10, fontWeight: "900" },
+  smartSortLabel: { color: "#315248", fontSize: 11, fontWeight: "900", marginTop: 12 },
+  smartSortRow: { flexDirection: "row", gap: 7, alignItems: "center", marginTop: 7, flexWrap: "wrap" },
+  smartSortButton: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 9, backgroundColor: "#E7EFEA" },
+  smartSortText: { color: "#315248", fontSize: 10, fontWeight: "900" },
+  undoSortButton: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 9, backgroundColor: "#F3E8DE" },
+  undoSortText: { color: "#9C613F", fontSize: 10, fontWeight: "900" },
+  smartSortHint: { color: "#9A9188", fontSize: 10, lineHeight: 15, marginTop: 7 },
   dragBanner: { flexDirection: "row", backgroundColor: "#F0E8DC", borderRadius: 14, padding: 12, marginTop: 14, marginBottom: 10, alignItems: "center", gap: 8 },
   dragBannerText: { color: "#7B604F", fontSize: 12, fontWeight: "600" },
   emptyItinerary: { marginTop: 18, padding: 30, borderRadius: 22, backgroundColor: "#F3EFE7", alignItems: "center", borderWidth: 1, borderStyle: "dashed", borderColor: "#CFC5B9" },
@@ -1441,8 +1546,17 @@ const styles = StyleSheet.create({
   transportIcon: { fontSize: 20 },
   transportLabel: { color: "#819087", fontSize: 9, fontWeight: "700" },
   transportText: { color: "#35554B", fontSize: 12, fontWeight: "800", marginTop: 2 },
-  fastRouteButton: { marginTop: 7, borderRadius: 11, borderWidth: 1, borderColor: "#D7E4DE", paddingVertical: 8, alignItems: "center", backgroundColor: "#F7FAF8" },
+  legRouteBox: { marginTop: 9, borderRadius: 13, backgroundColor: "#F7F5F1", padding: 9 },
+  legRouteLabel: { color: "#756E66", fontSize: 10, fontWeight: "800", marginBottom: 7 },
+  legRouteActions: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  legModeButton: { borderRadius: 9, paddingHorizontal: 9, paddingVertical: 8, backgroundColor: "#EAE6E0" },
+  legModeButtonActive: { backgroundColor: "#315248" },
+  legModeText: { color: "#766E65", fontSize: 10, fontWeight: "900" },
+  legModeTextActive: { color: "#FFF" },
+  fastRouteButton: { borderRadius: 9, borderWidth: 1, borderColor: "#D7E4DE", paddingHorizontal: 9, paddingVertical: 8, alignItems: "center", backgroundColor: "#F7FAF8" },
   fastRouteButtonText: { color: "#3974D8", fontSize: 10, fontWeight: "900" },
+  openingHours: { color: "#4D6C62", fontSize: 11, fontWeight: "700", marginTop: 9 },
+  sourceHint: { color: "#928A81", fontSize: 10, marginTop: -5, marginBottom: 8 },
   note: { color: "#756E66", fontSize: 12, lineHeight: 17, marginTop: 10 },
   cardBottom: { flexDirection: "row", justifyContent: "space-between", marginTop: 11, alignItems: "center", gap: 8 },
   pass: { color: "#34815E", backgroundColor: "#E5F3EA", borderRadius: 9, paddingHorizontal: 8, paddingVertical: 4, fontSize: 11, fontWeight: "800" },

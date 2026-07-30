@@ -19,6 +19,9 @@ export type Stop = {
   pass?: string;
   latitude?: number;
   longitude?: number;
+  routeMode?: "driving" | "walking";
+  openingHours?: string;
+  openingHoursSource?: string;
 };
 
 export type TripDay = {
