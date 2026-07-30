@@ -59,6 +59,7 @@ export type TripShoppingItem = {
   id: string;
   name: string;
   price?: string;
+  currency?: string;
   category?: string;
   imageUrl?: string;
   purchased?: boolean;

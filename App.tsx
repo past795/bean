@@ -178,7 +178,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   })),
   shopping: trip.shopping.map((item) => ({
     "商品ID": item.id, "商品名稱": item.name, "分類": item.category || "",
-    "價格": item.price || "", "幣別": "", "圖片網址": item.imageUrl || "",
+    "價格": item.price || "", "幣別": item.currency || "", "圖片網址": item.imageUrl || "",
     "購買地點": "", "備註": "", "已購買": !!item.purchased
   })),
   expenses: tripExpenses.map((item) => ({
@@ -230,7 +230,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
     })),
     shopping: (data.shopping || []).map((row: any) => ({
       id: String(row["商品ID"]), name: String(row["商品名稱"] || ""), price: String(row["價格"] || ""),
-      category: String(row["分類"] || ""), imageUrl: String(row["圖片網址"] || ""),
+      currency: String(row["幣別"] || ""), category: String(row["分類"] || ""), imageUrl: String(row["圖片網址"] || ""),
       purchased: row["已購買"] === true || String(row["已購買"]).toUpperCase() === "TRUE"
     }))
   };
@@ -340,6 +340,7 @@ export default function App() {
   const [addingShoppingItem, setAddingShoppingItem] = useState(false);
   const [shoppingName, setShoppingName] = useState("");
   const [shoppingPrice, setShoppingPrice] = useState("");
+  const [shoppingCurrency, setShoppingCurrency] = useState("KRW");
   const [shoppingCategory, setShoppingCategory] = useState("");
   const [shoppingImageUrl, setShoppingImageUrl] = useState("");
   const [previousStops, setPreviousStops] = useState<Stop[] | null>(null);
@@ -1206,12 +1207,10 @@ export default function App() {
 
   const tripExpenses = expenses[activeTrip.id] ?? [];
   const localMemberAlias = cloudLinks[activeTrip.id]?.memberName;
+  const myDisplayName = localMemberAlias || googleUser?.name;
   const activeMemberNames = [...new Set([
-    googleUser?.name,
-    ...(
-      cloudMembers[activeTrip.id] || []
-    ).filter((name) => !googleUser || name !== localMemberAlias),
-    !googleUser ? localMemberAlias : undefined
+    myDisplayName,
+    ...(cloudMembers[activeTrip.id] || [])
   ].filter((name): name is string => !!name && name !== "我"))];
   const expenseMemberNames = activeMemberNames;
   const openExpenseModal = () => {
@@ -1352,10 +1351,10 @@ export default function App() {
     }
     updateActiveTrip({ shopping: [...activeTrip.shopping, {
       id: `shopping-${Date.now()}`, name: shoppingName.trim(), price: shoppingPrice.trim(),
-      category: shoppingCategory.trim(), imageUrl: shoppingImageUrl.trim()
+      currency: shoppingCurrency, category: shoppingCategory.trim(), imageUrl: shoppingImageUrl.trim()
     }] });
     setAddingShoppingItem(false);
-    setShoppingName(""); setShoppingPrice(""); setShoppingCategory(""); setShoppingImageUrl("");
+    setShoppingName(""); setShoppingPrice(""); setShoppingCurrency("KRW"); setShoppingCategory(""); setShoppingImageUrl("");
   };
 
   const deleteShoppingItem = (id: string) => {
@@ -1375,7 +1374,7 @@ export default function App() {
       return;
     }
     updateActiveTrip({ shopping: [...activeTrip.shopping, {
-      id: `shopping-${Date.now()}`, name: catalogItem.name, price: catalogItem.price,
+      id: `shopping-${Date.now()}`, name: catalogItem.name, price: catalogItem.price, currency: "KRW",
       category: catalogItem.category, imageUrl: catalogItem.imageUrl, purchased: true
     }] });
   };
@@ -1791,7 +1790,7 @@ export default function App() {
                   <Text style={styles.cloudLabel}>這趟旅行的成員</Text>
                   <View style={styles.memberChips}>
                     {activeMemberNames.map((name) => (
-                      <View key={name} style={styles.memberChip}><Text style={styles.memberChipText}>● {name}{googleUser?.name === name || (!googleUser && cloudLinks[activeTrip.id]?.memberName === name) ? "（我）" : ""}</Text></View>
+                      <View key={name} style={styles.memberChip}><Text style={styles.memberChipText}>● {name}{myDisplayName === name ? "（我）" : ""}</Text></View>
                     ))}
                   </View>
                   {!activeMemberNames.length && <Text style={styles.sourceHint}>尚未設定成員名稱</Text>}
@@ -2003,7 +2002,15 @@ export default function App() {
                 <View style={styles.shoppingWrap}>
                   {addingShoppingItem ? <>
                     <Text style={styles.fieldLabel}>商品名稱 *</Text><TextInput value={shoppingName} onChangeText={setShoppingName} placeholder="例如：沖繩黑糖" placeholderTextColor="#AAA198" style={styles.fieldInput} />
-                    <Text style={styles.fieldLabel}>預估價格</Text><TextInput value={shoppingPrice} onChangeText={setShoppingPrice} placeholder="例如：¥800" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                    <Text style={styles.fieldLabel}>預估價格</Text><TextInput value={shoppingPrice} onChangeText={setShoppingPrice} placeholder="例如：800" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                    <Text style={styles.fieldLabel}>幣別</Text>
+                    <View style={styles.currencyChoices}>
+                      {["KRW", "JPY", "TWD", "USD"].map((currency) => (
+                        <Pressable key={currency} onPress={() => setShoppingCurrency(currency)} style={[styles.currencyChoice, shoppingCurrency === currency && styles.currencyChoiceActive]}>
+                          <Text style={[styles.currencyChoiceText, shoppingCurrency === currency && styles.currencyChoiceTextActive]}>{currency}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
                     <Text style={styles.fieldLabel}>分類</Text><TextInput value={shoppingCategory} onChangeText={setShoppingCategory} placeholder="伴手禮／藥妝／食品" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                     <Text style={styles.fieldLabel}>商品圖片網址</Text><TextInput value={shoppingImageUrl} onChangeText={setShoppingImageUrl} placeholder="貼上圖片網址（可留空）" placeholderTextColor="#AAA198" style={styles.fieldInput} autoCapitalize="none" />
                     <Pressable style={styles.imageSearchButton} onPress={() => Linking.openURL(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(shoppingName || activeTrip.destination + " 必買商品")}`)}>
@@ -2024,7 +2031,7 @@ export default function App() {
                         </Pressable>
                         {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
                         <View style={styles.shoppingInfo}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.purchased ? "已購買" : item.category || "未分類"}</Text></View>
-                        <Text style={styles.shoppingPrice}>{item.price}</Text>
+                        <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
                         <Pressable onPress={() => deleteShoppingItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
                       </View>
                     ))}
@@ -2036,7 +2043,7 @@ export default function App() {
                         </Pressable>
                         {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
                         <View style={styles.shoppingInfo}><Text style={[styles.shoppingName, styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>已購買</Text></View>
-                        <Text style={styles.shoppingPrice}>{item.price}</Text>
+                        <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
                         <Pressable onPress={() => deleteShoppingItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
                       </View>
                     ))}
