@@ -58,12 +58,14 @@ type Expense = { id: string; title: string; amount: number; payer: string; curre
 type CloudLink = { inviteCode: string; memberName?: string };
 type CloudLinks = Record<string, CloudLink>;
 
-const parseStopMeta = (value: unknown): { routeMode?: "driving" | "walking"; openingHours?: string; openingHoursSource?: string } => {
+type RouteMode = "driving" | "walking" | "transit" | "taxi";
+
+const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string } => {
   if (!value) return {};
   try {
     const parsed = JSON.parse(String(value));
     return {
-      routeMode: parsed.routeMode === "walking" ? "walking" : parsed.routeMode === "driving" ? "driving" : undefined,
+      routeMode: (["walking", "driving", "transit", "taxi"] as RouteMode[]).includes(parsed.routeMode) ? parsed.routeMode : undefined,
       openingHours: typeof parsed.openingHours === "string" ? parsed.openingHours : undefined,
       openingHoursSource: typeof parsed.openingHoursSource === "string" ? parsed.openingHoursSource : undefined
     };
@@ -173,8 +175,8 @@ const starterTrips: TripPlan[] = [{
     { id: "busan-return", route: "金海 → 桃園", flightNumber: "航班待補", departure: "10/08 21:05", arrival: "10/08 22:25" }
   ],
   accommodations: [
-    { id: "busan-hotel-1", name: "Toyoko Inn Busan Jungang", period: "10/04", note: "可先寄放行李" },
-    { id: "busan-hotel-2", name: "Avani Central Busan", period: "10/05–10/08", note: "文峴站／國際金融中心一帶" }
+    { id: "busan-hotel-1", name: "Toyoko Inn Busan Jungang Station", period: "10/04", address: "125 Jungang-daero, Jung-gu, Busan 48924", checkIn: "15:00", checkOut: "10:00", facilities: "免費早餐 06:30–09:00、免費 Wi‑Fi、投幣洗衣、微波爐、飲水／製冰機、販賣機、按摩椅、停車場", frontDesk: "24 小時櫃檯；電話 +82 51-442-1045", note: "中央站 17 號出口步行約 5 分鐘；資料來源：Toyoko Inn 官方網站" },
+    { id: "busan-hotel-2", name: "Avani Central Busan", period: "10/05–10/08", address: "133 Jeonpo-daero, Nam-gu, Busan 48400", checkIn: "15:00", checkOut: "11:00", facilities: "免費 Wi‑Fi、健身中心、SPA、餐廳、會議及活動空間", frontDesk: "24 小時櫃檯；電話 +82 51-791-5800", note: "釜山國際金融中心旁、地鐵 2 號線 BIFC／Busan Bank Station 附近；資料來源：Avani 官方網站" }
   ],
   shopping: []
 }];
@@ -254,12 +256,19 @@ export default function App() {
   useEffect(() => {
     AsyncStorage.getItem(STORE_KEY).then((value) => {
       if (value) {
-        const savedTrips = (JSON.parse(value) as TripPlan[]).map((trip) => ({
-          ...trip,
-          flights: trip.flights ?? (trip.id === "busan-2026" ? starterTrips[0]!.flights : []),
-          accommodations: trip.accommodations ?? (trip.id === "busan-2026" ? starterTrips[0]!.accommodations : []),
-          shopping: trip.shopping ?? []
-        }));
+        const savedTrips = (JSON.parse(value) as TripPlan[]).map((trip) => {
+          const verifiedHotels = starterTrips[0]!.accommodations;
+          return {
+            ...trip,
+            flights: trip.flights ?? (trip.id === "busan-2026" ? starterTrips[0]!.flights : []),
+            accommodations: (trip.accommodations ?? (trip.id === "busan-2026" ? verifiedHotels : [])).map((hotel) => {
+              if (trip.id !== "busan-2026") return hotel;
+              const verified = verifiedHotels.find((item) => item.id === hotel.id || item.name.toLowerCase().includes(hotel.name.toLowerCase().split(" ").slice(0, 2).join(" ")));
+              return verified ? { ...verified, ...hotel, address: hotel.address || verified.address, checkIn: hotel.checkIn || verified.checkIn, checkOut: hotel.checkOut || verified.checkOut, facilities: hotel.facilities || verified.facilities, frontDesk: hotel.frontDesk || verified.frontDesk, note: hotel.note?.includes("資料來源") ? hotel.note : verified.note } : hotel;
+            }),
+            shopping: trip.shopping ?? []
+          };
+        });
         if (Array.isArray(savedTrips) && savedTrips.length) {
           setTrips(savedTrips);
           setActiveTripId(savedTrips[0]!.id);
@@ -488,15 +497,16 @@ export default function App() {
       ? `${stop.latitude},${stop.longitude}`
       : stop.address || stop.title;
 
-  const openGoogleRoute = (from: Stop, to: Stop, mode: "driving" | "walking", waypoints: Stop[] = []) => {
+  const openGoogleRoute = (from: Stop, to: Stop, mode: RouteMode, waypoints: Stop[] = []) => {
     const waypointQuery = waypoints.length
       ? `&waypoints=${encodeURIComponent(waypoints.map(stopLocation).join("|"))}`
       : "";
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(stopLocation(from))}&destination=${encodeURIComponent(stopLocation(to))}${waypointQuery}&travelmode=${mode}`;
+    const googleMode = mode === "taxi" ? "driving" : mode;
+    const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(stopLocation(from))}&destination=${encodeURIComponent(stopLocation(to))}${waypointQuery}&travelmode=${googleMode}`;
     Linking.openURL(url).catch(() => Alert.alert("無法開啟 Google Maps"));
   };
 
-  const setLegRouteMode = (stopId: string, routeMode: "driving" | "walking") => {
+  const setLegRouteMode = (stopId: string, routeMode: RouteMode) => {
     updateStops(selectedDay.stops.map((stop) => stop.id === stopId ? { ...stop, routeMode } : stop));
   };
 
@@ -792,6 +802,18 @@ export default function App() {
     });
   };
 
+  const toggleCatalogPurchase = (catalogItem: (typeof shoppingItems)[number]) => {
+    const existing = activeTrip.shopping.find((item) => item.name === catalogItem.name);
+    if (existing) {
+      toggleShoppingItem(existing.id);
+      return;
+    }
+    updateActiveTrip({ shopping: [...activeTrip.shopping, {
+      id: `shopping-${Date.now()}`, name: catalogItem.name, price: catalogItem.price,
+      category: catalogItem.category, imageUrl: catalogItem.imageUrl, purchased: true
+    }] });
+  };
+
   const weatherLabel = (code: number) =>
     code === 0 ? "晴朗" : code <= 3 ? "多雲" : code <= 48 ? "有霧" : code <= 67 ? "下雨" : code <= 77 ? "下雪" : code <= 82 ? "陣雨" : code <= 86 ? "陣雪" : "雷雨";
   const weatherIcon = (code: number) =>
@@ -813,7 +835,7 @@ export default function App() {
   const renderStop = ({ item, drag, isActive, getIndex }: RenderItemParams<Stop>) => {
     const index = getIndex() ?? 0;
     const nextStop = selectedDay.stops[index + 1];
-    const legMode = item.routeMode || (item.transport.includes("步行") ? "walking" : "driving");
+    const legMode: RouteMode = item.routeMode || (item.transport.includes("步行") ? "walking" : item.transport.includes("地鐵") || item.transport.includes("公車") ? "transit" : item.transport.includes("計程車") ? "taxi" : "driving");
     return (
       <View style={[styles.stopWrap, isActive && styles.dragging]}>
         <View style={styles.timeline}>
@@ -853,6 +875,12 @@ export default function App() {
                 </Pressable>
                 <Pressable onPress={() => setLegRouteMode(item.id, "walking")} style={[styles.legModeButton, legMode === "walking" && styles.legModeButtonActive]}>
                   <Text style={[styles.legModeText, legMode === "walking" && styles.legModeTextActive]}>🚶 步行</Text>
+                </Pressable>
+                <Pressable onPress={() => setLegRouteMode(item.id, "transit")} style={[styles.legModeButton, legMode === "transit" && styles.legModeButtonActive]}>
+                  <Text style={[styles.legModeText, legMode === "transit" && styles.legModeTextActive]}>🚇 大眾運輸</Text>
+                </Pressable>
+                <Pressable onPress={() => setLegRouteMode(item.id, "taxi")} style={[styles.legModeButton, legMode === "taxi" && styles.legModeButtonActive]}>
+                  <Text style={[styles.legModeText, legMode === "taxi" && styles.legModeTextActive]}>🚕 計程車</Text>
                 </Pressable>
                 <Pressable style={styles.fastRouteButton} onPress={() => openGoogleRoute(item, nextStop, legMode)}>
                   <Text style={styles.fastRouteButtonText}>最快路線 ↗</Text>
@@ -1283,6 +1311,13 @@ export default function App() {
                       <View><Text style={styles.detailTitle}>{activeTrip.destination} 必買清單</Text><Text style={styles.detailHint}>{activeTrip.shopping.length} 項自訂商品</Text></View>
                       <Pressable style={styles.smallAddButton} onPress={() => setAddingShoppingItem(true)}><Text style={styles.smallAddButtonText}>＋</Text></Pressable>
                     </View>
+                    {!!activeTrip.shopping.length && (
+                      <View style={styles.shoppingColumns}>
+                        <Text style={styles.shoppingColumnCheck}>已購買</Text>
+                        <Text style={styles.shoppingColumnName}>商品</Text>
+                        <Text style={styles.shoppingColumnPrice}>價格</Text>
+                      </View>
+                    )}
                     {activeTrip.shopping.map((item) => (
                       <View key={item.id} style={[styles.shoppingItem, item.purchased && styles.shoppingItemPurchased]}>
                         <Pressable accessibilityLabel={item.purchased ? "取消已購買" : "標記已購買"} onPress={() => toggleShoppingItem(item.id)} style={[styles.shoppingCheck, item.purchased && styles.shoppingCheckActive]}>
@@ -1307,6 +1342,9 @@ export default function App() {
                       <View style={styles.shoppingList}>
                         {shoppingItems.filter((item) => item.source === shoppingSource).map((item) => (
                           <View key={`${item.source}-${item.name}`} style={styles.shoppingItem}>
+                            <Pressable accessibilityLabel="標記已購買" onPress={() => toggleCatalogPurchase(item)} style={[styles.shoppingCheck, activeTrip.shopping.find((saved) => saved.name === item.name)?.purchased && styles.shoppingCheckActive]}>
+                              <Text style={styles.shoppingCheckText}>{activeTrip.shopping.find((saved) => saved.name === item.name)?.purchased ? "✓" : ""}</Text>
+                            </Pressable>
                             {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🧴</Text></View>}
                             <View style={styles.shoppingInfo}><Text style={styles.shoppingName}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.category}</Text></View>
                             <Text style={styles.shoppingPrice}>{item.price}</Text>
@@ -1662,6 +1700,10 @@ const styles = StyleSheet.create({
   exchangeResult: { color: "#2F5147", fontWeight: "900", fontSize: 28, marginTop: 18 },
   shoppingWrap: { marginTop: 16, minHeight: 360 },
   shoppingHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 9 },
+  shoppingColumns: { flexDirection: "row", alignItems: "center", paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: "#DDD6CD" },
+  shoppingColumnCheck: { width: 64, color: "#887E74", fontSize: 10, fontWeight: "800" },
+  shoppingColumnName: { flex: 1, color: "#887E74", fontSize: 10, fontWeight: "800" },
+  shoppingColumnPrice: { width: 70, textAlign: "right", color: "#887E74", fontSize: 10, fontWeight: "800" },
   catalogTitle: { color: "#39342F", fontSize: 14, fontWeight: "900", marginTop: 22, marginBottom: 10 },
   emptyListText: { color: "#938A80", fontSize: 11, textAlign: "center", paddingVertical: 22 },
   sourceTabs: { flexDirection: "row", backgroundColor: "#EEE9E2", padding: 4, borderRadius: 14, gap: 4 },

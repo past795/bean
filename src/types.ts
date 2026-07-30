@@ -19,7 +19,7 @@ export type Stop = {
   pass?: string;
   latitude?: number;
   longitude?: number;
-  routeMode?: "driving" | "walking";
+  routeMode?: "driving" | "walking" | "transit" | "taxi";
   openingHours?: string;
   openingHoursSource?: string;
 };
