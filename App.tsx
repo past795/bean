@@ -30,6 +30,20 @@ const EXPENSE_KEY = "travel-expenses-v1";
 const CLOUD_LINK_KEY = "douyou-cloud-links-v1";
 const SYNC_URL = "https://script.google.com/macros/s/AKfycbx59WE7iqgehx4nsE4xxxp_Q8-eQrd59VSfR4xSa3IlU7lIBtikr1gvG3EZgxWHEOwj/exec";
 const screenWidth = Dimensions.get("window").width;
+const KNOWN_COORDINATES: Record<string, [number, number]> = {
+  "d3-1": [35.1712, 129.1277], "d3-2": [35.0770, 129.0208],
+  "d3-3": [35.0775, 129.0234], "d3-4": [35.0627, 129.0165],
+  "d3-5": [35.1552, 129.0647], "d3-6": [35.1568, 129.0575],
+  "d3-7": [35.1547, 129.0636],
+  "d4-1": [35.1690, 129.1292], "d4-2": [35.1690, 129.1292],
+  "d4-3": [35.1690, 129.1292], "d4-4": [35.1516, 129.1165],
+  "d4-5": [35.1439, 129.1106], "d4-6": [35.1532, 129.1187],
+  "d5-1": [35.1457, 129.0654], "d5-2": [35.1883, 129.2233],
+  "d5-3": [35.1960, 129.2280], "d5-4": [35.1960, 129.2120],
+  "d5-5": [35.1967, 129.2190], "d5-6": [35.1915, 129.2125],
+  "d5-7": [35.3210, 129.2700], "d5-8": [35.1796, 128.9380],
+  "d5-9": [35.1796, 128.9380]
+};
 
 type Expense = { id: string; title: string; amount: number; payer: string; currency?: string };
 type CloudLink = { inviteCode: string; memberName?: string };
@@ -382,6 +396,8 @@ export default function App() {
     (async () => {
       const resolved = await Promise.all(selectedDay.stops.map(async (stop) => {
         if (stop.latitude != null && stop.longitude != null) return stop;
+        const known = KNOWN_COORDINATES[stop.id];
+        if (known) return { ...stop, latitude: known[0], longitude: known[1] };
         const cleanTitle = stop.title.replace(/^[^A-Za-z0-9\u3400-\u9fff\uac00-\ud7af]+/, "");
         try {
           const query = `${cleanTitle} ${stop.address} ${activeTrip.destination}`;
