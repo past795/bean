@@ -318,6 +318,7 @@ export default function App() {
   const [joinTripId, setJoinTripId] = useState("");
   const [joinInviteCode, setJoinInviteCode] = useState("");
   const [joinMemberName, setJoinMemberName] = useState("");
+  const [joinError, setJoinError] = useState("");
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cloudLinksRef = useRef<CloudLinks>({});
   const geocodedDaysRef = useRef<Set<string>>(new Set());
@@ -966,31 +967,50 @@ export default function App() {
     const tripId = joinTripId.trim();
     const inviteCode = joinInviteCode.trim();
     if (!tripId || !inviteCode) {
+      setJoinError("請填寫旅行 ID 與六位數邀請碼。");
       Alert.alert("請填寫旅行 ID 與邀請碼");
       showToast("請填寫旅行 ID 與六位數邀請碼");
       return;
     }
     if (!joinMemberName.trim()) {
+      setJoinError("請填寫這趟旅行顯示的成員名稱。");
       Alert.alert("請填寫這趟旅行顯示的成員名稱");
       showToast("請先填寫成員名稱");
       return;
     }
+    setJoinError("");
     setSyncStatus("syncing");
     try {
-      await postCloud({
+      const data = await postCloud({
         action: "joinTrip", tripId, inviteCode,
         member: { "成員ID": googleUser ? `google:${googleUser.sub}` : `member-${Date.now()}`, "顯示名稱": joinMemberName.trim(), "角色": "member" }
       });
       saveCloudLinks({ ...cloudLinksRef.current, [tripId]: { inviteCode, memberName: joinMemberName.trim(), memberId: googleUser ? `google:${googleUser.sub}` : undefined } });
-      const joined = await pullCloudTrip(tripId, inviteCode);
-      if (!joined) return;
-      selectTrip(joined);
+      const converted = cloudToTrip(data);
+      const memberNames = (data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter((name: string) => name && name !== "我");
+      setCloudMembers((current) => ({ ...current, [tripId]: [...new Set(memberNames)] as string[] }));
+      setTrips((current) => {
+        const next = current.some((trip) => trip.id === tripId)
+          ? current.map((trip) => trip.id === tripId ? converted.trip : trip)
+          : [...current.filter((trip) => trip.id !== "local-welcome"), converted.trip];
+        AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
+        return next;
+      });
+      setExpenses((current) => {
+        const next = { ...current, [tripId]: converted.expenses };
+        AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
+        return next;
+      });
+      selectTrip(converted.trip);
+      setSyncStatus("synced");
       setJoiningTrip(false);
       setJoinTripId(""); setJoinInviteCode(""); setJoinMemberName("");
-      showToast(`已加入「${joined.title}」，現在會與旅伴同步`);
+      showToast(`已加入「${converted.trip.title}」，現在會與旅伴同步`);
     } catch (error: any) {
       setSyncStatus("error");
-      showToast(`加入失敗：${error?.message || "請確認資料"}`);
+      const message = error?.message || "請確認旅行 ID 與邀請碼";
+      setJoinError(message);
+      showToast(`加入失敗：${message}`);
       Alert.alert("無法加入旅行", error?.message || "請確認旅行 ID 與邀請碼");
     }
   };
@@ -1404,7 +1424,7 @@ export default function App() {
                 <Text style={styles.pageSubtitle}>每次出發，都從這裡開始。</Text>
               </View>
               <View style={styles.homeHeaderActions}>
-                <Pressable style={styles.joinTripButton} onPress={() => { setJoinMemberName(googleUser?.name || ""); setJoiningTrip(true); }}>
+                <Pressable style={styles.joinTripButton} onPress={() => { setJoinError(""); setJoinMemberName(googleUser?.name || ""); setJoiningTrip(true); }}>
                   <Text style={styles.joinTripButtonText}>加入旅行</Text>
                 </Pressable>
                 <Pressable style={styles.addTripButton} onPress={() => setCreatingTrip(true)}>
@@ -1911,6 +1931,7 @@ export default function App() {
               <TextInput value={joinTripId} onChangeText={setJoinTripId} autoCapitalize="none" placeholder="trip-..." placeholderTextColor="#AAA198" style={styles.fieldInput} />
               <Text style={styles.fieldLabel}>邀請碼 *</Text>
               <TextInput value={joinInviteCode} onChangeText={setJoinInviteCode} keyboardType="number-pad" placeholder="六位數邀請碼" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+              {!!joinError && <Text style={styles.joinErrorText}>加入失敗｜{joinError}</Text>}
               <Pressable disabled={syncStatus === "syncing"} style={styles.primaryButton} onPress={joinCloudTrip}>
                 <Text style={styles.primaryButtonText}>{syncStatus === "syncing" ? "正在加入並同步……" : "加入並開始同步"}</Text>
               </Pressable>
@@ -2044,6 +2065,7 @@ const styles = StyleSheet.create({
   authTitle: { color: "#243B35", fontSize: 32, fontWeight: "900", marginTop: 8 },
   authDescription: { color: "#7E756D", fontSize: 14, lineHeight: 22, textAlign: "center", marginTop: 12, marginBottom: 24 },
   authPrivacy: { color: "#A0978F", fontSize: 10, marginTop: 18 },
+  joinErrorText: { color: "#A5443C", backgroundColor: "#FBECEA", borderRadius: 12, paddingHorizontal: 13, paddingVertical: 10, fontSize: 11, fontWeight: "800", marginTop: 10 },
   webViewport: { height: "100dvh" as never, maxHeight: "100dvh" as never, minHeight: 0, overflow: "hidden" },
   app: { flex: 1, minHeight: 0, overflow: "hidden", position: "relative", backgroundColor: "#FBFAF7", maxWidth: 520, width: "100%", alignSelf: "center" },
   header: { paddingTop: 18, paddingHorizontal: 22, paddingBottom: 18, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
