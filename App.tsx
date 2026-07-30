@@ -245,6 +245,9 @@ export default function App() {
   const [shoppingImageUrl, setShoppingImageUrl] = useState("");
   const [previousStops, setPreviousStops] = useState<Stop[] | null>(null);
   const [cloudLinks, setCloudLinks] = useState<CloudLinks>({});
+  const [cloudPanelVisible, setCloudPanelVisible] = useState(false);
+  const [bulkImportVisible, setBulkImportVisible] = useState(false);
+  const [bulkItineraryText, setBulkItineraryText] = useState("");
   const [syncStatus, setSyncStatus] = useState<"local" | "syncing" | "synced" | "error">("local");
   const [joiningTrip, setJoiningTrip] = useState(false);
   const [joinTripId, setJoinTripId] = useState("");
@@ -597,11 +600,7 @@ export default function App() {
       AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(nextExpenses)).catch(() => undefined);
       saveCloudLinks({ ...cloudLinksRef.current, [cloudTripId]: { inviteCode, memberName: "我" } });
       await syncTripNow(cloudTrip, tripExpenses);
-      Alert.alert(
-        "雙人同步已開啟",
-        `旅行 ID：${cloudTripId}\n邀請碼：${inviteCode}\n\n旅伴在豆遊首頁點「加入旅行」即可。`,
-        [{ text: "稍後分享" }, { text: "分享給旅伴", onPress: () => shareCloudInfo(cloudTripId, inviteCode) }]
-      );
+      setCloudPanelVisible(true);
     } catch (error: any) {
       setSyncStatus("error");
       Alert.alert("目前無法開啟同步", error?.message || "請確認網路後再試一次。");
@@ -609,20 +608,46 @@ export default function App() {
   };
 
   const showCloudInfo = () => {
-    const link = cloudLinksRef.current[activeTrip.id];
-    if (!link) {
-      Alert.alert(
-        "開啟雙人同步？",
-        "開啟後會將這趟旅行上傳到豆遊同步服務，並產生旅行 ID 與六位數邀請碼。",
-        [{ text: "取消", style: "cancel" }, { text: "開啟同步", onPress: enableCloudForExistingTrip }]
-      );
+    setCloudPanelVisible(true);
+  };
+
+  const importBulkItinerary = () => {
+    const lines = bulkItineraryText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (!lines.length) return;
+    let dayIndex = Math.max(0, activeTrip.days.findIndex((day) => day.id === selectedDay.id));
+    const nextDays = activeTrip.days.map((day) => ({ ...day, stops: [...day.stops] }));
+    let added = 0;
+    lines.forEach((line) => {
+      const dayMatch = line.match(/^(?:DAY|第)\s*(\d+)/i);
+      if (dayMatch && !/[|\t,，]/.test(line)) {
+        dayIndex = Math.min(nextDays.length - 1, Math.max(0, Number(dayMatch[1]) - 1));
+        return;
+      }
+      const parts = line.split(/\t|\s*\|\s*/).map((part) => part.trim());
+      if (parts.length < 2) return;
+      const time = parts[0] || "彈性";
+      const title = parts[1] || "";
+      const address = parts[2] || "地址待補";
+      const transport = parts[3] || "尚未安排";
+      const note = parts[4] || "";
+      if (!title || /^(時間|time)$/i.test(time)) return;
+      nextDays[dayIndex]!.stops.push({
+        id: `${nextDays[dayIndex]!.id}-bulk-${Date.now()}-${added}`,
+        time: time || "彈性", title, address, transport, note,
+        transportMode: transport.includes("步行") ? "步行" : transport.includes("地鐵") ? "地鐵" : transport.includes("公車") ? "公車" : transport.includes("計程車") ? "計程車" : "其他",
+        routeMode: transport.includes("步行") ? "walking" : transport.includes("地鐵") || transport.includes("公車") ? "transit" : transport.includes("計程車") ? "taxi" : "driving"
+      });
+      added += 1;
+    });
+    if (!added) {
+      Alert.alert("沒有讀到景點", "請使用：時間｜景點｜地址｜交通｜備註；不同天可用 DAY 1、DAY 2 分隔。");
       return;
     }
-    Alert.alert(
-      "旅伴加入資訊",
-      `旅行 ID：${activeTrip.id}\n邀請碼：${link.inviteCode}\n\n旅伴在豆遊首頁點「加入旅行」。`,
-      [{ text: "關閉" }, { text: "分享給旅伴", onPress: () => shareCloudInfo(activeTrip.id, link.inviteCode) }]
-    );
+    persistTrips(trips.map((trip) => trip.id === activeTrip.id ? { ...trip, days: nextDays } : trip));
+    setBulkItineraryText("");
+    setBulkImportVisible(false);
+    setAddingStop(false);
+    Alert.alert("匯入完成", `已加入 ${added} 個景點。`);
   };
 
   const deleteTrip = (trip: TripPlan) => {
@@ -971,8 +996,8 @@ export default function App() {
                   <Text style={styles.mainTitle}>{activeTrip.title}</Text>
                 </View>
                 <View style={styles.headerBadges}>
-                  <Pressable style={styles.syncBadge} onPress={showCloudInfo}>
-                    <Text style={styles.syncBadgeText}>{syncStatus === "syncing" ? "☁ 同步中" : syncStatus === "synced" ? "☁ 已同步" : syncStatus === "error" ? "☁ 待重試" : "此機保存"}</Text>
+                  <Pressable hitSlop={12} style={[styles.syncBadge, syncStatus === "local" && styles.syncBadgeLocal]} onPress={showCloudInfo}>
+                    <Text style={styles.syncBadgeText}>{syncStatus === "syncing" ? "☁ 同步中" : syncStatus === "synced" ? "☁ 已同步" : syncStatus === "error" ? "☁ 待重試" : "☁ 開啟同步"}</Text>
                   </Pressable>
                   <Pressable style={styles.tripBadge} onPress={() => { setTravelerDraft(String(activeTrip.travelers)); setEditingTravelers(true); }}>
                     <Text style={styles.tripBadgeIcon}>✦</Text>
@@ -1186,6 +1211,36 @@ export default function App() {
           <TabButton icon="✦" label="工具箱" active={tab === "toolbox"} onPress={() => setTab("toolbox")} />
           <TabButton icon="₩" label="記帳" active={tab === "expenses"} onPress={() => setTab("expenses")} />
         </View>
+
+        <Modal visible={cloudPanelVisible} animationType="fade" transparent onRequestClose={() => setCloudPanelVisible(false)}>
+          <View style={styles.modalShade}>
+            <View style={styles.sheet}>
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetEyebrow}>TRIP SYNC</Text>
+              <Text style={styles.sheetTitle}>{cloudLinks[activeTrip.id] ? "旅伴加入資訊" : "開啟雙人同步"}</Text>
+              {cloudLinks[activeTrip.id] ? (
+                <>
+                  <Text style={styles.cloudLabel}>旅行 ID</Text>
+                  <Text selectable style={styles.cloudCode}>{activeTrip.id}</Text>
+                  <Text style={styles.cloudLabel}>六位數邀請碼</Text>
+                  <Text selectable style={styles.cloudInvite}>{cloudLinks[activeTrip.id]!.inviteCode}</Text>
+                  <Text style={styles.sheetAddress}>旅伴在豆遊首頁點「加入旅行」，輸入上面兩項資料。</Text>
+                  <Pressable style={styles.primaryButton} onPress={() => shareCloudInfo(activeTrip.id, cloudLinks[activeTrip.id]!.inviteCode)}>
+                    <Text style={styles.primaryButtonText}>分享給旅伴</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.sheetAddress}>開啟後會將這趟旅行上傳到豆遊同步服務，並產生旅行 ID 與邀請碼。</Text>
+                  <Pressable disabled={syncStatus === "syncing"} style={styles.primaryButton} onPress={enableCloudForExistingTrip}>
+                    <Text style={styles.primaryButtonText}>{syncStatus === "syncing" ? "正在開啟……" : "開啟同步"}</Text>
+                  </Pressable>
+                </>
+              )}
+              <Pressable style={styles.cancelButton} onPress={() => setCloudPanelVisible(false)}><Text style={styles.cancelText}>關閉</Text></Pressable>
+            </View>
+          </View>
+        </Modal>
 
         <Modal visible={!!editing} animationType="slide" transparent onRequestClose={() => setEditing(null)}>
           <View style={styles.modalShade}>
@@ -1526,6 +1581,23 @@ export default function App() {
                 <View style={styles.sheetHandle} />
                 <Text style={styles.sheetEyebrow}>ADD A PLACE</Text>
                 <Text style={styles.sheetTitle}>新增景點或行程</Text>
+                <Pressable style={styles.bulkImportButton} onPress={() => setBulkImportVisible(!bulkImportVisible)}>
+                  <Text style={styles.bulkImportButtonText}>{bulkImportVisible ? "收起批次貼上" : "一次貼上整份行程"}</Text>
+                </Pressable>
+                {bulkImportVisible && (
+                  <View style={styles.bulkImportBox}>
+                    <Text style={styles.bulkHelp}>每行格式：時間｜景點｜地址｜交通｜備註{"\n"}不同天請插入 DAY 1、DAY 2…</Text>
+                    <TextInput
+                      value={bulkItineraryText}
+                      onChangeText={setBulkItineraryText}
+                      multiline
+                      placeholder={"DAY 1\n09:00｜海雲台｜地址｜地鐵｜吃早餐\n10:30｜藍線公園｜地址｜步行｜已訂票"}
+                      placeholderTextColor="#AAA198"
+                      style={styles.bulkInput}
+                    />
+                    <Pressable style={styles.primaryButton} onPress={importBulkItinerary}><Text style={styles.primaryButtonText}>匯入全部景點</Text></Pressable>
+                  </View>
+                )}
                 <Text style={styles.fieldLabel}>景點名稱 *</Text>
                 <TextInput value={newStopTitle} onChangeText={setNewStopTitle} placeholder="例如：國際通" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                 <View style={styles.fieldRow}>
@@ -1572,8 +1644,17 @@ const styles = StyleSheet.create({
   subtitle: { color: "#756E65", fontSize: 13, marginTop: 10 },
   tripBadge: { backgroundColor: "#2F5147", borderRadius: 16, paddingHorizontal: 11, paddingVertical: 9, alignItems: "center" },
   headerBadges: { alignItems: "flex-end", gap: 6 },
-  syncBadge: { backgroundColor: "rgba(255,255,255,.75)", borderRadius: 12, paddingHorizontal: 9, paddingVertical: 5, borderWidth: 1, borderColor: "#DDD1C2" },
-  syncBadgeText: { color: "#49675E", fontSize: 9, fontWeight: "900" },
+  syncBadge: { backgroundColor: "rgba(255,255,255,.9)", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9, borderWidth: 1, borderColor: "#CFC4B6", minWidth: 92, alignItems: "center", zIndex: 20 },
+  syncBadgeLocal: { backgroundColor: "#FFF8E8", borderColor: "#D9B86D" },
+  syncBadgeText: { color: "#49675E", fontSize: 10, fontWeight: "900" },
+  cloudLabel: { color: "#897E73", fontSize: 11, fontWeight: "800", marginTop: 15 },
+  cloudCode: { color: "#233D35", backgroundColor: "#EFF4F1", padding: 12, borderRadius: 12, fontSize: 13, fontWeight: "800", marginTop: 5 },
+  cloudInvite: { color: "#233D35", fontSize: 29, letterSpacing: 7, fontWeight: "900", marginTop: 4 },
+  bulkImportButton: { backgroundColor: "#E7EFEA", borderRadius: 12, padding: 12, marginBottom: 10, alignItems: "center" },
+  bulkImportButtonText: { color: "#315248", fontSize: 12, fontWeight: "900" },
+  bulkImportBox: { backgroundColor: "#F7F4EE", borderRadius: 14, padding: 11, marginBottom: 12 },
+  bulkHelp: { color: "#766E66", fontSize: 10, lineHeight: 16, marginBottom: 8 },
+  bulkInput: { minHeight: 170, maxHeight: 300, backgroundColor: "#FFF", borderRadius: 12, padding: 11, color: "#302B27", fontSize: 12, textAlignVertical: "top", borderWidth: 1, borderColor: "#E3DDD5" },
   tripBadgeIcon: { color: "#F4C88B", fontSize: 13 },
   tripBadgeText: { color: "#FFF", fontSize: 9, fontWeight: "800", marginTop: 2 },
   dayTabs: { gap: 8, paddingTop: 18, paddingBottom: 2 },

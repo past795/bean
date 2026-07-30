@@ -4,11 +4,16 @@
     "slug": "travel-companion",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/douyou-icon.png",
     "userInterfaceStyle": "light",
     "ios": {
+      "icon": "./assets/douyou-icon.png",
       "supportsTablet": false,
       "bundleIdentifier": "com.personal.travelcompanion",
       "buildNumber": "1"
+    },
+    "web": {
+      "favicon": "./assets/douyou-icon.png"
     },
     "scheme": "travelcompanion",
     "experiments": {
