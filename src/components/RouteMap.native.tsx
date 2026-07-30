@@ -17,7 +17,9 @@ export function RouteMap({ stops, dayId }: { stops: Stop[]; dayId: string }) {
   return (
     <MapView
       style={styles.map}
-      scrollEnabled={false}
+      scrollEnabled
+      zoomEnabled
+      rotateEnabled={false}
       pitchEnabled={false}
       initialRegion={{
         latitude: stops.reduce((sum, stop) => sum + stop.latitude!, 0) / stops.length,

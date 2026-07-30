@@ -57,6 +57,7 @@ export type TripShoppingItem = {
   price?: string;
   category?: string;
   imageUrl?: string;
+  purchased?: boolean;
 };
 
 export type TripPlan = {

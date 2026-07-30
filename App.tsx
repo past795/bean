@@ -62,7 +62,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   shopping: trip.shopping.map((item) => ({
     "商品ID": item.id, "商品名稱": item.name, "分類": item.category || "",
     "價格": item.price || "", "幣別": "", "圖片網址": item.imageUrl || "",
-    "購買地點": "", "備註": "", "已購買": false
+    "購買地點": "", "備註": "", "已購買": !!item.purchased
   })),
   expenses: tripExpenses.map((item) => ({
     "支出ID": item.id, "項目": item.title, "金額": item.amount,
@@ -109,7 +109,8 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
     })),
     shopping: (data.shopping || []).map((row: any) => ({
       id: String(row["商品ID"]), name: String(row["商品名稱"] || ""), price: String(row["價格"] || ""),
-      category: String(row["分類"] || ""), imageUrl: String(row["圖片網址"] || "")
+      category: String(row["分類"] || ""), imageUrl: String(row["圖片網址"] || ""),
+      purchased: row["已購買"] === true || String(row["已購買"]).toUpperCase() === "TRUE"
     }))
   };
   const expenses = (data.expenses || []).map((row: any) => ({
@@ -141,7 +142,7 @@ const transportIcon = (mode: Stop["transportMode"]) =>
   ({ 步行: "🚶", 計程車: "🚕", 公車: "🚌", 地鐵: "🚇", 飛機: "✈️", 預約制: "🎫", 百貨內: "🏬", 其他: "↗️" }[mode]);
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("itinerary");
+  const [tab, setTab] = useState<Tab>("home");
   const [trips, setTrips] = useState<TripPlan[]>(starterTrips);
   const [activeTripId, setActiveTripId] = useState("busan-2026");
   const [selectedDayId, setSelectedDayId] = useState("day1");
@@ -196,6 +197,7 @@ export default function App() {
   const [shoppingPrice, setShoppingPrice] = useState("");
   const [shoppingCategory, setShoppingCategory] = useState("");
   const [shoppingImageUrl, setShoppingImageUrl] = useState("");
+  const [routeMode, setRouteMode] = useState<"driving" | "walking">("driving");
   const [cloudLinks, setCloudLinks] = useState<CloudLinks>({});
   const [syncStatus, setSyncStatus] = useState<"local" | "syncing" | "synced" | "error">("local");
   const [joiningTrip, setJoiningTrip] = useState(false);
@@ -204,6 +206,7 @@ export default function App() {
   const [joinMemberName, setJoinMemberName] = useState("");
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cloudLinksRef = useRef<CloudLinks>({});
+  const geocodedDaysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     AsyncStorage.getItem(STORE_KEY).then((value) => {
@@ -370,6 +373,33 @@ export default function App() {
     persistTrips(next);
   };
 
+  useEffect(() => {
+    if (!selectedDay || geocodedDaysRef.current.has(`${activeTrip.id}:${selectedDay.id}`)) return;
+    const missing = selectedDay.stops.filter((stop) => stop.latitude == null || stop.longitude == null);
+    if (!missing.length) return;
+    geocodedDaysRef.current.add(`${activeTrip.id}:${selectedDay.id}`);
+    let cancelled = false;
+    (async () => {
+      const resolved = await Promise.all(selectedDay.stops.map(async (stop) => {
+        if (stop.latitude != null && stop.longitude != null) return stop;
+        const cleanTitle = stop.title.replace(/^[^A-Za-z0-9\u3400-\u9fff\uac00-\ud7af]+/, "");
+        try {
+          const query = `${cleanTitle} ${stop.address} ${activeTrip.destination}`;
+          const response = await fetch(`https://photon.komoot.io/api/?limit=1&q=${encodeURIComponent(query)}`);
+          const data = await response.json();
+          const coordinates = data.features?.[0]?.geometry?.coordinates;
+          return coordinates?.length >= 2
+            ? { ...stop, longitude: Number(coordinates[0]), latitude: Number(coordinates[1]) }
+            : stop;
+        } catch {
+          return stop;
+        }
+      }));
+      if (!cancelled && resolved.some((stop, index) => stop !== selectedDay.stops[index])) updateStops(resolved);
+    })();
+    return () => { cancelled = true; };
+  }, [activeTrip.id, selectedDay?.id]);
+
   const updateActiveTrip = (changes: Partial<TripPlan>) => {
     persistTrips(trips.map((trip) => trip.id === activeTrip.id ? { ...trip, ...changes } : trip));
   };
@@ -399,6 +429,31 @@ export default function App() {
       : `https://www.google.com/maps/search/?api=1&query=${query}`;
     Linking.openURL(url).catch(() =>
       Alert.alert("無法開啟地圖", stop.address)
+    );
+  };
+
+  const stopLocation = (stop: Stop) =>
+    stop.latitude != null && stop.longitude != null
+      ? `${stop.latitude},${stop.longitude}`
+      : stop.address || stop.title;
+
+  const openGoogleRoute = (from: Stop, to: Stop, waypoints: Stop[] = []) => {
+    const waypointQuery = waypoints.length
+      ? `&waypoints=${encodeURIComponent(waypoints.map(stopLocation).join("|"))}`
+      : "";
+    const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(stopLocation(from))}&destination=${encodeURIComponent(stopLocation(to))}${waypointQuery}&travelmode=${routeMode}`;
+    Linking.openURL(url).catch(() => Alert.alert("無法開啟 Google Maps"));
+  };
+
+  const openWholeDayRoute = () => {
+    if (selectedDay.stops.length < 2) {
+      Alert.alert("至少需要兩個景點");
+      return;
+    }
+    openGoogleRoute(
+      selectedDay.stops[0]!,
+      selectedDay.stops[selectedDay.stops.length - 1]!,
+      selectedDay.stops.slice(1, -1)
     );
   };
 
@@ -637,6 +692,12 @@ export default function App() {
     updateActiveTrip({ shopping: activeTrip.shopping.filter((item) => item.id !== id) });
   };
 
+  const toggleShoppingItem = (id: string) => {
+    updateActiveTrip({
+      shopping: activeTrip.shopping.map((item) => item.id === id ? { ...item, purchased: !item.purchased } : item)
+    });
+  };
+
   const weatherLabel = (code: number) =>
     code === 0 ? "晴朗" : code <= 3 ? "多雲" : code <= 48 ? "有霧" : code <= 67 ? "下雨" : code <= 77 ? "下雪" : code <= 82 ? "陣雨" : code <= 86 ? "陣雪" : "雷雨";
   const weatherIcon = (code: number) =>
@@ -657,6 +718,7 @@ export default function App() {
 
   const renderStop = ({ item, drag, isActive, getIndex }: RenderItemParams<Stop>) => {
     const index = getIndex() ?? 0;
+    const nextStop = selectedDay.stops[index + 1];
     return (
       <View style={[styles.stopWrap, isActive && styles.dragging]}>
         <View style={styles.timeline}>
@@ -683,10 +745,15 @@ export default function App() {
           <View style={styles.transportRow}>
             <Text style={styles.transportIcon}>{transportIcon(item.transportMode)}</Text>
             <View>
-              <Text style={styles.transportLabel}>前往下一站的交通</Text>
+              <Text style={styles.transportLabel}>原行程安排的交通</Text>
               <Text style={styles.transportText}>{item.transport || "尚未安排"}</Text>
             </View>
           </View>
+          {nextStop && (
+            <Pressable style={styles.fastRouteButton} onPress={() => openGoogleRoute(item, nextStop)}>
+              <Text style={styles.fastRouteButtonText}>用 Google Maps 查看{routeMode === "driving" ? "開車" : "步行"}最快路線 →</Text>
+            </Pressable>
+          )}
           {!!item.note && <Text style={styles.note} numberOfLines={2}>備註｜{item.note}</Text>}
           <View style={styles.cardBottom}>
             {item.pass ? <Text style={styles.pass}>{item.pass}</Text> : <View />}
@@ -777,7 +844,18 @@ export default function App() {
                     <RouteMap stops={routeStops} dayId={selectedDay.id} />
                     <View style={styles.mapFooter}>
                       <Text style={styles.mapFooterTitle}>今日移動路線</Text>
-                      <Text style={styles.mapFooterText}>使用真實座標；拖曳後景點編號與連線會同步更新</Text>
+                      <Text style={styles.mapFooterText}>地圖可拖曳、放大與縮小；選擇交通方式後由 Google Maps 計算最快路線</Text>
+                      <View style={styles.routeModeRow}>
+                        <Pressable onPress={() => setRouteMode("driving")} style={[styles.routeModeButton, routeMode === "driving" && styles.routeModeButtonActive]}>
+                          <Text style={[styles.routeModeText, routeMode === "driving" && styles.routeModeTextActive]}>🚗 開車</Text>
+                        </Pressable>
+                        <Pressable onPress={() => setRouteMode("walking")} style={[styles.routeModeButton, routeMode === "walking" && styles.routeModeButtonActive]}>
+                          <Text style={[styles.routeModeText, routeMode === "walking" && styles.routeModeTextActive]}>🚶 步行</Text>
+                        </Pressable>
+                        <Pressable onPress={openWholeDayRoute} style={styles.openDayRouteButton}>
+                          <Text style={styles.openDayRouteText}>Google 最快路線 ↗</Text>
+                        </Pressable>
+                      </View>
                     </View>
                   </View>
                   <View style={styles.dragBanner}>
@@ -1085,9 +1163,12 @@ export default function App() {
                       <Pressable style={styles.smallAddButton} onPress={() => setAddingShoppingItem(true)}><Text style={styles.smallAddButtonText}>＋</Text></Pressable>
                     </View>
                     {activeTrip.shopping.map((item) => (
-                      <View key={item.id} style={styles.shoppingItem}>
+                      <View key={item.id} style={[styles.shoppingItem, item.purchased && styles.shoppingItemPurchased]}>
+                        <Pressable accessibilityLabel={item.purchased ? "取消已購買" : "標記已購買"} onPress={() => toggleShoppingItem(item.id)} style={[styles.shoppingCheck, item.purchased && styles.shoppingCheckActive]}>
+                          <Text style={styles.shoppingCheckText}>{item.purchased ? "✓" : ""}</Text>
+                        </Pressable>
                         {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
-                        <View style={styles.shoppingInfo}><Text style={styles.shoppingName}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.category || "未分類"}</Text></View>
+                        <View style={styles.shoppingInfo}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.purchased ? "已購買" : item.category || "未分類"}</Text></View>
                         <Text style={styles.shoppingPrice}>{item.price}</Text>
                         <Pressable onPress={() => deleteShoppingItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
                       </View>
@@ -1273,8 +1354,8 @@ function TabButton({ icon, label, active, onPress }: { icon: string; label: stri
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#F7F3EC" },
-  webViewport: { height: "100vh" as never, minHeight: 0 },
-  app: { flex: 1, minHeight: 0, overflow: "hidden", backgroundColor: "#FBFAF7", maxWidth: 520, width: "100%", alignSelf: "center" },
+  webViewport: { height: "100dvh" as never, maxHeight: "100dvh" as never, minHeight: 0, overflow: "hidden" },
+  app: { flex: 1, minHeight: 0, overflow: "hidden", position: "relative", backgroundColor: "#FBFAF7", maxWidth: 520, width: "100%", alignSelf: "center" },
   header: { paddingTop: 18, paddingHorizontal: 22, paddingBottom: 18, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
   headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   eyebrow: { color: "#9A6A4F", fontSize: 11, fontWeight: "800", letterSpacing: 1.5 },
@@ -1308,6 +1389,13 @@ const styles = StyleSheet.create({
   mapFooter: { padding: 14 },
   mapFooterTitle: { fontWeight: "800", color: "#2C2925", fontSize: 15 },
   mapFooterText: { color: "#8C8379", fontSize: 12, marginTop: 3 },
+  routeModeRow: { flexDirection: "row", gap: 7, alignItems: "center", marginTop: 12, flexWrap: "wrap" },
+  routeModeButton: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: "#EEE9E2" },
+  routeModeButtonActive: { backgroundColor: "#2F5147" },
+  routeModeText: { color: "#6F675F", fontSize: 10, fontWeight: "900" },
+  routeModeTextActive: { color: "#FFF" },
+  openDayRouteButton: { flexGrow: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: "#E8EFFB", alignItems: "center" },
+  openDayRouteText: { color: "#3974D8", fontSize: 10, fontWeight: "900" },
   dragBanner: { flexDirection: "row", backgroundColor: "#F0E8DC", borderRadius: 14, padding: 12, marginTop: 14, marginBottom: 10, alignItems: "center", gap: 8 },
   dragBannerText: { color: "#7B604F", fontSize: 12, fontWeight: "600" },
   emptyItinerary: { marginTop: 18, padding: 30, borderRadius: 22, backgroundColor: "#F3EFE7", alignItems: "center", borderWidth: 1, borderStyle: "dashed", borderColor: "#CFC5B9" },
@@ -1337,6 +1425,8 @@ const styles = StyleSheet.create({
   transportIcon: { fontSize: 20 },
   transportLabel: { color: "#819087", fontSize: 9, fontWeight: "700" },
   transportText: { color: "#35554B", fontSize: 12, fontWeight: "800", marginTop: 2 },
+  fastRouteButton: { marginTop: 7, borderRadius: 11, borderWidth: 1, borderColor: "#D7E4DE", paddingVertical: 8, alignItems: "center", backgroundColor: "#F7FAF8" },
+  fastRouteButtonText: { color: "#3974D8", fontSize: 10, fontWeight: "900" },
   note: { color: "#756E66", fontSize: 12, lineHeight: 17, marginTop: 10 },
   cardBottom: { flexDirection: "row", justifyContent: "space-between", marginTop: 11, alignItems: "center", gap: 8 },
   pass: { color: "#34815E", backgroundColor: "#E5F3EA", borderRadius: 9, paddingHorizontal: 8, paddingVertical: 4, fontSize: 11, fontWeight: "800" },
@@ -1345,7 +1435,7 @@ const styles = StyleSheet.create({
   naverButton: { backgroundColor: "#E8F7EE" },
   googleMapLink: { color: "#3974D8", fontSize: 11, fontWeight: "800" },
   naverMapLink: { color: "#03A94D", fontSize: 11, fontWeight: "800" },
-  bottomBar: { position: "absolute", left: 12, right: 12, bottom: 10, height: 72, backgroundColor: "rgba(255,255,255,.97)", borderRadius: 24, flexDirection: "row", shadowColor: "#281E16", shadowOpacity: .13, shadowRadius: 16, shadowOffset: { width: 0, height: 7 }, borderWidth: 1, borderColor: "#EEE9E2" },
+  bottomBar: { position: "absolute", left: 12, right: 12, bottom: 10, height: 72, zIndex: 100, elevation: 20, backgroundColor: "rgba(255,255,255,.98)", borderRadius: 24, flexDirection: "row", shadowColor: "#281E16", shadowOpacity: .16, shadowRadius: 18, shadowOffset: { width: 0, height: 7 }, borderWidth: 1, borderColor: "#EEE9E2" },
   tabButton: { flex: 1, alignItems: "center", justifyContent: "center" },
   tabIcon: { fontSize: 20, color: "#A8A199", fontWeight: "700" },
   tabText: { fontSize: 10, color: "#A8A199", marginTop: 4, fontWeight: "700" },
@@ -1449,8 +1539,13 @@ const styles = StyleSheet.create({
   sourceTabActive: { backgroundColor: "#FFF" },
   sourceTabText: { color: "#8B837A", fontWeight: "800", fontSize: 12 },
   sourceTabTextActive: { color: "#2F5147" },
-  shoppingList: { marginTop: 10, maxHeight: 430 },
+  shoppingList: { marginTop: 10 },
   shoppingItem: { flexDirection: "row", gap: 12, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: "#ECE7E0", alignItems: "center" },
+  shoppingItemPurchased: { opacity: .6, backgroundColor: "#F1F5F2" },
+  shoppingCheck: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "#B9B1A8", alignItems: "center", justifyContent: "center" },
+  shoppingCheckActive: { backgroundColor: "#2F5147", borderColor: "#2F5147" },
+  shoppingCheckText: { color: "#FFF", fontSize: 15, fontWeight: "900" },
+  shoppingNamePurchased: { textDecorationLine: "line-through", color: "#7C857F" },
   productImage: { width: 58, height: 58, borderRadius: 12, backgroundColor: "#FFF" },
   productImageFallback: { width: 58, height: 58, borderRadius: 12, backgroundColor: "#F2EEE8", alignItems: "center", justifyContent: "center" },
   productImageEmoji: { fontSize: 24 },
