@@ -33,6 +33,19 @@ const CLOUD_LINK_KEY = "douyou-cloud-links-v1";
 const AUTH_KEY = "douyou-google-auth-v1";
 const SYNC_URL = "https://script.google.com/macros/s/AKfycbx59WE7iqgehx4nsE4xxxp_Q8-eQrd59VSfR4xSa3IlU7lIBtikr1gvG3EZgxWHEOwj/exec";
 const GOOGLE_CLIENT_ID = "280761518317-gdvrt4provk183vi87j6uoapmu5umn30.apps.googleusercontent.com";
+const buildInviteMessage = (tripId: string, inviteCode: string) => `一起編輯豆遊行程 ✈️
+
+加入步驟：
+1. 開啟豆遊網站並登入自己的 Google 帳號
+2. 在「我的旅行」頁面按右上角「加入旅行」
+3. 輸入下方旅行 ID、邀請碼與成員名稱
+4. 按「加入並開始同步」
+
+旅行 ID：${tripId}
+邀請碼：${inviteCode}
+豆遊網站：https://past795.github.io/bean/
+
+加入成功後，行程與記帳會自動同步。`;
 const isGoogleTokenFresh = (token: string) => {
   try {
     const encoded = token.split(".")[1];
@@ -745,7 +758,7 @@ export default function App() {
   };
 
   const shareCloudInfo = (tripId: string, inviteCode: string) => {
-    const message = `一起編輯豆遊行程\n旅行 ID：${tripId}\n邀請碼：${inviteCode}\n網站：https://past795.github.io/bean/`;
+    const message = buildInviteMessage(tripId, inviteCode);
     Share.share({
       title: "加入我的豆遊旅行",
       message
@@ -753,7 +766,7 @@ export default function App() {
   };
 
   const copyInviteText = async (tripId: string, inviteCode: string) => {
-    const message = `一起編輯豆遊行程\n旅行 ID：${tripId}\n邀請碼：${inviteCode}\n網站：https://past795.github.io/bean/`;
+    const message = buildInviteMessage(tripId, inviteCode);
     try {
       if (Platform.OS === "web" && (globalThis as any).navigator?.clipboard) {
         await (globalThis as any).navigator.clipboard.writeText(message);
@@ -767,7 +780,7 @@ export default function App() {
   };
 
   const shareInviteToLine = (tripId: string, inviteCode: string) => {
-    const message = `一起編輯豆遊行程\n旅行 ID：${tripId}\n邀請碼：${inviteCode}\n網站：https://past795.github.io/bean/`;
+    const message = buildInviteMessage(tripId, inviteCode);
     Linking.openURL(`https://line.me/R/msg/text/?${encodeURIComponent(message)}`).catch(() => showToast("目前無法開啟 LINE"));
   };
 
