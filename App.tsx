@@ -410,9 +410,14 @@ export default function App() {
       return;
     }
     pullCloudTrip(activeTripId, link.inviteCode, true);
-    const timer = setInterval(() => pullCloudTrip(activeTripId, link.inviteCode, true), 15000);
+    const timer = setInterval(() => pullCloudTrip(activeTripId, link.inviteCode, true), 5000);
     return () => clearInterval(timer);
   }, [activeTripId, cloudLinks[activeTripId]?.inviteCode]);
+
+  useEffect(() => {
+    const link = cloudLinksRef.current[activeTripId];
+    if (tab === "expenses" && link) pullCloudTrip(activeTripId, link.inviteCode, true);
+  }, [tab, activeTripId]);
 
   const persistTrips = (next: TripPlan[]) => {
     setTrips(next);
@@ -1175,9 +1180,19 @@ export default function App() {
                 <Text style={styles.eyebrow}>SPLIT TOGETHER</Text>
                 <Text style={styles.pageTitle}>旅行記帳</Text>
                 <Text style={styles.pageSubtitle}>{activeTrip.title}・多幣別支出</Text>
+                <Text selectable style={styles.expenseTripId}>旅行 ID｜{activeTrip.id}</Text>
               </View>
               <Pressable style={styles.addTripButton} onPress={() => setAddingExpense(true)}><Text style={styles.addTripPlus}>＋</Text></Pressable>
             </View>
+            {cloudLinks[activeTrip.id] && (
+              <Pressable
+                disabled={syncStatus === "syncing"}
+                style={styles.refreshSyncButton}
+                onPress={() => pullCloudTrip(activeTrip.id, cloudLinks[activeTrip.id]!.inviteCode)}
+              >
+                <Text style={styles.refreshSyncText}>{syncStatus === "syncing" ? "☁ 正在同步……" : "↻ 立即同步記帳"}</Text>
+              </Pressable>
+            )}
             <LinearGradient colors={["#244C43", "#54796D"]} style={styles.totalCard}>
               <Text style={styles.totalLabel}>目前總支出</Text>
               {Object.keys(currencyTotals).length === 0
@@ -1663,6 +1678,9 @@ const styles = StyleSheet.create({
   cloudLabel: { color: "#897E73", fontSize: 11, fontWeight: "800", marginTop: 15 },
   cloudCode: { color: "#233D35", backgroundColor: "#EFF4F1", padding: 12, borderRadius: 12, fontSize: 13, fontWeight: "800", marginTop: 5 },
   cloudInvite: { color: "#233D35", fontSize: 29, letterSpacing: 7, fontWeight: "900", marginTop: 4 },
+  expenseTripId: { color: "#9A9188", fontSize: 9, marginTop: 5 },
+  refreshSyncButton: { alignSelf: "flex-start", backgroundColor: "#E7EFEA", borderRadius: 11, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12 },
+  refreshSyncText: { color: "#315248", fontSize: 11, fontWeight: "900" },
   bulkImportButton: { backgroundColor: "#E7EFEA", borderRadius: 12, padding: 12, marginBottom: 10, alignItems: "center" },
   bulkImportButtonText: { color: "#315248", fontSize: 12, fontWeight: "900" },
   bulkImportBox: { backgroundColor: "#F7F4EE", borderRadius: 14, padding: 11, marginBottom: 12 },
