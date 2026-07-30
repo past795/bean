@@ -1,4 +1,5 @@
 const SPREADSHEET_ID = '1bN8oCtp39H1HFBhvUmjAdp_hVDP-dYJRWRa0HT5gmho';
+const GOOGLE_CLIENT_ID = '280761518317-gdvrt4provk183vi87j6uoapmu5umn30.apps.googleusercontent.com';
 
 const TABLES = {
   trips: {
@@ -46,9 +47,16 @@ function doGet(e) {
     }
     if (action === 'pull') {
       const tripId = required_(e.parameter.tripId, '缺少 tripId');
-      const inviteCode = required_(e.parameter.inviteCode, '缺少 inviteCode');
-      verifyTrip_(tripId, inviteCode);
+      verifyAccess_(tripId, e.parameter.inviteCode, e.parameter.idToken);
       return json_({ ok: true, data: readTrip_(tripId) });
+    }
+    if (action === 'myTrips') {
+      const user = verifyGoogleToken_(required_(e.parameter.idToken, '請先登入 Google'));
+      const memberId = 'google:' + user.sub;
+      const tripIds = readObjects_(TABLES.members)
+        .filter(row => String(row['成員ID']) === memberId)
+        .map(row => String(row['旅行ID']));
+      return json_({ ok: true, data: tripIds.map(tripId => readTrip_(tripId)) });
     }
     throw new Error('不支援的 action');
   } catch (error) {
@@ -62,18 +70,30 @@ function doPost(e) {
     lock.waitLock(20000);
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     if (body.action === 'createTrip') {
+      if (body.idToken) {
+        const user = verifyGoogleToken_(body.idToken);
+        body.member = body.member || {};
+        body.member['成員ID'] = 'google:' + user.sub;
+        body.member['顯示名稱'] = user.name || body.member['顯示名稱'] || user.email;
+      }
       return json_({ ok: true, data: createTrip_(body) });
     }
     if (body.action === 'syncTrip') {
       const tripId = required_(body.tripId, '缺少 tripId');
-      verifyTrip_(tripId, required_(body.inviteCode, '缺少 inviteCode'));
+      verifyAccess_(tripId, body.inviteCode, body.idToken);
       writeTrip_(tripId, body.data || {});
       return json_({ ok: true, data: readTrip_(tripId) });
     }
     if (body.action === 'joinTrip') {
       const tripId = required_(body.tripId, '缺少 tripId');
       verifyTrip_(tripId, required_(body.inviteCode, '缺少 inviteCode'));
-      upsertMember_(tripId, body.member || {});
+      const user = body.idToken ? verifyGoogleToken_(body.idToken) : null;
+      const member = body.member || {};
+      if (user) {
+        member['成員ID'] = 'google:' + user.sub;
+        member['顯示名稱'] = user.name || member['顯示名稱'] || user.email;
+      }
+      upsertMember_(tripId, member);
       return json_({ ok: true, data: readTrip_(tripId) });
     }
     throw new Error('不支援的 action');
@@ -166,6 +186,30 @@ function verifyTrip_(tripId, inviteCode) {
   const trip = findTrip_(tripId);
   if (!trip) throw new Error('找不到旅行');
   if (String(trip['邀請碼雜湊']) !== hash_(String(inviteCode).trim())) throw new Error('邀請碼錯誤');
+}
+
+function verifyAccess_(tripId, inviteCode, idToken) {
+  if (idToken) {
+    const user = verifyGoogleToken_(idToken);
+    const memberId = 'google:' + user.sub;
+    const allowed = readObjects_(TABLES.members).some(row =>
+      String(row['旅行ID']) === String(tripId) && String(row['成員ID']) === memberId
+    );
+    if (allowed) return user;
+  }
+  verifyTrip_(tripId, required_(inviteCode, '邀請碼錯誤'));
+  return null;
+}
+
+function verifyGoogleToken_(idToken) {
+  const response = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), {
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() !== 200) throw new Error('Google 登入已失效，請重新登入');
+  const user = JSON.parse(response.getContentText());
+  if (String(user.aud) !== GOOGLE_CLIENT_ID) throw new Error('Google 登入來源不正確');
+  if (!user.sub) throw new Error('無法辨識 Google 帳號');
+  return user;
 }
 
 function findTrip_(tripId) {

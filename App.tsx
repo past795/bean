@@ -29,7 +29,9 @@ type Tab = "home" | "itinerary" | "toolbox" | "expenses";
 const STORE_KEY = "travel-companion-v2";
 const EXPENSE_KEY = "travel-expenses-v1";
 const CLOUD_LINK_KEY = "douyou-cloud-links-v1";
+const AUTH_KEY = "douyou-google-auth-v1";
 const SYNC_URL = "https://script.google.com/macros/s/AKfycbx59WE7iqgehx4nsE4xxxp_Q8-eQrd59VSfR4xSa3IlU7lIBtikr1gvG3EZgxWHEOwj/exec";
+const GOOGLE_CLIENT_ID = "280761518317-gdvrt4provk183vi87j6uoapmu5umn30.apps.googleusercontent.com";
 const screenWidth = Dimensions.get("window").width;
 const KNOWN_COORDINATES: Record<string, [number, number]> = {
   "d3-1": [35.1712, 129.1277], "d3-2": [35.0770, 129.0208],
@@ -60,6 +62,7 @@ type CloudLink = { inviteCode: string; memberName?: string; memberId?: string };
 type CloudLinks = Record<string, CloudLink>;
 
 type RouteMode = "driving" | "walking" | "transit" | "taxi";
+type GoogleUser = { sub: string; name: string; email: string; picture?: string; idToken: string };
 
 const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string } => {
   if (!value) return {};
@@ -187,6 +190,7 @@ const transportIcon = (mode: Stop["transportMode"]) =>
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("home");
+  const [googleUser, setGoogleUser] = useState<GoogleUser | null>(null);
   const [trips, setTrips] = useState<TripPlan[]>(starterTrips);
   const [activeTripId, setActiveTripId] = useState("busan-2026");
   const [selectedDayId, setSelectedDayId] = useState("day1");
@@ -259,6 +263,12 @@ export default function App() {
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cloudLinksRef = useRef<CloudLinks>({});
   const geocodedDaysRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    AsyncStorage.getItem(AUTH_KEY).then((value) => {
+      if (value) setGoogleUser(JSON.parse(value));
+    }).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     AsyncStorage.getItem(STORE_KEY).then((value) => {
@@ -350,7 +360,7 @@ export default function App() {
     const response = await fetch(SYNC_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ ...payload, idToken: payload.idToken || googleUser?.idToken || "" })
     });
     const result = await response.json();
     if (!result.ok) throw new Error(result.error || "同步失敗");
@@ -381,7 +391,7 @@ export default function App() {
   const pullCloudTrip = async (tripId: string, inviteCode: string, quiet = false) => {
     if (!quiet) setSyncStatus("syncing");
     try {
-      const url = `${SYNC_URL}?action=pull&tripId=${encodeURIComponent(tripId)}&inviteCode=${encodeURIComponent(inviteCode)}&t=${Date.now()}`;
+      const url = `${SYNC_URL}?action=pull&tripId=${encodeURIComponent(tripId)}&inviteCode=${encodeURIComponent(inviteCode)}&idToken=${encodeURIComponent(googleUser?.idToken || "")}&t=${Date.now()}`;
       const response = await fetch(url);
       const result = await response.json();
       if (!result.ok) throw new Error(result.error || "讀取失敗");
@@ -632,6 +642,54 @@ export default function App() {
 
   const showCloudInfo = () => {
     setCloudPanelVisible(true);
+  };
+
+  const handleGoogleCredential = async (credential: string) => {
+    try {
+      const payload = JSON.parse(decodeURIComponent(Array.prototype.map.call(atob(credential.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")), (char: string) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`).join("")));
+      const user: GoogleUser = { sub: String(payload.sub), name: String(payload.name || payload.email || "Google 使用者"), email: String(payload.email || ""), picture: payload.picture, idToken: credential };
+      setGoogleUser(user);
+      AsyncStorage.setItem(AUTH_KEY, JSON.stringify(user)).catch(() => undefined);
+      const linkedTrips = Object.entries(cloudLinksRef.current);
+      await Promise.all(linkedTrips.map(([tripId, link]) => postCloud({
+        action: "joinTrip", tripId, inviteCode: link.inviteCode, idToken: credential,
+        member: { "成員ID": `google:${user.sub}`, "顯示名稱": user.name, "角色": "member" }
+      }).catch(() => undefined)));
+      setCloudMembers((current) => {
+        const next = { ...current };
+        linkedTrips.forEach(([tripId]) => { next[tripId] = [...new Set([...(next[tripId] || []).filter((name) => name !== "我"), user.name])]; });
+        return next;
+      });
+      const response = await fetch(`${SYNC_URL}?action=myTrips&idToken=${encodeURIComponent(credential)}&t=${Date.now()}`);
+      const result = await response.json();
+      if (result.ok && Array.isArray(result.data)) {
+        const restored = result.data.map((data: any) => cloudToTrip(data));
+        setTrips((current) => {
+          const byId = new Map(current.map((trip) => [trip.id, trip]));
+          restored.forEach(({ trip }: { trip: TripPlan }) => byId.set(trip.id, trip));
+          const next = [...byId.values()];
+          AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
+          return next;
+        });
+        setExpenses((current) => {
+          const next = { ...current };
+          restored.forEach(({ trip, expenses: restoredExpenses }: { trip: TripPlan; expenses: Expense[] }) => { next[trip.id] = restoredExpenses; });
+          AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
+          return next;
+        });
+        const nextLinks = { ...cloudLinksRef.current };
+        restored.forEach(({ trip }: { trip: TripPlan }) => { nextLinks[trip.id] ??= { inviteCode: "", memberName: user.name, memberId: `google:${user.sub}` }; });
+        saveCloudLinks(nextLinks);
+      }
+    } catch {
+      Alert.alert("Google 登入失敗", "請重新選擇帳號。");
+    }
+  };
+
+  const signOutGoogle = () => {
+    setGoogleUser(null);
+    AsyncStorage.removeItem(AUTH_KEY).catch(() => undefined);
+    if (Platform.OS === "web") (globalThis as any).google?.accounts?.id?.disableAutoSelect?.();
   };
 
   const addTripMember = async () => {
@@ -1180,6 +1238,24 @@ export default function App() {
                   <Text style={styles.addTripPlus}>＋</Text>
                 </Pressable>
               </View>
+            </View>
+            <View style={styles.accountCard}>
+              {googleUser ? (
+                <>
+                  <View style={styles.accountIdentity}>
+                    {googleUser.picture ? <Image source={{ uri: googleUser.picture }} style={styles.accountAvatar} /> : <View style={styles.accountAvatarFallback}><Text>●</Text></View>}
+                    <View style={styles.accountText}><Text style={styles.accountName}>{googleUser.name}</Text><Text style={styles.accountEmail}>{googleUser.email}</Text></View>
+                    <Pressable onPress={signOutGoogle}><Text style={styles.signOutText}>登出</Text></Pressable>
+                  </View>
+                  <Text style={styles.accountHint}>同一 Google 帳號在手機與電腦會被辨識為同一位成員。</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.accountTitle}>使用 Google 帳號登入</Text>
+                  <Text style={styles.accountHint}>跨裝置辨識同一人，並保留旅行成員身分。</Text>
+                  <GoogleSignInButton onCredential={handleGoogleCredential} />
+                </>
+              )}
             </View>
             {trips.map((trip, index) => (
               <Pressable key={trip.id} style={styles.tripCard} onPress={() => selectTrip(trip)}>
@@ -1733,6 +1809,29 @@ function TabButton({ icon, label, active, onPress }: { icon: string; label: stri
   return <Pressable style={styles.tabButton} onPress={onPress}><Text style={[styles.tabIcon, active && styles.tabActive]}>{icon}</Text><Text style={[styles.tabText, active && styles.tabActive]}>{label}</Text></Pressable>;
 }
 
+function GoogleSignInButton({ onCredential }: { onCredential: (credential: string) => void }) {
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const render = () => {
+      const google = (globalThis as any).google;
+      const target = (globalThis as any).document?.getElementById("douyou-google-signin");
+      if (!google?.accounts?.id || !target) return;
+      google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: (response: any) => onCredential(response.credential) });
+      target.innerHTML = "";
+      google.accounts.id.renderButton(target, { theme: "outline", size: "large", shape: "pill", text: "signin_with", locale: "zh-TW", width: 280 });
+    };
+    const document = (globalThis as any).document;
+    if ((globalThis as any).google?.accounts?.id) { render(); return; }
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.onload = render;
+    document.head.appendChild(script);
+  }, []);
+  if (Platform.OS !== "web") return <Text style={styles.accountHint}>請先使用網站版登入 Google。</Text>;
+  return <View nativeID="douyou-google-signin" style={styles.googleButtonHost} />;
+}
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#F7F3EC" },
   webViewport: { height: "100dvh" as never, maxHeight: "100dvh" as never, minHeight: 0, overflow: "hidden" },
@@ -1856,6 +1955,17 @@ const styles = StyleSheet.create({
   homeHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   addTripButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: "#2F5147", alignItems: "center", justifyContent: "center", shadowColor: "#2F5147", shadowOpacity: .18, shadowRadius: 10 },
   homeHeaderActions: { flexDirection: "row", alignItems: "center", gap: 9 },
+  accountCard: { backgroundColor: "#FFF", borderRadius: 18, padding: 14, marginTop: 14, marginBottom: 4, borderWidth: 1, borderColor: "#E9E2D9" },
+  accountTitle: { color: "#263D35", fontSize: 14, fontWeight: "900" },
+  accountHint: { color: "#887F76", fontSize: 10, lineHeight: 15, marginTop: 4 },
+  googleButtonHost: { minHeight: 44, marginTop: 10 },
+  accountIdentity: { flexDirection: "row", alignItems: "center", gap: 10 },
+  accountAvatar: { width: 38, height: 38, borderRadius: 19 },
+  accountAvatarFallback: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#E7EFEA", alignItems: "center", justifyContent: "center" },
+  accountText: { flex: 1 },
+  accountName: { color: "#263D35", fontSize: 13, fontWeight: "900" },
+  accountEmail: { color: "#8C837A", fontSize: 10, marginTop: 2 },
+  signOutText: { color: "#A46448", fontSize: 10, fontWeight: "800" },
   joinTripButton: { backgroundColor: "#E9E2D8", borderRadius: 15, paddingHorizontal: 13, paddingVertical: 11 },
   joinTripButtonText: { color: "#2F5147", fontSize: 11, fontWeight: "900" },
   addTripPlus: { color: "#FFF", fontSize: 25, fontWeight: "500", marginTop: -2 },
