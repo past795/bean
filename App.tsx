@@ -1634,7 +1634,11 @@ export default function App() {
     const checklist = activeTrip.checklist || [];
     if (checklist.some((item) => item.scope === "personal" && item.owner === myDisplayName)) return;
     updateActiveTrip({ checklist: [...checklist, ...defaultPersonalPacking(myDisplayName)] });
-  }, [activeTrip.id, myDisplayName]);
+  }, [
+    activeTrip.id,
+    myDisplayName,
+    (activeTrip.checklist || []).some((item) => item.scope === "personal" && item.owner === myDisplayName)
+  ]);
 
   const weatherLabel = (code: number) =>
     code === 0 ? "晴朗" : code <= 3 ? "多雲" : code <= 48 ? "有霧" : code <= 67 ? "下雨" : code <= 77 ? "下雪" : code <= 82 ? "陣雨" : code <= 86 ? "陣雪" : "雷雨";
@@ -1826,9 +1830,6 @@ export default function App() {
                     <View style={styles.dayHeadingActions}>
                       <Text style={styles.dayCount}>{selectedDay.stops.length} 個安排</Text>
                       <View style={styles.dayActionRow}>
-                        <Pressable disabled={!previousStops} style={[styles.dayUndoButton, !previousStops && styles.dayUndoButtonDisabled]} onPress={undoSmartSort}>
-                          <Text style={[styles.dayUndoText, !previousStops && styles.dayUndoTextDisabled]}>↶ 上一步</Text>
-                        </Pressable>
                         <Pressable style={styles.smallAddButton} onPress={() => setAddingStop(true)}>
                           <Text style={styles.smallAddButtonText}>＋</Text>
                         </Pressable>
@@ -1850,7 +1851,7 @@ export default function App() {
                         </Pressable>
                         {previousStops && (
                           <Pressable onPress={undoSmartSort} style={styles.undoSortButton}>
-                            <Text style={styles.undoSortText}>復原</Text>
+                            <Text style={styles.undoSortText}>↶ 上一步</Text>
                           </Pressable>
                         )}
                       </View>
@@ -2042,6 +2043,12 @@ export default function App() {
               </View>
             ))}
           </ScrollView>
+        )}
+
+        {tab === "itinerary" && previousStops && (
+          <Pressable style={styles.floatingUndoButton} onPress={undoSmartSort}>
+            <Text style={styles.floatingUndoText}>↶ 上一步</Text>
+          </Pressable>
         )}
 
         <View style={styles.bottomBar}>
@@ -2709,10 +2716,6 @@ const styles = StyleSheet.create({
   dayHeadingTitle: { fontSize: 23, fontWeight: "900", color: "#252D29", letterSpacing: -.4 },
   dayHeadingActions: { alignItems: "flex-end", gap: 7 },
   dayActionRow: { flexDirection: "row", alignItems: "center", gap: 7 },
-  dayUndoButton: { height: 30, borderRadius: 11, backgroundColor: "#F3E8DE", paddingHorizontal: 11, alignItems: "center", justifyContent: "center" },
-  dayUndoButtonDisabled: { backgroundColor: "#EEEAE5" },
-  dayUndoText: { color: "#9C613F", fontSize: 10, fontWeight: "900" },
-  dayUndoTextDisabled: { color: "#B7B0A8" },
   smallAddButton: { width: 30, height: 30, borderRadius: 11, backgroundColor: "#2F5147", alignItems: "center", justifyContent: "center" },
   smallAddButtonText: { color: "#FFF", fontSize: 19, marginTop: -2 },
   dayCount: { fontSize: 12, color: "#978F85" },
@@ -2777,6 +2780,8 @@ const styles = StyleSheet.create({
   googleMapLink: { color: "#3974D8", fontSize: 11, fontWeight: "800" },
   naverMapLink: { color: "#03A94D", fontSize: 11, fontWeight: "800" },
   bottomBar: { position: "absolute", left: 12, right: 12, bottom: 10, height: 72, zIndex: 100, elevation: 20, backgroundColor: "rgba(255,255,255,.98)", borderRadius: 24, flexDirection: "row", shadowColor: "#281E16", shadowOpacity: .16, shadowRadius: 18, shadowOffset: { width: 0, height: 7 }, borderWidth: 1, borderColor: "#EEE9E2" },
+  floatingUndoButton: { position: "absolute", right: 20, bottom: 92, zIndex: 120, elevation: 25, backgroundColor: "#9C613F", borderRadius: 999, paddingHorizontal: 17, height: 42, alignItems: "center", justifyContent: "center", shadowColor: "#3A2419", shadowOpacity: .22, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  floatingUndoText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
   tabButton: { flex: 1, alignItems: "center", justifyContent: "center" },
   tabIcon: { fontSize: 20, color: "#A8A199", fontWeight: "700" },
   tabText: { fontSize: 10, color: "#A8A199", marginTop: 4, fontWeight: "700" },
