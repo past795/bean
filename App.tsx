@@ -48,6 +48,8 @@ const KNOWN_COORDINATES: Record<string, [number, number]> = {
   "d5-9": [35.1796, 128.9380]
 };
 const VERIFIED_OPENING_HOURS: Record<string, { hours: string; source: string }> = {
+  "d1-2": { hours: "櫃檯 24 小時・入住 15:00 起", source: "Toyoko Inn Busan Jungang Station 官方網站" },
+  "d1-11": { hours: "櫃檯 24 小時・入住 15:00 起", source: "Toyoko Inn Busan Jungang Station 官方網站" },
   "d2-2": { hours: "09:00–18:30", source: "Haeundae Blueline Park／VISITKOREA" },
   "d2-5": { hours: "09:00–18:30", source: "Haeundae Blueline Park／VISITKOREA" },
   "d2-7": { hours: "10:00–21:00", source: "Busan X the SKY 官方網站" },
@@ -63,6 +65,17 @@ type CloudLinks = Record<string, CloudLink>;
 
 type RouteMode = "driving" | "walking" | "transit" | "taxi";
 type GoogleUser = { sub: string; name: string; email: string; picture?: string; idToken: string };
+
+const formatCloudDateTime = (value: unknown) => {
+  const text = String(value || "");
+  if (!/^\d{4}-\d\d-\d\dT/.test(text)) return text;
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return text;
+  if (date.getUTCFullYear() <= 1900) {
+    return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  }
+  return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date).replace(" ", " ");
+};
 
 const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string } => {
   if (!value) return {};
@@ -128,7 +141,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
       stops: rows.map((row: any) => {
         const meta = parseStopMeta(row["結束時間"]);
         return {
-          id: String(row["景點ID"]), time: String(row["開始時間"] || "彈性"),
+          id: String(row["景點ID"]), time: formatCloudDateTime(row["開始時間"]) || "彈性",
           title: String(row["景點名稱"] || "未命名景點"), address: String(row["地址"] || "地址待補"),
           transport: String(row["交通方式"] || "尚未安排"), transportMode: "其他" as const,
           note: String(row["備註"] || ""), latitude: row["緯度"] === "" ? undefined : Number(row["緯度"]),
@@ -146,12 +159,12 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
     days: days.length ? days : [{ id: `${id}-day-1`, label: "DAY 1", date: "第 1 天", title: "自由安排", stops: [] }],
     flights: (data.flights || []).map((row: any) => ({
       id: String(row["航班ID"]), route: String(row["出發機場"] || ""),
-      flightNumber: String(row["航班編號"] || ""), departure: String(row["出發時間"] || ""),
-      arrival: String(row["抵達時間"] || ""), terminal: String(row["航廈"] || ""), note: String(row["備註"] || "")
+      flightNumber: String(row["航班編號"] || ""), departure: formatCloudDateTime(row["出發時間"]),
+      arrival: formatCloudDateTime(row["抵達時間"]), terminal: String(row["航廈"] || ""), note: String(row["備註"] || "")
     })),
     accommodations: (data.accommodations || []).map((row: any) => ({
-      id: String(row["住宿ID"]), name: String(row["住宿名稱"] || ""), period: String(row["入住日期"] || ""),
-      address: String(row["地址"] || ""), checkIn: String(row["入住時間"] || ""), checkOut: String(row["退房時間"] || ""),
+      id: String(row["住宿ID"]), name: String(row["住宿名稱"] || ""), period: formatCloudDateTime(row["入住日期"]),
+      address: String(row["地址"] || ""), checkIn: formatCloudDateTime(row["入住時間"]), checkOut: formatCloudDateTime(row["退房時間"]),
       facilities: String(row["設施"] || ""), frontDesk: String(row["櫃檯資訊"] || ""), note: String(row["備註"] || "")
     })),
     shopping: (data.shopping || []).map((row: any) => ({
@@ -361,7 +374,7 @@ export default function App() {
     const response = await fetch(SYNC_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ ...payload, idToken: payload.idToken || googleUser?.idToken || "" })
+      body: JSON.stringify(payload)
     });
     const result = await response.json();
     if (!result.ok) throw new Error(result.error || "同步失敗");
@@ -715,6 +728,7 @@ export default function App() {
       showToast(`${name} 已加入成員名單`);
     } catch (error: any) {
       setSyncStatus("error");
+      showToast(`儲存失敗：${error?.message || "請稍後再試"}`);
       Alert.alert("無法新增成員", error?.message || "請稍後再試。");
     }
   };
@@ -738,6 +752,7 @@ export default function App() {
       showToast(`名稱已儲存：${name}`);
     } catch (error: any) {
       setSyncStatus("error");
+      showToast(`儲存失敗：${error?.message || "請稍後再試"}`);
       Alert.alert("無法儲存名稱", error?.message || "請稍後再試。");
     }
   };

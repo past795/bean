@@ -190,12 +190,16 @@ function verifyTrip_(tripId, inviteCode) {
 
 function verifyAccess_(tripId, inviteCode, idToken) {
   if (idToken) {
-    const user = verifyGoogleToken_(idToken);
-    const memberId = 'google:' + user.sub;
-    const allowed = readObjects_(TABLES.members).some(row =>
-      String(row['旅行ID']) === String(tripId) && String(row['成員ID']) === memberId
-    );
-    if (allowed) return user;
+    try {
+      const user = verifyGoogleToken_(idToken);
+      const memberId = 'google:' + user.sub;
+      const allowed = readObjects_(TABLES.members).some(row =>
+        String(row['旅行ID']) === String(tripId) && String(row['成員ID']) === memberId
+      );
+      if (allowed) return user;
+    } catch (_) {
+      // An expired Google token must not block a valid trip invite code.
+    }
   }
   verifyTrip_(tripId, required_(inviteCode, '邀請碼錯誤'));
   return null;
