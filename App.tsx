@@ -49,6 +49,7 @@ const KNOWN_COORDINATES: Record<string, [number, number]> = {
 };
 const VERIFIED_OPENING_HOURS: Record<string, { hours: string; source: string }> = {
   "d1-2": { hours: "櫃檯 24 小時・入住 15:00 起", source: "Toyoko Inn Busan Jungang Station 官方網站" },
+  "d1-3": { hours: "每日 08:00–21:00", source: "Tabling／店家公開資訊" },
   "d1-11": { hours: "櫃檯 24 小時・入住 15:00 起", source: "Toyoko Inn Busan Jungang Station 官方網站" },
   "d2-2": { hours: "09:00–18:30", source: "Haeundae Blueline Park／VISITKOREA" },
   "d2-5": { hours: "09:00–18:30", source: "Haeundae Blueline Park／VISITKOREA" },
