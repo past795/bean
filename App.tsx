@@ -56,7 +56,7 @@ const VERIFIED_OPENING_HOURS: Record<string, { hours: string; source: string }> 
 };
 
 type Expense = { id: string; title: string; amount: number; payer: string; currency?: string };
-type CloudLink = { inviteCode: string; memberName?: string };
+type CloudLink = { inviteCode: string; memberName?: string; memberId?: string };
 type CloudLinks = Record<string, CloudLink>;
 
 type RouteMode = "driving" | "walking" | "transit" | "taxi";
@@ -247,6 +247,7 @@ export default function App() {
   const [cloudLinks, setCloudLinks] = useState<CloudLinks>({});
   const [cloudMembers, setCloudMembers] = useState<Record<string, string[]>>({});
   const [memberDraft, setMemberDraft] = useState("");
+  const [myNameDraft, setMyNameDraft] = useState("");
   const [cloudPanelVisible, setCloudPanelVisible] = useState(false);
   const [bulkImportVisible, setBulkImportVisible] = useState(false);
   const [bulkItineraryText, setBulkItineraryText] = useState("");
@@ -385,7 +386,7 @@ export default function App() {
       const result = await response.json();
       if (!result.ok) throw new Error(result.error || "讀取失敗");
       const converted = cloudToTrip(result.data);
-      const memberNames = (result.data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter(Boolean);
+      const memberNames = (result.data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter((name: string) => name && name !== "我");
       setCloudMembers((current) => ({ ...current, [tripId]: [...new Set(memberNames)] as string[] }));
       setTrips((current) => {
         const exists = current.some((trip) => trip.id === converted.trip.id);
@@ -601,6 +602,8 @@ export default function App() {
     const originalTrip = activeTrip;
     const cloudTripId = `trip-${Date.now()}`;
     const inviteCode = String(Math.floor(100000 + Math.random() * 900000));
+    const memberId = `member-${Date.now()}`;
+    const ownerName = myNameDraft.trim() || "未命名成員";
     const cloudTrip = { ...originalTrip, id: cloudTripId };
     const tripExpenses = expenses[originalTrip.id] ?? [];
     setSyncStatus("syncing");
@@ -608,7 +611,7 @@ export default function App() {
       await postCloud({
         action: "createTrip", inviteCode,
         trip: { "旅行ID": cloudTripId, "名稱": cloudTrip.title, "目的地": cloudTrip.destination, "開始日期": cloudTrip.period, "主要幣別": "TWD" },
-        member: { "成員ID": `member-${Date.now()}`, "顯示名稱": "我", "角色": "owner" }
+        member: { "成員ID": memberId, "顯示名稱": ownerName, "角色": "owner" }
       });
       const nextTrips = trips.map((trip) => trip.id === originalTrip.id ? cloudTrip : trip);
       setTrips(nextTrips);
@@ -618,7 +621,7 @@ export default function App() {
       delete nextExpenses[originalTrip.id];
       setExpenses(nextExpenses);
       AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(nextExpenses)).catch(() => undefined);
-      saveCloudLinks({ ...cloudLinksRef.current, [cloudTripId]: { inviteCode, memberName: "我" } });
+      saveCloudLinks({ ...cloudLinksRef.current, [cloudTripId]: { inviteCode, memberName: ownerName, memberId } });
       await syncTripNow(cloudTrip, tripExpenses);
       setCloudPanelVisible(true);
     } catch (error: any) {
@@ -641,13 +644,34 @@ export default function App() {
         action: "joinTrip", tripId: activeTrip.id, inviteCode: link.inviteCode,
         member: { "成員ID": `member-${Date.now()}`, "顯示名稱": name, "角色": "member" }
       });
-      const memberNames = (data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter(Boolean);
+      const memberNames = (data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter((memberName: string) => memberName && memberName !== "我");
       setCloudMembers((current) => ({ ...current, [activeTrip.id]: [...new Set(memberNames)] as string[] }));
       setMemberDraft("");
       setSyncStatus("synced");
     } catch (error: any) {
       setSyncStatus("error");
       Alert.alert("無法新增成員", error?.message || "請稍後再試。");
+    }
+  };
+
+  const saveMyMemberName = async () => {
+    const name = myNameDraft.trim();
+    const link = cloudLinksRef.current[activeTrip.id];
+    if (!name || !link) return;
+    const memberId = link.memberId || `member-${Date.now()}`;
+    setSyncStatus("syncing");
+    try {
+      const data = await postCloud({
+        action: "joinTrip", tripId: activeTrip.id, inviteCode: link.inviteCode,
+        member: { "成員ID": memberId, "顯示名稱": name, "角色": "member" }
+      });
+      saveCloudLinks({ ...cloudLinksRef.current, [activeTrip.id]: { ...link, memberName: name, memberId } });
+      const names = (data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter((memberName: string) => memberName && memberName !== "我");
+      setCloudMembers((current) => ({ ...current, [activeTrip.id]: [...new Set(names)] as string[] }));
+      setSyncStatus("synced");
+    } catch (error: any) {
+      setSyncStatus("error");
+      Alert.alert("無法儲存名稱", error?.message || "請稍後再試。");
     }
   };
 
@@ -1278,9 +1302,15 @@ export default function App() {
                   <Text selectable style={styles.cloudInvite}>{cloudLinks[activeTrip.id]!.inviteCode}</Text>
                   <Text style={styles.cloudLabel}>這趟旅行的成員</Text>
                   <View style={styles.memberChips}>
-                    {(cloudMembers[activeTrip.id]?.length ? cloudMembers[activeTrip.id]! : ["我"]).map((name) => (
-                      <View key={name} style={styles.memberChip}><Text style={styles.memberChipText}>● {name}</Text></View>
+                    {(cloudMembers[activeTrip.id] ?? []).map((name) => (
+                      <View key={name} style={styles.memberChip}><Text style={styles.memberChipText}>● {name}{cloudLinks[activeTrip.id]?.memberName === name ? "（我）" : ""}</Text></View>
                     ))}
+                  </View>
+                  {!cloudMembers[activeTrip.id]?.length && <Text style={styles.sourceHint}>尚未設定成員名稱</Text>}
+                  <Text style={styles.cloudLabel}>我的名稱</Text>
+                  <View style={styles.memberAddRow}>
+                    <TextInput value={myNameDraft} onChangeText={setMyNameDraft} placeholder={cloudLinks[activeTrip.id]?.memberName || "例如：Julie"} placeholderTextColor="#AAA198" style={styles.memberInput} />
+                    <Pressable style={styles.memberAddButton} onPress={saveMyMemberName}><Text style={styles.memberAddText}>儲存</Text></Pressable>
                   </View>
                   <View style={styles.memberAddRow}>
                     <TextInput value={memberDraft} onChangeText={setMemberDraft} placeholder="輸入成員名稱" placeholderTextColor="#AAA198" style={styles.memberInput} />
@@ -1294,6 +1324,8 @@ export default function App() {
               ) : (
                 <>
                   <Text style={styles.sheetAddress}>開啟後會將這趟旅行上傳到豆遊同步服務，並產生旅行 ID 與邀請碼。</Text>
+                  <Text style={styles.cloudLabel}>你的名稱</Text>
+                  <TextInput value={myNameDraft} onChangeText={setMyNameDraft} placeholder="例如：Julie" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                   <Pressable disabled={syncStatus === "syncing"} style={styles.primaryButton} onPress={enableCloudForExistingTrip}>
                     <Text style={styles.primaryButtonText}>{syncStatus === "syncing" ? "正在開啟……" : "開啟同步"}</Text>
                   </Pressable>
