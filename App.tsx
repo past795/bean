@@ -20,7 +20,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import DraggableFlatList, { RenderItemParams } from "react-native-draggable-flatlist";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
-import { initialTrip, toolboxItems } from "./src/data/trip";
+import { toolboxItems } from "./src/data/toolbox";
 import { shoppingItems } from "./src/data/shopping";
 import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
@@ -183,20 +183,14 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
 };
 
 const starterTrips: TripPlan[] = [{
-  id: "busan-2026",
-  title: "釜山，五日。",
-  destination: "釜山",
-  period: "2026.10.04 – 10.08",
-  travelers: 2,
-  days: initialTrip,
-  flights: [
-    { id: "busan-outbound", route: "桃園 → 金海", flightNumber: "航班待補", departure: "10/04 出發時間待補", arrival: "10/04 06:05", note: "抵達釜山金海國際機場" },
-    { id: "busan-return", route: "金海 → 桃園", flightNumber: "航班待補", departure: "10/08 21:05", arrival: "10/08 22:25" }
-  ],
-  accommodations: [
-    { id: "busan-hotel-1", name: "Toyoko Inn Busan Jungang Station", period: "10/04", address: "125 Jungang-daero, Jung-gu, Busan 48924", checkIn: "15:00", checkOut: "10:00", facilities: "免費早餐 06:30–09:00、免費 Wi‑Fi、投幣洗衣、微波爐、飲水／製冰機、販賣機、按摩椅、停車場", frontDesk: "24 小時櫃檯；電話 +82 51-442-1045", note: "中央站 17 號出口步行約 5 分鐘；資料來源：Toyoko Inn 官方網站" },
-    { id: "busan-hotel-2", name: "Avani Central Busan", period: "10/05–10/08", address: "133 Jeonpo-daero, Nam-gu, Busan 48400", checkIn: "15:00", checkOut: "11:00", facilities: "免費 Wi‑Fi、健身中心、SPA、餐廳、會議及活動空間", frontDesk: "24 小時櫃檯；電話 +82 51-791-5800", note: "釜山國際金融中心旁、地鐵 2 號線 BIFC／Busan Bank Station 附近；資料來源：Avani 官方網站" }
-  ],
+  id: "local-welcome",
+  title: "開始第一趟旅行",
+  destination: "尚未建立",
+  period: "日期未定",
+  travelers: 1,
+  days: [{ id: "welcome-day-1", label: "DAY 1", date: "第 1 天", title: "尚未安排", stops: [] }],
+  flights: [],
+  accommodations: [],
   shopping: []
 }];
 
@@ -649,10 +643,30 @@ export default function App() {
   };
 
   const shareCloudInfo = (tripId: string, inviteCode: string) => {
+    const message = `一起編輯豆遊行程\n旅行 ID：${tripId}\n邀請碼：${inviteCode}\n網站：https://past795.github.io/bean/`;
     Share.share({
       title: "加入我的豆遊旅行",
-      message: `一起編輯豆遊行程\n旅行 ID：${tripId}\n邀請碼：${inviteCode}\n網站：https://past795.github.io/bean/`
+      message
     }).catch(() => undefined);
+  };
+
+  const copyInviteText = async (tripId: string, inviteCode: string) => {
+    const message = `一起編輯豆遊行程\n旅行 ID：${tripId}\n邀請碼：${inviteCode}\n網站：https://past795.github.io/bean/`;
+    try {
+      if (Platform.OS === "web" && (globalThis as any).navigator?.clipboard) {
+        await (globalThis as any).navigator.clipboard.writeText(message);
+        showToast("邀請文字已複製");
+        return;
+      }
+      await Share.share({ title: "加入我的豆遊旅行", message });
+    } catch {
+      showToast("無法複製，請改用其他分享");
+    }
+  };
+
+  const shareInviteToLine = (tripId: string, inviteCode: string) => {
+    const message = `一起編輯豆遊行程\n旅行 ID：${tripId}\n邀請碼：${inviteCode}\n網站：https://past795.github.io/bean/`;
+    Linking.openURL(`https://line.me/R/msg/text/?${encodeURIComponent(message)}`).catch(() => showToast("目前無法開啟 LINE"));
   };
 
   const enableCloudForExistingTrip = async () => {
@@ -1454,8 +1468,16 @@ export default function App() {
                     <Pressable style={styles.memberAddButton} onPress={addTripMember}><Text style={styles.memberAddText}>新增</Text></Pressable>
                   </View>
                   <Text style={styles.sheetAddress}>旅伴在豆遊首頁點「加入旅行」，輸入上面兩項資料。</Text>
+                  <View style={styles.inviteShareGrid}>
+                    <Pressable style={styles.inviteShareButton} onPress={() => copyInviteText(activeTrip.id, cloudLinks[activeTrip.id]!.inviteCode)}>
+                      <Text style={styles.inviteShareText}>複製邀請文字</Text>
+                    </Pressable>
+                    <Pressable style={[styles.inviteShareButton, styles.lineShareButton]} onPress={() => shareInviteToLine(activeTrip.id, cloudLinks[activeTrip.id]!.inviteCode)}>
+                      <Text style={[styles.inviteShareText, styles.lineShareText]}>傳到 LINE</Text>
+                    </Pressable>
+                  </View>
                   <Pressable style={styles.primaryButton} onPress={() => shareCloudInfo(activeTrip.id, cloudLinks[activeTrip.id]!.inviteCode)}>
-                    <Text style={styles.primaryButtonText}>分享給旅伴</Text>
+                    <Text style={styles.primaryButtonText}>其他分享方式</Text>
                   </Pressable>
                 </>
               ) : (
@@ -1928,6 +1950,11 @@ const styles = StyleSheet.create({
   memberInput: { flex: 1, backgroundColor: "#F5F2ED", borderRadius: 11, paddingHorizontal: 11, paddingVertical: 10, color: "#302B27", fontSize: 12 },
   memberAddButton: { backgroundColor: "#315248", borderRadius: 11, paddingHorizontal: 15, justifyContent: "center" },
   memberAddText: { color: "#FFF", fontSize: 11, fontWeight: "900" },
+  inviteShareGrid: { flexDirection: "row", gap: 8, marginTop: 13 },
+  inviteShareButton: { flex: 1, backgroundColor: "#E7EFEA", borderRadius: 12, paddingVertical: 12, alignItems: "center" },
+  inviteShareText: { color: "#315248", fontSize: 11, fontWeight: "900" },
+  lineShareButton: { backgroundColor: "#E4F8E9" },
+  lineShareText: { color: "#06A944" },
   toast: { position: "absolute", top: 18, alignSelf: "center", zIndex: 9999, elevation: 40, backgroundColor: "#244C43", borderRadius: 999, paddingHorizontal: 18, paddingVertical: 11, shadowColor: "#000", shadowOpacity: .18, shadowRadius: 12, shadowOffset: { width: 0, height: 5 } },
   toastText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
   expenseTripId: { color: "#9A9188", fontSize: 9, marginTop: 5 },
