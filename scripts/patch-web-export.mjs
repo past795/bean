@@ -8,6 +8,8 @@ html = html.replace(
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
+    <link rel="icon" type="image/png" href="/bean/apple-touch-icon.png?v=20260730-4" />
+    <link rel="shortcut icon" type="image/png" href="/bean/apple-touch-icon.png?v=20260730-4" />
     <link rel="apple-touch-icon" sizes="180x180" href="/bean/apple-touch-icon.png?v=20260730-3" />`
 );
 await writeFile(path, html);
