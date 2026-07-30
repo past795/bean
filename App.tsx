@@ -540,6 +540,17 @@ export default function App() {
     return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
   };
 
+  const estimatedLegMinutes = (from: Stop, to: Stop, mode: RouteMode) => {
+    const distance = distanceBetween(from, to);
+    if (!Number.isFinite(distance)) return null;
+    const minutes =
+      mode === "walking" ? distance / 4.5 * 60 :
+      mode === "transit" ? distance / 22 * 60 + 10 :
+      mode === "taxi" ? distance / 30 * 60 + 5 :
+      distance / 32 * 60 + 3;
+    return Math.max(mode === "walking" ? 2 : 5, Math.round(minutes / 5) * 5);
+  };
+
   const sortByShortestRoute = () => {
     if (selectedDay.stops.length < 2) return;
     setPreviousStops([...selectedDay.stops]);
@@ -911,6 +922,7 @@ export default function App() {
     const index = getIndex() ?? 0;
     const nextStop = selectedDay.stops[index + 1];
     const legMode: RouteMode = item.routeMode || (item.transport.includes("步行") ? "walking" : item.transport.includes("地鐵") || item.transport.includes("公車") ? "transit" : item.transport.includes("計程車") ? "taxi" : "driving");
+    const legMinutes = nextStop ? estimatedLegMinutes(item, nextStop, legMode) : null;
     return (
       <View style={[styles.stopWrap, isActive && styles.dragging]}>
         <View style={styles.timeline}>
@@ -944,6 +956,7 @@ export default function App() {
           {nextStop && (
             <View style={styles.legRouteBox}>
               <Text style={styles.legRouteLabel}>這一段要怎麼走？</Text>
+              <Text style={styles.legEstimate}>{legMinutes ? `預估約 ${legMinutes} 分鐘` : "確認座標後顯示預計時間"}</Text>
               <View style={styles.legRouteActions}>
                 <Pressable onPress={() => setLegRouteMode(item.id, "driving")} style={[styles.legModeButton, legMode === "driving" && styles.legModeButtonActive]}>
                   <Text style={[styles.legModeText, legMode === "driving" && styles.legModeTextActive]}>🚗 開車</Text>
@@ -1717,6 +1730,7 @@ const styles = StyleSheet.create({
   transportText: { color: "#35554B", fontSize: 12, fontWeight: "800", marginTop: 2 },
   legRouteBox: { marginTop: 9, borderRadius: 13, backgroundColor: "#F7F5F1", padding: 9 },
   legRouteLabel: { color: "#756E66", fontSize: 10, fontWeight: "800", marginBottom: 7 },
+  legEstimate: { color: "#315248", fontSize: 13, fontWeight: "900", marginBottom: 8 },
   legRouteActions: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
   legModeButton: { borderRadius: 9, paddingHorizontal: 9, paddingVertical: 8, backgroundColor: "#EAE6E0" },
   legModeButtonActive: { backgroundColor: "#315248" },
