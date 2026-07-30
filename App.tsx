@@ -545,7 +545,23 @@ export default function App() {
   };
 
   const setLegRouteMode = (stopId: string, routeMode: RouteMode) => {
-    updateStops(selectedDay.stops.map((stop) => stop.id === stopId ? { ...stop, routeMode } : stop));
+    const index = selectedDay.stops.findIndex((stop) => stop.id === stopId);
+    if (index < 0) return;
+    const current = selectedDay.stops[index]!;
+    const nextStop = selectedDay.stops[index + 1];
+    const next = selectedDay.stops.map((stop) => stop.id === stopId ? { ...stop, routeMode } : stop);
+    if (nextStop) {
+      const minutes = estimatedLegMinutes(current, nextStop, routeMode);
+      const match = current.time.match(/^(\d{1,2}):([0-5]\d)$/);
+      if (minutes != null && match) {
+        const total = (Number(match[1]) * 60 + Number(match[2]) + minutes) % (24 * 60);
+        next[index + 1] = {
+          ...next[index + 1]!,
+          time: `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`
+        };
+      }
+    }
+    updateStops(next);
   };
 
   const openingMinutes = (stop: Stop) => {
@@ -1091,7 +1107,7 @@ export default function App() {
           {nextStop && (
             <View style={styles.legRouteBox}>
               <Text style={styles.legRouteLabel}>這一段要怎麼走？</Text>
-              <Text style={styles.legEstimate}>{legMinutes ? `預估約 ${legMinutes} 分鐘` : "確認座標後顯示預計時間"}</Text>
+              <Text style={styles.legEstimate}>{legMinutes ? `預估約 ${legMinutes} 分鐘・選擇後更新下一站時間` : "確認座標後顯示預計時間"}</Text>
               <View style={styles.legRouteActions}>
                 <Pressable onPress={() => setLegRouteMode(item.id, "driving")} style={[styles.legModeButton, legMode === "driving" && styles.legModeButtonActive]}>
                   <Text style={[styles.legModeText, legMode === "driving" && styles.legModeTextActive]}>🚗 開車</Text>
