@@ -313,6 +313,7 @@ export default function App() {
   const [expenseCurrency, setExpenseCurrency] = useState("KRW");
   const [krwAmount, setKrwAmount] = useState("10000");
   const [addingFlight, setAddingFlight] = useState(false);
+  const [editingFlightId, setEditingFlightId] = useState<string | null>(null);
   const [flightRoute, setFlightRoute] = useState("");
   const [flightNumber, setFlightNumber] = useState("");
   const [flightDeparture, setFlightDeparture] = useState("");
@@ -362,6 +363,7 @@ export default function App() {
   const pullingRef = useRef(false);
   const localMutationAtRef = useRef(0);
   const cloudLinksRef = useRef<CloudLinks>({});
+  const itineraryListRef = useRef<any>(null);
   const geocodedDaysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -416,6 +418,11 @@ export default function App() {
   const activeTrip = trips.find((trip) => trip.id === activeTripId) ?? trips[0]!;
   const days = activeTrip.days;
   const selectedDay = days.find((d) => d.id === selectedDayId) ?? days[0]!;
+
+  const selectDay = (dayId: string) => {
+    setSelectedDayId(dayId);
+    setTimeout(() => itineraryListRef.current?.scrollToOffset?.({ offset: 0, animated: false }), 0);
+  };
   useEffect(() => {
     if (selectedTool !== "天氣") return;
     let cancelled = false;
@@ -1251,13 +1258,40 @@ export default function App() {
     saveExpenses({ ...expenses, [activeTrip.id]: tripExpenses.filter((item) => item.id !== id) });
   };
 
-  const createFlight = () => {
+  const resetFlightForm = () => {
+    setAddingFlight(false);
+    setEditingFlightId(null);
+    setFlightRoute("");
+    setFlightNumber("");
+    setFlightDeparture("");
+    setFlightArrival("");
+    setFlightTerminal("");
+    setFlightNote("");
+  };
+
+  const openNewFlight = () => {
+    resetFlightForm();
+    setAddingFlight(true);
+  };
+
+  const openEditFlight = (flight: FlightInfo) => {
+    setEditingFlightId(flight.id);
+    setFlightRoute(flight.route);
+    setFlightNumber(flight.flightNumber);
+    setFlightDeparture(flight.departure);
+    setFlightArrival(flight.arrival);
+    setFlightTerminal(flight.terminal || "");
+    setFlightNote(flight.note || "");
+    setAddingFlight(true);
+  };
+
+  const saveFlight = () => {
     if (!flightRoute.trim() || !flightDeparture.trim() || !flightArrival.trim()) {
       Alert.alert("請填寫航線、出發與抵達時間");
       return;
     }
     const flight: FlightInfo = {
-      id: `flight-${Date.now()}`,
+      id: editingFlightId || `flight-${Date.now()}`,
       route: flightRoute.trim(),
       flightNumber: flightNumber.trim() || "航班號碼待補",
       departure: flightDeparture.trim(),
@@ -1265,13 +1299,31 @@ export default function App() {
       terminal: flightTerminal.trim(),
       note: flightNote.trim()
     };
-    updateActiveTrip({ flights: [...activeTrip.flights, flight] });
-    setAddingFlight(false);
-    setFlightRoute(""); setFlightNumber(""); setFlightDeparture(""); setFlightArrival(""); setFlightTerminal(""); setFlightNote("");
+    updateActiveTrip({
+      flights: editingFlightId
+        ? activeTrip.flights.map((item) => item.id === editingFlightId ? flight : item)
+        : [...activeTrip.flights, flight]
+    });
+    showToast(editingFlightId ? "航班資訊已更新" : "航班已新增");
+    resetFlightForm();
   };
 
   const deleteFlight = (id: string) => {
     updateActiveTrip({ flights: activeTrip.flights.filter((flight) => flight.id !== id) });
+  };
+
+  const addTripDay = () => {
+    const dayNumber = activeTrip.days.length + 1;
+    const day: TripDay = {
+      id: `${activeTrip.id}-day-${Date.now()}`,
+      label: `DAY ${dayNumber}`,
+      date: `第 ${dayNumber} 天`,
+      title: `${activeTrip.destination || "旅行"}・自由安排`,
+      stops: []
+    };
+    updateActiveTrip({ days: [...activeTrip.days, day] });
+    selectDay(day.id);
+    showToast(`已新增 DAY ${dayNumber}`);
   };
 
   const createAccommodation = () => {
@@ -1475,17 +1527,22 @@ export default function App() {
               <Text style={styles.subtitle}>所有行程、交通與預約，集中在一個地方。</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayTabs}>
                 {days.map((day) => (
-                  <Pressable key={day.id} onPress={() => setSelectedDayId(day.id)}
+                  <Pressable key={day.id} onPress={() => selectDay(day.id)}
                     style={[styles.dayTab, day.id === selectedDay.id && styles.dayTabActive]}>
                     <Text style={[styles.dayLabel, day.id === selectedDay.id && styles.dayLabelActive]}>{day.label}</Text>
                     <Text style={[styles.dayDate, day.id === selectedDay.id && styles.dayDateActive]}>{day.date.slice(0,5)}</Text>
                   </Pressable>
                 ))}
+                <Pressable onPress={addTripDay} style={[styles.dayTab, styles.addDayTab]}>
+                  <Text style={styles.addDayPlus}>＋</Text>
+                  <Text style={styles.addDayText}>新增一天</Text>
+                </Pressable>
               </ScrollView>
             </LinearGradient>
 
             <View style={styles.itineraryListHost}>
               <DraggableFlatList
+                ref={itineraryListRef}
                 style={styles.itineraryList}
                 containerStyle={styles.itineraryList}
                 data={selectedDay.stops}
@@ -1850,22 +1907,23 @@ export default function App() {
                       <TextInput value={flightTerminal} onChangeText={setFlightTerminal} placeholder="例如：桃園機場 T2" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                       <Text style={styles.fieldLabel}>備註</Text>
                       <TextInput value={flightNote} onChangeText={setFlightNote} placeholder="行李、報到櫃檯或訂位代碼" placeholderTextColor="#AAA198" style={styles.fieldInput} />
-                      <Pressable style={styles.primaryButton} onPress={createFlight}><Text style={styles.primaryButtonText}>儲存航班</Text></Pressable>
-                      <Pressable style={styles.cancelButton} onPress={() => setAddingFlight(false)}><Text style={styles.cancelText}>返回航班列表</Text></Pressable>
+                      <Pressable style={styles.primaryButton} onPress={saveFlight}><Text style={styles.primaryButtonText}>{editingFlightId ? "更新航班資訊" : "儲存航班"}</Text></Pressable>
+                      <Pressable style={styles.cancelButton} onPress={resetFlightForm}><Text style={styles.cancelText}>返回航班列表</Text></Pressable>
                     </>
                   ) : (
                     <>
                       {activeTrip.flights.length === 0 && <Text style={styles.detailText}>這趟旅行還沒有航班資訊。</Text>}
                       {activeTrip.flights.map((flight) => (
-                        <View key={flight.id} style={styles.flightCard}>
-                          <View style={styles.flightTop}><Text style={styles.flightRoute}>{flight.route}</Text><Pressable onPress={() => deleteFlight(flight.id)}><Text style={styles.deleteExpense}>×</Text></Pressable></View>
+                        <Pressable key={flight.id} style={styles.flightCard} onPress={() => openEditFlight(flight)}>
+                          <View style={styles.flightTop}><Text style={styles.flightRoute}>{flight.route}</Text><Pressable onPress={(event) => { event.stopPropagation?.(); deleteFlight(flight.id); }}><Text style={styles.deleteExpense}>×</Text></Pressable></View>
                           <Text style={styles.flightNumber}>{flight.flightNumber}</Text>
                           <View style={styles.flightTimes}><Text style={styles.flightTime}>出發　{flight.departure}</Text><Text style={styles.flightTime}>抵達　{flight.arrival}</Text></View>
                           {!!flight.terminal && <Text style={styles.detailHint}>{flight.terminal}</Text>}
                           {!!flight.note && <Text style={styles.detailHint}>{flight.note}</Text>}
-                        </View>
+                          <Text style={styles.editFlightHint}>點擊卡片即可編輯</Text>
+                        </Pressable>
                       ))}
-                      <Pressable style={styles.primaryButton} onPress={() => setAddingFlight(true)}><Text style={styles.primaryButtonText}>＋ 新增航班</Text></Pressable>
+                      <Pressable style={styles.primaryButton} onPress={openNewFlight}><Text style={styles.primaryButtonText}>＋ 新增航班</Text></Pressable>
                     </>
                   )}
                 </View>
@@ -2287,6 +2345,9 @@ const styles = StyleSheet.create({
   tripBadgeIcon: { color: "#F4C88B", fontSize: 13 },
   tripBadgeText: { color: "#FFF", fontSize: 9, fontWeight: "800", marginTop: 2 },
   dayTabs: { gap: 8, paddingTop: 18, paddingBottom: 2 },
+  addDayTab: { minWidth: 88, borderStyle: "dashed", alignItems: "center", justifyContent: "center" },
+  addDayPlus: { color: "#315248", fontSize: 20, fontWeight: "700", lineHeight: 21 },
+  addDayText: { color: "#315248", fontSize: 10, fontWeight: "800", marginTop: 2 },
   dayTab: { width: 65, borderRadius: 18, backgroundColor: "rgba(255,255,255,.7)", paddingVertical: 9, alignItems: "center", borderWidth: 1, borderColor: "#EAE0D5" },
   dayTabActive: { backgroundColor: "#2F5147", borderColor: "#2F5147" },
   dayLabel: { fontSize: 11, fontWeight: "800", color: "#7D756C" },
@@ -2452,6 +2513,7 @@ const styles = StyleSheet.create({
   flightNumber: { color: "#9A6248", fontSize: 11, fontWeight: "800", marginTop: 5 },
   flightTimes: { gap: 4, marginTop: 10 },
   flightTime: { color: "#5F5851", fontSize: 12, fontWeight: "700" },
+  editFlightHint: { color: "#9A9188", fontSize: 10, fontWeight: "700", marginTop: 10 },
   hotelDetail: { color: "#625B54", fontSize: 11, lineHeight: 17, marginTop: 7 },
   weatherLoading: { color: "#62736D", textAlign: "center", paddingVertical: 35, fontWeight: "700" },
   weatherError: { color: "#A85445", textAlign: "center", paddingVertical: 25 },
