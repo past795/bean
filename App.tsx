@@ -1247,7 +1247,7 @@ export default function App() {
     return (
       <SafeAreaView style={[styles.safe, styles.authGate]}>
         <View style={styles.authCard}>
-          <Text style={styles.authBean}>◉</Text>
+          <Image source={require("./assets/douyou-icon.png")} style={styles.authAppIcon} />
           <Text style={styles.authEyebrow}>DOUYOU TRIP</Text>
           <Text style={styles.authTitle}>登入豆遊</Text>
           <Text style={styles.authDescription}>請先登入 Google 帳號。登入後只會顯示這個帳號建立或已加入的旅行。</Text>
@@ -2012,7 +2012,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#F7F3EC" },
   authGate: { alignItems: "center", justifyContent: "center", padding: 24 },
   authCard: { width: "100%", maxWidth: 430, alignItems: "center", backgroundColor: "#FFF", borderRadius: 32, paddingHorizontal: 28, paddingVertical: 42, borderWidth: 1, borderColor: "#E9E1D7", shadowColor: "#2F5147", shadowOpacity: 0.12, shadowRadius: 24, shadowOffset: { width: 0, height: 12 } },
-  authBean: { width: 74, height: 74, borderRadius: 24, backgroundColor: "#2F5147", color: "#FFF", textAlign: "center", textAlignVertical: "center", fontSize: 34, fontWeight: "900", marginBottom: 20 },
+  authAppIcon: { width: 104, height: 104, borderRadius: 28, marginBottom: 20 },
   authLogo: { color: "#2F5147", fontSize: 35, fontWeight: "900" },
   authLoading: { color: "#8B8177", fontSize: 13, marginTop: 10 },
   authEyebrow: { color: "#9A6248", fontSize: 11, fontWeight: "900", letterSpacing: 2 },
