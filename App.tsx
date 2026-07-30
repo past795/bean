@@ -831,7 +831,7 @@ export default function App() {
       delete nextExpenses[originalTrip.id];
       setExpenses(nextExpenses);
       AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(nextExpenses)).catch(() => undefined);
-      saveCloudLinks({ ...cloudLinksRef.current, [cloudTripId]: { inviteCode, memberName: ownerName, memberId } });
+      saveCloudLinks({ ...cloudLinksRef.current, [cloudTripId]: { inviteCode, memberName: ownerName, memberId, role: "owner" } });
       await syncTripNow(cloudTrip, tripExpenses);
       setCloudPanelVisible(true);
     } catch (error: any) {
@@ -858,7 +858,7 @@ export default function App() {
       const linkedTrips = Object.entries(cloudLinksRef.current);
       await Promise.all(linkedTrips.map(([tripId, link]) => postCloud({
         action: "joinTrip", tripId, inviteCode: link.inviteCode, idToken: credential,
-        member: { "成員ID": `google:${user.sub}`, "顯示名稱": user.name, "角色": "member" }
+        member: { "成員ID": `google:${user.sub}`, "顯示名稱": user.name, "角色": link.role || "member" }
       }).catch(() => undefined)));
       setCloudMembers((current) => {
         const next = { ...current };
@@ -868,7 +868,7 @@ export default function App() {
       const response = await fetch(`${SYNC_URL}?action=myTrips&idToken=${encodeURIComponent(credential)}&t=${Date.now()}`);
       const result = await response.json();
       if (result.ok && Array.isArray(result.data)) {
-        const restored = result.data.map((data: any) => cloudToTrip(data));
+        const restored = result.data.map((data: any) => ({ ...cloudToTrip(data), cloud: data }));
         const visibleTrips = restored.length ? restored.map(({ trip }: { trip: TripPlan }) => trip) : starterTrips;
         const visibleExpenses: Record<string, Expense[]> = {};
         restored.forEach(({ trip, expenses: restoredTripExpenses }: { trip: TripPlan; expenses: Expense[] }) => { visibleExpenses[trip.id] = restoredTripExpenses; });
@@ -877,14 +877,15 @@ export default function App() {
         setSelectedDayId(visibleTrips[0]!.days[0]?.id ?? "");
         setExpenses(visibleExpenses);
         const nextLinks: CloudLinks = {};
-        restored.forEach(({ trip }: { trip: TripPlan }) => {
+        restored.forEach(({ trip, cloud }: { trip: TripPlan; cloud: any }) => {
           const existing = cloudLinksRef.current[trip.id];
+          const myMember = (cloud.members || []).find((row: any) => String(row["成員ID"]) === `google:${user.sub}`);
           nextLinks[trip.id] = {
             ...existing,
             inviteCode: existing?.inviteCode || "",
             memberName: existing?.memberName || user.name,
             memberId: `google:${user.sub}`,
-            role: existing?.role
+            role: myMember?.["角色"] === "owner" ? "owner" : "member"
           };
         });
         saveCloudLinks(nextLinks);
@@ -992,6 +993,11 @@ export default function App() {
   };
 
   const deleteTrip = (trip: TripPlan) => {
+    const link = cloudLinksRef.current[trip.id];
+    if (link && link.role !== "owner") {
+      Alert.alert("只有建立者能刪除旅行", "旅伴只能退出自己的成員資格，不會刪除整趟行程。");
+      return;
+    }
     if (trips.length === 1) {
       Alert.alert("至少保留一趟旅行", "請先建立另一趟旅行再刪除。");
       return;
@@ -1617,11 +1623,11 @@ export default function App() {
                       style={styles.deleteTripButton}
                       onPress={(event) => {
                         event.stopPropagation?.();
-                        if (cloudLinks[trip.id]?.role === "member") confirmLeaveTrip(trip);
+                        if (cloudLinks[trip.id] && cloudLinks[trip.id]?.role !== "owner") confirmLeaveTrip(trip);
                         else deleteTrip(trip);
                       }}
                     >
-                      <Text style={styles.deleteTripText}>{cloudLinks[trip.id]?.role === "member" ? "退出" : "刪除"}</Text>
+                      <Text style={styles.deleteTripText}>{cloudLinks[trip.id] && cloudLinks[trip.id]?.role !== "owner" ? "退出" : "刪除"}</Text>
                     </Pressable>
                     <Text style={styles.chevron}>›</Text>
                   </View>

@@ -178,11 +178,18 @@ function upsertMember_(tripId, member) {
     '更新時間': now,
   });
   const index = rows.findIndex(row => String(row['旅行ID']) === tripId && String(row['成員ID']) === memberId);
+  if (index >= 0 && String(rows[index]['角色']) === 'owner') next['角色'] = 'owner';
   if (index >= 0) rows[index] = next; else rows.push(next);
   replaceObjects_(table, rows);
 }
 
 function removeMember_(tripId, memberId) {
+  const current = readObjects_(TABLES.members).find(row =>
+    String(row['旅行ID']) === String(tripId) && String(row['成員ID']) === String(memberId)
+  );
+  if (current && String(current['角色']) === 'owner') {
+    throw new Error('建立者不能退出旅行；只有建立者可以刪除整趟旅行');
+  }
   const rows = readObjects_(TABLES.members).filter(row =>
     !(String(row['旅行ID']) === String(tripId) && String(row['成員ID']) === String(memberId))
   );
