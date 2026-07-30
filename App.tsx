@@ -1131,7 +1131,10 @@ export default function App() {
         action: "joinTrip", tripId, inviteCode,
         member: { "成員ID": googleUser ? `google:${googleUser.sub}` : `member-${Date.now()}`, "顯示名稱": joinMemberName.trim(), "角色": "member" }
       });
-      saveCloudLinks({ ...cloudLinksRef.current, [tripId]: { inviteCode, memberName: joinMemberName.trim(), memberId: googleUser ? `google:${googleUser.sub}` : undefined, role: "member" } });
+      const myMemberId = googleUser ? `google:${googleUser.sub}` : undefined;
+      const myMember = (data.members || []).find((row: any) => myMemberId && String(row["成員ID"]) === myMemberId);
+      const joinedRole: CloudLink["role"] = myMember?.["角色"] === "owner" ? "owner" : "member";
+      saveCloudLinks({ ...cloudLinksRef.current, [tripId]: { inviteCode, memberName: joinMemberName.trim(), memberId: myMemberId, role: joinedRole } });
       const converted = cloudToTrip(data);
       const memberNames = (data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter((name: string) => name && name !== "我");
       setCloudMembers((current) => ({ ...current, [tripId]: [...new Set(memberNames)] as string[] }));

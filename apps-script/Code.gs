@@ -169,11 +169,14 @@ function upsertMember_(tripId, member) {
   const rows = readObjects_(table);
   const memberId = String(member['成員ID'] || Utilities.getUuid());
   const now = new Date().toISOString();
+  const tripHasOwner = rows.some(row =>
+    String(row['旅行ID']) === String(tripId) && String(row['角色']) === 'owner'
+  );
   const next = Object.assign({}, member, {
     '旅行ID': tripId,
     '成員ID': memberId,
     '顯示名稱': member['顯示名稱'] || '旅伴',
-    '角色': member['角色'] || 'member',
+    '角色': tripHasOwner ? (member['角色'] || 'member') : 'owner',
     '加入時間': member['加入時間'] || now,
     '更新時間': now,
   });
