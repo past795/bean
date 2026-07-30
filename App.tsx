@@ -52,26 +52,44 @@ const VERIFIED_OPENING_HOURS: Record<string, { hours: string; source: string }> 
   "d1-2": { hours: "櫃檯 24 小時・入住 15:00 起", source: "Toyoko Inn Busan Jungang Station 官方網站" },
   "d1-3": { hours: "每日 08:00–21:00", source: "Tabling／店家公開資訊" },
   "d1-4": { hours: "戶外街區・全天可通行（店家各自營業）", source: "Visit Busan" },
+  "d1-5": { hours: "09:00 起（出發前請再確認當日閉店時間）", source: "Aether Cafe 官方網站／店家公開資訊" },
   "d1-6": { hours: "10 月 04:00–24:00", source: "Visit Busan／太宗臺官方旅遊資訊" },
+  "d1-7": { hours: "15:00 起（需確認影島分店當日資訊）", source: "店家公開資訊／原行程指定分店" },
   "d1-8": { hours: "公共街區・全天可通行（店家各自營業）", source: "Visit Busan" },
+  "d1-9": { hours: "百貨約 10:30–20:00（週末可能延長）", source: "樂天百貨光復店公開資訊" },
+  "d1-10": { hours: "市場約 06:00–21:00（攤商各自營業）", source: "新東亞水產市場公開資訊" },
   "d1-11": { hours: "櫃檯 24 小時・入住 15:00 起", source: "Toyoko Inn Busan Jungang Station 官方網站" },
+  "d2-1": { hours: "櫃檯 24 小時・入住 15:00 起", source: "Avani Central Busan 官方資料" },
   "d2-2": { hours: "09:00–18:30", source: "Haeundae Blueline Park／VISITKOREA" },
   "d2-3": { hours: "10 月 09:00–21:00", source: "VISITKOREA／海雲臺區廳" },
+  "d2-4": { hours: "午餐時段起營業（需確認青沙浦分店當日時間）", source: "Nasari 食堂店家公開資訊" },
   "d2-5": { hours: "09:00–18:30", source: "Haeundae Blueline Park／VISITKOREA" },
   "d2-6": { hours: "公共海灘・全天開放", source: "Visit Busan" },
   "d2-7": { hours: "10:00–21:00", source: "Busan X the SKY 官方網站" },
+  "d2-8": { hours: "依預約航班報到時間", source: "Diamond Bay 遊艇公開預約資訊" },
+  "d2-9": { hours: "午餐至晚間營業（需確認廣安分店當日時間）", source: "味贊王鹽烤肉店家公開資訊" },
   "d2-10": { hours: "公共海灘・全天開放", source: "Visit Busan" },
+  "d2-11": { hours: "櫃檯 24 小時・入住 15:00 起", source: "Avani Central Busan 官方資料" },
   "d3-1": { hours: "10:00–19:00", source: "Museum 1／VISITKOREA（平日）" },
+  "d3-2": { hours: "午餐至晚間營業（需確認指定烤貝店）", source: "松島烤貝村店家公開資訊" },
   "d3-3": { hours: "09:00–21:00", source: "Busan Air Cruise 官方網站（10月）" },
   "d3-4": { hours: "戶外公園・全天開放", source: "Visit Busan" },
+  "d3-5": { hours: "咖啡廳日間至晚間營業（出發前確認店家公告）", source: "Cuoiano 店家公開資訊" },
+  "d3-6": { hours: "尚缺確切店名，無法對應正確分店", source: "原行程僅寫「西面豬肉湯飯」" },
   "d3-7": { hours: "公共街區・全天可通行（店家各自營業）", source: "Visit Busan" },
   "d4-1": { hours: "08:00–23:00・最晚入場 22:00", source: "新世界百貨 SPA LAND 官方網站" },
+  "d4-2": { hours: "約 10:30–20:00（依百貨當日公告）", source: "新世界百貨 Centum City 官方網站" },
+  "d4-3": { hours: "約 10:30–20:00（依百貨當日公告）", source: "新世界百貨 Centum City 官方網站" },
+  "d4-4": { hours: "10:00–21:00", source: "Duplit 廣安店公開資訊" },
+  "d4-5": { hours: "晚餐時段營業（需確認 Catch Table 當日場次）", source: "Catch Table／店家公開資訊" },
   "d4-6": { hours: "公共海灘・全天開放", source: "Visit Busan" },
+  "d5-1": { hours: "櫃檯 24 小時・退房依訂房資料", source: "Avani Central Busan 官方資料" },
   "d5-2": { hours: "寺院戶外區域每日開放・建議白天參觀", source: "VISITKOREA／海東龍宮寺" },
   "d5-3": { hours: "Eternal Journey 10:00–21:00", source: "Ananti Cove 官方網站" },
   "d5-4": { hours: "園區公共空間開放・餐廳各自營業", source: "Osiria Tourist Complex" },
   "d5-5": { hours: "10:00–18:00", source: "Skyline Luge Busan 官方網站" },
   "d5-6": { hours: "10:30–20:30", source: "Visit Busan（週一至週四）" },
+  "d5-7": { hours: "10:00–24:00（特殊日期依店家公告）", source: "Waveon Coffee 官方網站／店家公開資訊" },
   "d5-8": { hours: "機場航廈依當日航班開放", source: "金海國際機場／航班資訊" },
   "d5-9": { hours: "依航班時間", source: "航空公司航班資訊" }
 };
@@ -216,6 +234,7 @@ const transportIcon = (mode: Stop["transportMode"]) =>
 export default function App() {
   const [tab, setTab] = useState<Tab>("home");
   const [googleUser, setGoogleUser] = useState<GoogleUser | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [trips, setTrips] = useState<TripPlan[]>(starterTrips);
   const [activeTripId, setActiveTripId] = useState("busan-2026");
   const [selectedDayId, setSelectedDayId] = useState("day1");
@@ -295,7 +314,7 @@ export default function App() {
   useEffect(() => {
     AsyncStorage.getItem(AUTH_KEY).then((value) => {
       if (value) setGoogleUser(JSON.parse(value));
-    }).catch(() => undefined);
+    }).catch(() => undefined).finally(() => setAuthReady(true));
   }, []);
 
   useEffect(() => {
@@ -988,11 +1007,15 @@ export default function App() {
   };
 
   const tripExpenses = expenses[activeTrip.id] ?? [];
-  const expenseMemberNames = [...new Set([
+  const localMemberAlias = cloudLinks[activeTrip.id]?.memberName;
+  const activeMemberNames = [...new Set([
     googleUser?.name,
-    cloudLinks[activeTrip.id]?.memberName,
-    ...(cloudMembers[activeTrip.id] || [])
+    ...(
+      cloudMembers[activeTrip.id] || []
+    ).filter((name) => !googleUser || name !== localMemberAlias),
+    !googleUser ? localMemberAlias : undefined
   ].filter((name): name is string => !!name && name !== "我"))];
+  const expenseMemberNames = activeMemberNames;
   const openExpenseModal = () => {
     setExpensePayer(expenseMemberNames[0] || "");
     setAddingExpense(true);
@@ -1209,6 +1232,30 @@ export default function App() {
       </View>
     );
   };
+
+  if (!authReady) {
+    return (
+      <SafeAreaView style={[styles.safe, styles.authGate]}>
+        <Text style={styles.authLogo}>豆遊</Text>
+        <Text style={styles.authLoading}>正在確認登入狀態……</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!googleUser) {
+    return (
+      <SafeAreaView style={[styles.safe, styles.authGate]}>
+        <View style={styles.authCard}>
+          <Text style={styles.authBean}>◉</Text>
+          <Text style={styles.authEyebrow}>DOUYOU TRIP</Text>
+          <Text style={styles.authTitle}>登入豆遊</Text>
+          <Text style={styles.authDescription}>請先登入 Google 帳號。登入後只會顯示這個帳號建立或已加入的旅行。</Text>
+          <GoogleSignInButton onCredential={handleGoogleCredential} />
+          <Text style={styles.authPrivacy}>旅行資料不會在登入前顯示。</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.safe, Platform.OS === "web" && styles.webViewport]}>
@@ -1482,11 +1529,11 @@ export default function App() {
                   <Text selectable style={styles.cloudInvite}>{cloudLinks[activeTrip.id]!.inviteCode}</Text>
                   <Text style={styles.cloudLabel}>這趟旅行的成員</Text>
                   <View style={styles.memberChips}>
-                    {(cloudMembers[activeTrip.id] ?? []).map((name) => (
-                      <View key={name} style={styles.memberChip}><Text style={styles.memberChipText}>● {name}{cloudLinks[activeTrip.id]?.memberName === name ? "（我）" : ""}</Text></View>
+                    {activeMemberNames.map((name) => (
+                      <View key={name} style={styles.memberChip}><Text style={styles.memberChipText}>● {name}{googleUser?.name === name || (!googleUser && cloudLinks[activeTrip.id]?.memberName === name) ? "（我）" : ""}</Text></View>
                     ))}
                   </View>
-                  {!cloudMembers[activeTrip.id]?.length && <Text style={styles.sourceHint}>尚未設定成員名稱</Text>}
+                  {!activeMemberNames.length && <Text style={styles.sourceHint}>尚未設定成員名稱</Text>}
                   <Text style={styles.cloudLabel}>我的名稱</Text>
                   <View style={styles.memberAddRow}>
                     <TextInput value={myNameDraft} onChangeText={setMyNameDraft} placeholder={cloudLinks[activeTrip.id]?.memberName || "例如：Julie"} placeholderTextColor="#AAA198" style={styles.memberInput} />
@@ -1964,6 +2011,15 @@ function GoogleSignInButton({ onCredential }: { onCredential: (credential: strin
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#F7F3EC" },
+  authGate: { alignItems: "center", justifyContent: "center", padding: 24 },
+  authCard: { width: "100%", maxWidth: 430, alignItems: "center", backgroundColor: "#FFF", borderRadius: 32, paddingHorizontal: 28, paddingVertical: 42, borderWidth: 1, borderColor: "#E9E1D7", shadowColor: "#2F5147", shadowOpacity: 0.12, shadowRadius: 24, shadowOffset: { width: 0, height: 12 } },
+  authBean: { width: 74, height: 74, borderRadius: 24, backgroundColor: "#2F5147", color: "#FFF", textAlign: "center", textAlignVertical: "center", fontSize: 34, fontWeight: "900", marginBottom: 20 },
+  authLogo: { color: "#2F5147", fontSize: 35, fontWeight: "900" },
+  authLoading: { color: "#8B8177", fontSize: 13, marginTop: 10 },
+  authEyebrow: { color: "#9A6248", fontSize: 11, fontWeight: "900", letterSpacing: 2 },
+  authTitle: { color: "#243B35", fontSize: 32, fontWeight: "900", marginTop: 8 },
+  authDescription: { color: "#7E756D", fontSize: 14, lineHeight: 22, textAlign: "center", marginTop: 12, marginBottom: 24 },
+  authPrivacy: { color: "#A0978F", fontSize: 10, marginTop: 18 },
   webViewport: { height: "100dvh" as never, maxHeight: "100dvh" as never, minHeight: 0, overflow: "hidden" },
   app: { flex: 1, minHeight: 0, overflow: "hidden", position: "relative", backgroundColor: "#FBFAF7", maxWidth: 520, width: "100%", alignSelf: "center" },
   header: { paddingTop: 18, paddingHorizontal: 22, paddingBottom: 18, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
