@@ -185,6 +185,32 @@ const defaultPrepChecklist = () => [
   id: `prep-default-${index + 1}`, text, completed: false, scope: "shared" as const, owner: ""
 }));
 
+const defaultPersonalPacking = (owner: string) => [
+  "護照、錢包、手機",
+  "上衣、褲子／裙子",
+  "內衣褲、襪子、睡衣",
+  "薄外套或保暖衣物",
+  "好走的鞋、拖鞋",
+  "牙刷、牙膏、牙線",
+  "洗面乳、洗髮精、沐浴用品",
+  "化妝水、乳液／保濕用品",
+  "防曬、護唇膏",
+  "化妝品、卸妝用品",
+  "梳子、髮圈、生理用品",
+  "眼鏡、隱形眼鏡與藥水",
+  "個人常用藥、OK 繃",
+  "充電器、充電線、轉接頭",
+  "行動電源（放隨身行李）",
+  "耳機、相機或其他電子用品",
+  "雨傘、帽子、太陽眼鏡",
+  "衛生紙、濕紙巾、口罩",
+  "行李電子秤、行李鎖、行李吊牌",
+  "髒衣袋、收納袋、購物袋"
+].map((text, index) => ({
+  id: `prep-personal-${encodeURIComponent(owner)}-${index + 1}`,
+  text, completed: false, scope: "personal" as const, owner
+}));
+
 const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   trip: {
     "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination,
@@ -1603,6 +1629,13 @@ export default function App() {
       : item.scope === "personal" && item.owner === myDisplayName
   );
 
+  useEffect(() => {
+    if (!myDisplayName || !activeTrip.id || activeTrip.id === "local-welcome") return;
+    const checklist = activeTrip.checklist || [];
+    if (checklist.some((item) => item.scope === "personal" && item.owner === myDisplayName)) return;
+    updateActiveTrip({ checklist: [...checklist, ...defaultPersonalPacking(myDisplayName)] });
+  }, [activeTrip.id, myDisplayName]);
+
   const weatherLabel = (code: number) =>
     code === 0 ? "晴朗" : code <= 3 ? "多雲" : code <= 48 ? "有霧" : code <= 67 ? "下雨" : code <= 77 ? "下雪" : code <= 82 ? "陣雨" : code <= 86 ? "陣雪" : "雷雨";
   const weatherIcon = (code: number) =>
@@ -1792,9 +1825,14 @@ export default function App() {
                     </View>
                     <View style={styles.dayHeadingActions}>
                       <Text style={styles.dayCount}>{selectedDay.stops.length} 個安排</Text>
-                      <Pressable style={styles.smallAddButton} onPress={() => setAddingStop(true)}>
-                        <Text style={styles.smallAddButtonText}>＋</Text>
-                      </Pressable>
+                      <View style={styles.dayActionRow}>
+                        <Pressable disabled={!previousStops} style={[styles.dayUndoButton, !previousStops && styles.dayUndoButtonDisabled]} onPress={undoSmartSort}>
+                          <Text style={[styles.dayUndoText, !previousStops && styles.dayUndoTextDisabled]}>↶ 上一步</Text>
+                        </Pressable>
+                        <Pressable style={styles.smallAddButton} onPress={() => setAddingStop(true)}>
+                          <Text style={styles.smallAddButtonText}>＋</Text>
+                        </Pressable>
+                      </View>
                     </View>
                   </View>
                   <View style={styles.mapCard}>
@@ -1987,13 +2025,13 @@ export default function App() {
             )}
             {tripExpenses.length === 0 ? (
               <Pressable style={styles.emptyExpense} onPress={openExpenseModal}>
-                <Text style={styles.emptyExpenseIcon}>₩</Text>
+                <Text style={styles.emptyExpenseIcon}>🧾</Text>
                 <Text style={styles.emptyExpenseTitle}>還沒有任何支出</Text>
                 <Text style={styles.emptyExpenseSub}>點這裡新增第一筆餐費、交通或購物</Text>
               </Pressable>
             ) : tripExpenses.map((item) => (
               <View key={item.id} style={styles.expenseRow}>
-                <View style={styles.expenseBadge}><Text>₩</Text></View>
+                <View style={styles.expenseBadge}><Text>🧾</Text></View>
                 <View style={styles.expenseInfo}>
                   <Text style={styles.expenseName}>{item.title}</Text>
                   <Text style={styles.expensePayer}>付款人：{item.payer}</Text>
@@ -2670,6 +2708,11 @@ const styles = StyleSheet.create({
   dayHeadingDate: { fontSize: 11, fontWeight: "800", color: "#A06447", marginBottom: 4 },
   dayHeadingTitle: { fontSize: 23, fontWeight: "900", color: "#252D29", letterSpacing: -.4 },
   dayHeadingActions: { alignItems: "flex-end", gap: 7 },
+  dayActionRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  dayUndoButton: { height: 30, borderRadius: 11, backgroundColor: "#F3E8DE", paddingHorizontal: 11, alignItems: "center", justifyContent: "center" },
+  dayUndoButtonDisabled: { backgroundColor: "#EEEAE5" },
+  dayUndoText: { color: "#9C613F", fontSize: 10, fontWeight: "900" },
+  dayUndoTextDisabled: { color: "#B7B0A8" },
   smallAddButton: { width: 30, height: 30, borderRadius: 11, backgroundColor: "#2F5147", alignItems: "center", justifyContent: "center" },
   smallAddButtonText: { color: "#FFF", fontSize: 19, marginTop: -2 },
   dayCount: { fontSize: 12, color: "#978F85" },
