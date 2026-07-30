@@ -9,6 +9,7 @@ import {
   Platform,
   Pressable,
   SafeAreaView,
+  Share,
   ScrollView,
   StyleSheet,
   Text,
@@ -566,13 +567,62 @@ export default function App() {
     setTab("itinerary");
   };
 
+  const shareCloudInfo = (tripId: string, inviteCode: string) => {
+    Share.share({
+      title: "加入我的豆遊旅行",
+      message: `一起編輯豆遊行程\n旅行 ID：${tripId}\n邀請碼：${inviteCode}\n網站：https://past795.github.io/bean/`
+    }).catch(() => undefined);
+  };
+
+  const enableCloudForExistingTrip = async () => {
+    const originalTrip = activeTrip;
+    const cloudTripId = `trip-${Date.now()}`;
+    const inviteCode = String(Math.floor(100000 + Math.random() * 900000));
+    const cloudTrip = { ...originalTrip, id: cloudTripId };
+    const tripExpenses = expenses[originalTrip.id] ?? [];
+    setSyncStatus("syncing");
+    try {
+      await postCloud({
+        action: "createTrip", inviteCode,
+        trip: { "旅行ID": cloudTripId, "名稱": cloudTrip.title, "目的地": cloudTrip.destination, "開始日期": cloudTrip.period, "主要幣別": "TWD" },
+        member: { "成員ID": `member-${Date.now()}`, "顯示名稱": "我", "角色": "owner" }
+      });
+      const nextTrips = trips.map((trip) => trip.id === originalTrip.id ? cloudTrip : trip);
+      setTrips(nextTrips);
+      setActiveTripId(cloudTripId);
+      AsyncStorage.setItem(STORE_KEY, JSON.stringify(nextTrips)).catch(() => undefined);
+      const nextExpenses = { ...expenses, [cloudTripId]: tripExpenses };
+      delete nextExpenses[originalTrip.id];
+      setExpenses(nextExpenses);
+      AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(nextExpenses)).catch(() => undefined);
+      saveCloudLinks({ ...cloudLinksRef.current, [cloudTripId]: { inviteCode, memberName: "我" } });
+      await syncTripNow(cloudTrip, tripExpenses);
+      Alert.alert(
+        "雙人同步已開啟",
+        `旅行 ID：${cloudTripId}\n邀請碼：${inviteCode}\n\n旅伴在豆遊首頁點「加入旅行」即可。`,
+        [{ text: "稍後分享" }, { text: "分享給旅伴", onPress: () => shareCloudInfo(cloudTripId, inviteCode) }]
+      );
+    } catch (error: any) {
+      setSyncStatus("error");
+      Alert.alert("目前無法開啟同步", error?.message || "請確認網路後再試一次。");
+    }
+  };
+
   const showCloudInfo = () => {
     const link = cloudLinksRef.current[activeTrip.id];
     if (!link) {
-      Alert.alert("僅儲存在此裝置", "這趟旅行尚未連接雲端。新建立的旅行會自動產生同步邀請碼。");
+      Alert.alert(
+        "開啟雙人同步？",
+        "開啟後會將這趟旅行上傳到豆遊同步服務，並產生旅行 ID 與六位數邀請碼。",
+        [{ text: "取消", style: "cancel" }, { text: "開啟同步", onPress: enableCloudForExistingTrip }]
+      );
       return;
     }
-    Alert.alert("旅伴加入資訊", `旅行 ID：${activeTrip.id}\n邀請碼：${link.inviteCode}\n\n請把這兩項傳給旅伴。`);
+    Alert.alert(
+      "旅伴加入資訊",
+      `旅行 ID：${activeTrip.id}\n邀請碼：${link.inviteCode}\n\n旅伴在豆遊首頁點「加入旅行」。`,
+      [{ text: "關閉" }, { text: "分享給旅伴", onPress: () => shareCloudInfo(activeTrip.id, link.inviteCode) }]
+    );
   };
 
   const deleteTrip = (trip: TripPlan) => {
