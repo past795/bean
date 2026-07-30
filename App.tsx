@@ -1444,20 +1444,26 @@ export default function App() {
                       <View><Text style={styles.detailTitle}>{activeTrip.destination} 必買清單</Text><Text style={styles.detailHint}>{activeTrip.shopping.length} 項自訂商品</Text></View>
                       <Pressable style={styles.smallAddButton} onPress={() => setAddingShoppingItem(true)}><Text style={styles.smallAddButtonText}>＋</Text></Pressable>
                     </View>
-                    {!!activeTrip.shopping.length && (
-                      <View style={styles.shoppingColumns}>
-                        <Text style={styles.shoppingColumnCheck}>已購買</Text>
-                        <Text style={styles.shoppingColumnName}>商品</Text>
-                        <Text style={styles.shoppingColumnPrice}>價格</Text>
-                      </View>
-                    )}
-                    {activeTrip.shopping.map((item) => (
+                    {!!activeTrip.shopping.filter((item) => !item.purchased).length && <Text style={styles.shoppingSectionTitle}>待購買</Text>}
+                    {activeTrip.shopping.filter((item) => !item.purchased).map((item) => (
                       <View key={item.id} style={[styles.shoppingItem, item.purchased && styles.shoppingItemPurchased]}>
                         <Pressable accessibilityLabel={item.purchased ? "取消已購買" : "標記已購買"} onPress={() => toggleShoppingItem(item.id)} style={[styles.shoppingCheck, item.purchased && styles.shoppingCheckActive]}>
                           <Text style={styles.shoppingCheckText}>{item.purchased ? "✓" : ""}</Text>
                         </Pressable>
                         {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
                         <View style={styles.shoppingInfo}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.purchased ? "已購買" : item.category || "未分類"}</Text></View>
+                        <Text style={styles.shoppingPrice}>{item.price}</Text>
+                        <Pressable onPress={() => deleteShoppingItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
+                      </View>
+                    ))}
+                    {!!activeTrip.shopping.filter((item) => item.purchased).length && <Text style={styles.shoppingSectionTitle}>已購買</Text>}
+                    {activeTrip.shopping.filter((item) => item.purchased).map((item) => (
+                      <View key={item.id} style={[styles.shoppingItem, styles.shoppingItemPurchased]}>
+                        <Pressable accessibilityLabel="取消已購買" onPress={() => toggleShoppingItem(item.id)} style={[styles.shoppingCheck, styles.shoppingCheckActive]}>
+                          <Text style={styles.shoppingCheckText}>✓</Text>
+                        </Pressable>
+                        {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
+                        <View style={styles.shoppingInfo}><Text style={[styles.shoppingName, styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>已購買</Text></View>
                         <Text style={styles.shoppingPrice}>{item.price}</Text>
                         <Pressable onPress={() => deleteShoppingItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
                       </View>
@@ -1863,6 +1869,7 @@ const styles = StyleSheet.create({
   exchangeResult: { color: "#2F5147", fontWeight: "900", fontSize: 28, marginTop: 18 },
   shoppingWrap: { marginTop: 16, minHeight: 360 },
   shoppingHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 9 },
+  shoppingSectionTitle: { color: "#315248", fontSize: 12, fontWeight: "900", backgroundColor: "#EEF3F0", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, marginTop: 9 },
   shoppingColumns: { flexDirection: "row", alignItems: "center", paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: "#DDD6CD" },
   shoppingColumnCheck: { width: 64, color: "#887E74", fontSize: 10, fontWeight: "800" },
   shoppingColumnName: { flex: 1, color: "#887E74", fontSize: 10, fontWeight: "800" },
