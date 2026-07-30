@@ -256,6 +256,28 @@ const starterTrips: TripPlan[] = [{
 const transportIcon = (mode: Stop["transportMode"]) =>
   ({ 步行: "🚶", 計程車: "🚕", 公車: "🚌", 地鐵: "🚇", 飛機: "✈️", 預約制: "🎫", 百貨內: "🏬", 其他: "↗️" }[mode]);
 
+const stopEmoji = (title: string, address = "") => {
+  const text = `${title} ${address}`.toLowerCase();
+  if (/\p{Extended_Pictographic}/u.test(title)) return "";
+  if (/機場|airport|航廈|terminal|航空/.test(text)) return "✈️";
+  if (/飯店|酒店|旅館|民宿|hotel|hostel|inn|住宿|check.?in/.test(text)) return "🏨";
+  if (/咖啡|coffee|cafe|café|甜點|蛋糕|烘焙/.test(text)) return "☕";
+  if (/餐廳|飯|麵|湯|烤肉|早餐|午餐|晚餐|food|restaurant/.test(text)) return "🍽️";
+  if (/海|沙灘|海岸|港|島|beach|ocean/.test(text)) return "🌊";
+  if (/百貨|購物|商場|商城|免稅|市場|shopping|mall|outlet/.test(text)) return "🛍️";
+  if (/車站|地鐵|捷運|火車|ktx|station/.test(text)) return "🚉";
+  if (/公園|森林|花園|步道|park|garden/.test(text)) return "🌿";
+  if (/寺|廟|宮|教堂|神社|temple|church/.test(text)) return "⛩️";
+  if (/博物館|美術館|展覽|museum|gallery/.test(text)) return "🏛️";
+  if (/樂園|水族館|纜車|遊艇|體驗|票券/.test(text)) return "🎟️";
+  return "📍";
+};
+
+const stopDisplayTitle = (stop: Pick<Stop, "title" | "address">) => {
+  const emoji = stopEmoji(stop.title, stop.address);
+  return emoji ? `${emoji} ${stop.title}` : stop.title;
+};
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("home");
   const [googleUser, setGoogleUser] = useState<GoogleUser | null>(null);
@@ -427,7 +449,9 @@ export default function App() {
     return () => { cancelled = true; };
   }, [selectedTool, activeTrip.destination]);
   const routeStops = useMemo(
-    () => selectedDay?.stops.filter((s) => s.latitude != null && s.longitude != null) ?? [],
+    () => selectedDay?.stops
+      .filter((s) => s.latitude != null && s.longitude != null)
+      .map((s) => ({ ...s, title: stopDisplayTitle(s) })) ?? [],
     [selectedDay]
   );
 
@@ -1339,7 +1363,7 @@ export default function App() {
               </View>
             ) : <Text style={styles.dragHint}>長按拖曳  ≡</Text>}
           </View>
-          <Text style={styles.stopTitle}>{item.title}</Text>
+          <Text style={styles.stopTitle}>{stopDisplayTitle(item)}</Text>
           <Text style={styles.address} numberOfLines={1}>📍 {item.address}</Text>
           <View style={styles.transportRow}>
             <Text style={styles.transportIcon}>{transportIcon(item.transportMode)}</Text>
