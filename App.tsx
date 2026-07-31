@@ -58,6 +58,15 @@ const isGoogleTokenFresh = (token: string) => {
     return false;
   }
 };
+const inclusiveDayCount = (start: string, end: string) => {
+  const startTime = Date.parse(`${start}T00:00:00`);
+  const endTime = Date.parse(`${end}T00:00:00`);
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime < startTime) return 0;
+  return Math.floor((endTime - startTime) / 86400000) + 1;
+};
+const tripPeriodLabel = (start: string, end: string) =>
+  start && end ? `${start.replaceAll("-", ".")} – ${end.replaceAll("-", ".")}` : start || end || "日期未定";
+const isIsoTripDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 const screenWidth = Dimensions.get("window").width;
 const KNOWN_COORDINATES: Record<string, [number, number]> = {
   "d3-1": [35.1712, 129.1277], "d3-2": [35.0770, 129.0208],
@@ -214,9 +223,9 @@ const defaultPersonalPacking = (owner: string) => [
 const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   trip: {
     "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination,
-    "開始日期": trip.period, "結束日期": "", "主要幣別": tripExpenses[0]?.currency || "TWD"
+    "開始日期": trip.startDate || trip.period, "結束日期": trip.endDate || "", "主要幣別": tripExpenses[0]?.currency || "TWD",
+    "封面圖片": trip.coverImage || ""
   },
-  members: [],
   itinerary: trip.days.flatMap((day) => day.stops.map((stop, index) => ({
     "日期ID": day.id, "景點ID": stop.id, "日期": day.date, "開始時間": stop.time,
     "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "", durationMinutes: stop.durationMinutes || 0 }), "景點名稱": stop.title, "地址": stop.address,
@@ -239,7 +248,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
     "商品ID": item.id, "商品名稱": item.name, "分類": item.category || "",
     "價格": item.price || "", "幣別": item.currency || "", "圖片網址": item.imageUrl || "",
     "購買地點": "", "備註": JSON.stringify({ scope: item.scope || "shared", owner: item.owner || "" }), "已購買": !!item.purchased
-  })).concat((trip.checklist || []).map((item) => ({
+  })).concat((trip.checklist || []).filter((item) => item.scope !== "personal").map((item) => ({
     "商品ID": item.id, "商品名稱": item.text, "分類": "__PREP__", "價格": "", "幣別": "",
     "圖片網址": "", "購買地點": "", "備註": JSON.stringify({ scope: item.scope || "shared", owner: item.owner || "" }),
     "已購買": !!item.completed
@@ -278,7 +287,13 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
   const id = String(cloudTrip["旅行ID"]);
   const trip: TripPlan = {
     id, title: String(cloudTrip["名稱"] || "未命名旅行"),
-    destination: String(cloudTrip["目的地"] || ""), period: String(cloudTrip["開始日期"] || "日期未定"),
+    destination: String(cloudTrip["目的地"] || ""),
+    startDate: isIsoTripDate(String(cloudTrip["開始日期"] || "")) ? String(cloudTrip["開始日期"]) : "",
+    endDate: isIsoTripDate(String(cloudTrip["結束日期"] || "")) ? String(cloudTrip["結束日期"]) : "",
+    coverImage: String(cloudTrip["封面圖片"] || ""),
+    period: isIsoTripDate(String(cloudTrip["開始日期"] || ""))
+      ? tripPeriodLabel(String(cloudTrip["開始日期"] || ""), String(cloudTrip["結束日期"] || ""))
+      : String(cloudTrip["開始日期"] || "日期未定"),
     travelers: Math.max(1, (data.members || []).length || 1),
     days: days.length ? days : [{ id: `${id}-day-1`, label: "DAY 1", date: "第 1 天", title: "自由安排", stops: [] }],
     flights: (data.flights || []).map((row: any) => ({
@@ -381,7 +396,9 @@ export default function App() {
   const [creatingTrip, setCreatingTrip] = useState(false);
   const [newTripName, setNewTripName] = useState("");
   const [newDestination, setNewDestination] = useState("");
-  const [newPeriod, setNewPeriod] = useState("");
+  const [newStartDate, setNewStartDate] = useState("");
+  const [newEndDate, setNewEndDate] = useState("");
+  const [newCoverImage, setNewCoverImage] = useState("");
   const [newDayCount, setNewDayCount] = useState("5");
   const [newTravelers, setNewTravelers] = useState("2");
   const [addingStop, setAddingStop] = useState(false);
@@ -417,6 +434,10 @@ export default function App() {
   const [leavingTrip, setLeavingTrip] = useState<TripPlan | null>(null);
   const [editingTravelers, setEditingTravelers] = useState(false);
   const [travelerDraft, setTravelerDraft] = useState("2");
+  const [tripNameDraft, setTripNameDraft] = useState("");
+  const [tripStartDraft, setTripStartDraft] = useState("");
+  const [tripEndDraft, setTripEndDraft] = useState("");
+  const [tripCoverDraft, setTripCoverDraft] = useState("");
   const [addingAccommodation, setAddingAccommodation] = useState(false);
   const [hotelName, setHotelName] = useState("");
   const [hotelPeriod, setHotelPeriod] = useState("");
@@ -430,6 +451,11 @@ export default function App() {
   const [weatherPlace, setWeatherPlace] = useState("");
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState("");
+
+  useEffect(() => {
+    const count = inclusiveDayCount(newStartDate, newEndDate);
+    if (count) setNewDayCount(String(Math.min(14, count)));
+  }, [newStartDate, newEndDate]);
   const [addingShoppingItem, setAddingShoppingItem] = useState(false);
   const [shoppingName, setShoppingName] = useState("");
   const [shoppingPrice, setShoppingPrice] = useState("");
@@ -655,9 +681,17 @@ export default function App() {
       const remoteStopCount = converted.trip.days.reduce((sum, day) => sum + day.stops.length, 0);
       const localStopCount = localTrip?.days.reduce((sum, day) => sum + day.stops.length, 0) || 0;
       const shouldRecoverBusan = converted.trip.destination.includes("釜山") && remoteStopCount === 0;
-      const incomingTrip = shouldRecoverBusan
+      const incomingTripBase = shouldRecoverBusan
         ? { ...converted.trip, days: localStopCount > 0 ? localTrip!.days : busanInitialTrip }
         : converted.trip;
+      const localPersonalChecklist = (localTrip?.checklist || []).filter((item) => item.scope === "personal");
+      const incomingTrip = {
+        ...incomingTripBase,
+        checklist: [
+          ...(incomingTripBase.checklist || []).filter((item) => item.scope !== "personal"),
+          ...localPersonalChecklist
+        ]
+      };
       const localSelectedDay = localTrip?.days.find((day) => day.id === selectedDayId);
       const incomingSelectedDay = incomingTrip.days.find((day) => day.id === selectedDayId);
       if (quiet && localSelectedDay && incomingSelectedDay &&
@@ -700,11 +734,33 @@ export default function App() {
   useEffect(() => {
     const link = cloudLinks[activeTrip.id];
     if (!googleUser || !link) return;
-    pullCloudTrip(activeTrip.id, link.inviteCode, true);
+    let cancelled = false;
+    const restoreMyMembership = async () => {
+      try {
+        await postCloud({
+          action: "joinTrip",
+          tripId: activeTrip.id,
+          inviteCode: link.inviteCode,
+          idToken: googleUser.idToken,
+          member: {
+            "成員ID": link.memberId || `google:${googleUser.sub}`,
+            "顯示名稱": link.memberName || googleUser.name,
+            "角色": link.role || "member"
+          }
+        });
+      } catch {
+        // The regular pull below will surface a real connection error if needed.
+      }
+      if (!cancelled) pullCloudTrip(activeTrip.id, link.inviteCode, true);
+    };
+    restoreMyMembership();
     const timer = setInterval(() => {
       pullCloudTrip(activeTrip.id, link.inviteCode, true);
     }, 3000);
-    return () => clearInterval(timer);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, [activeTrip.id, selectedDayId, googleUser?.sub, cloudLinks[activeTrip.id]?.inviteCode]);
 
   const persistTrips = (next: TripPlan[]) => {
@@ -1085,11 +1141,11 @@ export default function App() {
     let added = 0;
     lines.forEach((line) => {
       const dayMatch = line.match(/^(?:DAY|第)\s*(\d+)/i);
-      if (dayMatch && !/[|\t,，]/.test(line)) {
+      if (dayMatch && !/[|｜\t,，]/.test(line)) {
         dayIndex = Math.min(nextDays.length - 1, Math.max(0, Number(dayMatch[1]) - 1));
         return;
       }
-      const parts = line.split(/\t|\s*\|\s*/).map((part) => part.trim());
+      const parts = line.split(/\t|\s*[|｜]\s*/).map((part) => part.trim());
       if (parts.length < 2) return;
       const time = parts[0] || "彈性";
       const title = parts[1] || "";
@@ -1188,13 +1244,17 @@ export default function App() {
       Alert.alert("請填寫目的地", "例如：沖繩、東京、濟州島");
       return;
     }
-    const count = Math.min(14, Math.max(1, Number.parseInt(newDayCount, 10) || 1));
+    const calculatedDays = inclusiveDayCount(newStartDate, newEndDate);
+    const count = Math.min(14, Math.max(1, calculatedDays || Number.parseInt(newDayCount, 10) || 1));
     const id = `trip-${Date.now()}`;
     const trip: TripPlan = {
       id,
       title: newTripName.trim() || `${destination}旅行`,
       destination,
-      period: newPeriod.trim() || "日期未定",
+      startDate: newStartDate,
+      endDate: newEndDate,
+      coverImage: newCoverImage.trim(),
+      period: tripPeriodLabel(newStartDate, newEndDate),
       travelers: Math.min(20, Math.max(1, Number.parseInt(newTravelers, 10) || 1)),
       flights: [],
       accommodations: [],
@@ -1214,7 +1274,9 @@ export default function App() {
     setCreatingTrip(false);
     setNewTripName("");
     setNewDestination("");
-    setNewPeriod("");
+    setNewStartDate("");
+    setNewEndDate("");
+    setNewCoverImage("");
     setNewDayCount("5");
     setNewTravelers("2");
     const inviteCode = String(Math.floor(100000 + Math.random() * 900000));
@@ -1222,7 +1284,7 @@ export default function App() {
     try {
       await postCloud({
         action: "createTrip", inviteCode, idToken: googleUser?.idToken || "",
-        trip: { "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination, "開始日期": trip.period, "主要幣別": "TWD" },
+        trip: { "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination, "開始日期": trip.startDate || trip.period, "結束日期": trip.endDate || "", "封面圖片": trip.coverImage || "", "主要幣別": "TWD" },
         member: { "成員ID": googleUser ? `google:${googleUser.sub}` : `member-${Date.now()}`, "顯示名稱": googleUser?.name || "我", "角色": "owner" }
       });
       saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: googleUser?.name || "我", memberId: googleUser ? `google:${googleUser.sub}` : undefined, role: "owner" } });
@@ -1779,7 +1841,14 @@ export default function App() {
                   <Pressable hitSlop={12} style={[styles.syncBadge, syncStatus === "local" && styles.syncBadgeLocal]} onPress={showCloudInfo}>
                     <Text style={styles.syncBadgeText}>{syncStatus === "syncing" ? "☁ 同步中" : syncStatus === "synced" ? "☁ 已同步" : syncStatus === "error" ? "☁ 待重試" : "☁ 開啟同步"}</Text>
                   </Pressable>
-                  <Pressable style={styles.tripBadge} onPress={() => { setTravelerDraft(String(activeTrip.travelers)); setEditingTravelers(true); }}>
+                  <Pressable style={styles.tripBadge} onPress={() => {
+                    setTravelerDraft(String(activeTrip.travelers));
+                    setTripNameDraft(activeTrip.title);
+                    setTripStartDraft(activeTrip.startDate || "");
+                    setTripEndDraft(activeTrip.endDate || "");
+                    setTripCoverDraft(activeTrip.coverImage || "");
+                    setEditingTravelers(true);
+                  }}>
                     <Text style={styles.tripBadgeIcon}>✦</Text>
                     <Text style={styles.tripBadgeText}>{activeTrip.travelers} 人同行</Text>
                   </Pressable>
@@ -1926,6 +1995,8 @@ export default function App() {
                   colors={index % 2 === 0 ? ["#244C43", "#4E7467"] : ["#9B6248", "#D49772"]}
                   style={styles.tripCardCover}
                 >
+                  {!!trip.coverImage && <Image source={{ uri: trip.coverImage }} style={styles.tripCoverPhoto} resizeMode="cover" />}
+                  {!!trip.coverImage && <View style={styles.tripCoverShade} />}
                   <Text style={styles.tripCardIndex}>TRIP {String(index + 1).padStart(2, "0")}</Text>
                   <Text style={styles.tripCardDestination}>{trip.destination}</Text>
                   <Text style={styles.tripCardPeriod}>{trip.period}</Text>
@@ -2382,7 +2453,6 @@ export default function App() {
                         <Pressable onPress={() => toggleChecklistItem(item.id)} style={[styles.shoppingCheck, item.completed && styles.shoppingCheckActive]}><Text style={styles.shoppingCheckText}>{item.completed ? "✓" : ""}</Text></Pressable>
                         <View style={styles.shoppingInfo}>
                           <Text style={[styles.shoppingName, item.completed && styles.shoppingNamePurchased]}>{item.text}</Text>
-                          <Text style={styles.shoppingCategory}>我的準備</Text>
                         </View>
                         <Pressable onPress={() => deleteChecklistItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
                       </View>
@@ -2452,13 +2522,18 @@ export default function App() {
                 <TextInput value={newTripName} onChangeText={setNewTripName} placeholder="例如：沖繩自駕六日" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                 <View style={styles.fieldRow}>
                   <View style={styles.fieldHalf}>
-                    <Text style={styles.fieldLabel}>日期</Text>
-                    <TextInput value={newPeriod} onChangeText={setNewPeriod} placeholder="2026.12.01–12.06" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                    <Text style={styles.fieldLabel}>開始日期</Text>
+                    <TextInput value={newStartDate} onChangeText={setNewStartDate} placeholder="2026-12-01" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                   </View>
-                  <View style={styles.dayCountField}>
-                    <Text style={styles.fieldLabel}>天數</Text>
-                    <TextInput value={newDayCount} onChangeText={setNewDayCount} keyboardType="number-pad" placeholder="5" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                  <View style={styles.fieldHalf}>
+                    <Text style={styles.fieldLabel}>結束日期</Text>
+                    <TextInput value={newEndDate} onChangeText={setNewEndDate} placeholder="2026-12-06" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                   </View>
+                </View>
+                <Text style={styles.sourceHint}>日期填完整後會自動計算：{newDayCount} 天</Text>
+                <Text style={styles.fieldLabel}>封面照片網址（可留空）</Text>
+                <TextInput value={newCoverImage} onChangeText={setNewCoverImage} placeholder="貼上圖片網址" placeholderTextColor="#AAA198" autoCapitalize="none" style={styles.fieldInput} />
+                <View style={styles.fieldRow}>
                   <View style={styles.dayCountField}>
                     <Text style={styles.fieldLabel}>同行人數</Text>
                     <TextInput value={newTravelers} onChangeText={setNewTravelers} keyboardType="number-pad" placeholder="2" placeholderTextColor="#AAA198" style={styles.fieldInput} />
@@ -2527,18 +2602,48 @@ export default function App() {
 
         <Modal visible={editingTravelers} animationType="fade" transparent onRequestClose={() => setEditingTravelers(false)}>
           <View style={styles.modalShade}>
-            <View style={styles.sheet}>
+            <ScrollView contentContainerStyle={styles.sheet}>
               <View style={styles.sheetHandle} />
-              <Text style={styles.sheetEyebrow}>TRAVELERS</Text>
-              <Text style={styles.sheetTitle}>修改同行人數</Text>
+              <Text style={styles.sheetEyebrow}>TRIP SETTINGS</Text>
+              <Text style={styles.sheetTitle}>修改旅行資料</Text>
+              <Text style={styles.fieldLabel}>旅行名稱</Text>
+              <TextInput value={tripNameDraft} onChangeText={setTripNameDraft} placeholder="我的旅行" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+              <View style={styles.fieldRow}>
+                <View style={styles.fieldHalf}>
+                  <Text style={styles.fieldLabel}>開始日期</Text>
+                  <TextInput value={tripStartDraft} onChangeText={setTripStartDraft} placeholder="2026-12-01" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                </View>
+                <View style={styles.fieldHalf}>
+                  <Text style={styles.fieldLabel}>結束日期</Text>
+                  <TextInput value={tripEndDraft} onChangeText={setTripEndDraft} placeholder="2026-12-06" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                </View>
+              </View>
+              <Text style={styles.fieldLabel}>封面照片網址（清空即不顯示）</Text>
+              <TextInput value={tripCoverDraft} onChangeText={setTripCoverDraft} placeholder="貼上圖片網址" placeholderTextColor="#AAA198" autoCapitalize="none" style={styles.fieldInput} />
               <Text style={styles.fieldLabel}>人數</Text>
               <TextInput value={travelerDraft} onChangeText={setTravelerDraft} keyboardType="number-pad" placeholder="1" placeholderTextColor="#AAA198" style={styles.fieldInput} />
               <Pressable style={styles.primaryButton} onPress={() => {
-                updateActiveTrip({ travelers: Math.min(20, Math.max(1, Number.parseInt(travelerDraft, 10) || 1)) });
+                const calculatedDays = inclusiveDayCount(tripStartDraft, tripEndDraft);
+                const currentDays = activeTrip.days;
+                const nextDays = calculatedDays > currentDays.length
+                  ? [...currentDays, ...Array.from({ length: calculatedDays - currentDays.length }, (_, index) => {
+                      const dayNumber = currentDays.length + index + 1;
+                      return { id: `${activeTrip.id}-day-${dayNumber}`, label: `DAY ${dayNumber}`, date: `第 ${dayNumber} 天`, title: `${activeTrip.destination}・自由安排`, stops: [] };
+                    })]
+                  : currentDays;
+                updateActiveTrip({
+                  title: tripNameDraft.trim() || activeTrip.title,
+                  startDate: tripStartDraft,
+                  endDate: tripEndDraft,
+                  period: tripPeriodLabel(tripStartDraft, tripEndDraft),
+                  coverImage: tripCoverDraft.trim(),
+                  days: nextDays,
+                  travelers: Math.min(20, Math.max(1, Number.parseInt(travelerDraft, 10) || activeTrip.travelers))
+                });
                 setEditingTravelers(false);
-              }}><Text style={styles.primaryButtonText}>儲存人數</Text></Pressable>
+              }}><Text style={styles.primaryButtonText}>儲存旅行資料</Text></Pressable>
               <Pressable style={styles.cancelButton} onPress={() => setEditingTravelers(false)}><Text style={styles.cancelText}>取消</Text></Pressable>
-            </View>
+            </ScrollView>
           </View>
         </Modal>
 
@@ -2792,6 +2897,8 @@ const styles = StyleSheet.create({
   addTripPlus: { color: "#FFF", fontSize: 25, fontWeight: "500", marginTop: -2 },
   tripCard: { backgroundColor: "#FFF", borderRadius: 24, marginBottom: 18, overflow: "hidden", borderWidth: 1, borderColor: "#EDE7DF", shadowColor: "#34261F", shadowOpacity: .08, shadowRadius: 14, shadowOffset: { width: 0, height: 7 } },
   tripCardCover: { minHeight: 168, padding: 20, justifyContent: "flex-end" },
+  tripCoverPhoto: { ...StyleSheet.absoluteFillObject, width: "auto", height: "auto" },
+  tripCoverShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(18,35,31,.46)" },
   tripCardIndex: { position: "absolute", left: 20, top: 18, color: "rgba(255,255,255,.7)", letterSpacing: 1.5, fontWeight: "800", fontSize: 10 },
   tripCardDestination: { color: "#FFF", fontSize: 33, fontWeight: "900", letterSpacing: -1 },
   tripCardPeriod: { color: "rgba(255,255,255,.82)", fontSize: 12, fontWeight: "700", marginTop: 4 },

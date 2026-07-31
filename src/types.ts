@@ -80,6 +80,9 @@ export type TripPlan = {
   title: string;
   destination: string;
   period: string;
+  startDate?: string;
+  endDate?: string;
+  coverImage?: string;
   travelers: number;
   days: TripDay[];
   flights: FlightInfo[];
