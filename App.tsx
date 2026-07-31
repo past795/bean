@@ -735,6 +735,15 @@ export default function App() {
     });
   };
 
+  const resetCloudMembersToOwner = (tripId: string, link: CloudLink) => {
+    const ownerNames = [link.memberName || googleUser?.name].filter((name): name is string => !!name && name !== "我");
+    setCloudMembers((current) => {
+      const next = { ...current, [tripId]: [...new Set(ownerNames)] };
+      AsyncStorage.setItem(CLOUD_MEMBER_KEY, JSON.stringify(next)).catch(() => undefined);
+      return next;
+    });
+  };
+
   const syncTripNow = async (trip: TripPlan, tripExpenses: Expense[]) => {
     const link = cloudLinksRef.current[trip.id];
     if (!link?.inviteCode) {
@@ -755,6 +764,7 @@ export default function App() {
       if (String(error?.message || "").includes("找不到旅行") && link.role !== "member") {
         try {
           await recreateMissingCloudTrip(trip, tripExpenses, link);
+          resetCloudMembersToOwner(trip.id, link);
           setSyncStatus("synced");
           setSyncErrorMessage("");
           showToast("雲端旅行已從本機資料恢復並重新同步");
@@ -795,6 +805,7 @@ export default function App() {
       if (String(error?.message || "").includes("找不到旅行") && link.role !== "member") {
         try {
           await recreateMissingCloudTrip(trip, tripExpenses, link);
+          resetCloudMembersToOwner(trip.id, link);
           setSyncStatus("synced");
           setSyncErrorMessage("");
           showToast("雲端旅行已從本機資料恢復並重新同步");
@@ -852,7 +863,7 @@ export default function App() {
       }
       const memberNames = (result.data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter((name: string) => name && name !== "我");
       setCloudMembers((current) => {
-        const nextNames = memberNames.length ? [...new Set(memberNames)] as string[] : (current[tripId] || []);
+        const nextNames = [...new Set(memberNames)] as string[];
         const next = { ...current, [tripId]: nextNames };
         AsyncStorage.setItem(CLOUD_MEMBER_KEY, JSON.stringify(next)).catch(() => undefined);
         return next;
@@ -879,6 +890,7 @@ export default function App() {
       if (String(error?.message || "").includes("找不到旅行") && link && link.role !== "member" && localTripForRepair) {
         try {
           await recreateMissingCloudTrip(localTripForRepair, expenses[tripId] || [], link);
+          resetCloudMembersToOwner(tripId, link);
           setSyncStatus("synced");
           setSyncErrorMessage("");
           showToast("雲端旅行已從本機完整恢復");
