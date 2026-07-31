@@ -291,9 +291,9 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
     "商品ID": item.id, "商品名稱": item.name, "分類": item.category || "",
     "價格": item.price || "", "幣別": item.currency || "", "圖片網址": item.imageUrl || "",
     "購買地點": "", "備註": JSON.stringify({ scope: item.scope || "shared", owner: item.owner || "" }), "已購買": !!item.purchased
-  })).concat(trip.homeBaseAccommodationId ? [{
+  })).concat((trip.homeBaseAccommodationId || Object.keys(trip.homeBaseByDay || {}).length) ? [{
     "商品ID": `trip-meta-${trip.id}`, "商品名稱": "旅行設定", "分類": "__TRIP_META__", "價格": "", "幣別": "",
-    "圖片網址": "", "購買地點": "", "備註": JSON.stringify({ homeBaseAccommodationId: trip.homeBaseAccommodationId }), "已購買": false
+    "圖片網址": "", "購買地點": "", "備註": JSON.stringify({ homeBaseAccommodationId: trip.homeBaseAccommodationId, homeBaseByDay: trip.homeBaseByDay || {} }), "已購買": false
   }] : []).concat((trip.checklist || []).filter((item) => item.scope !== "personal").map((item) => ({
     "商品ID": item.id, "商品名稱": item.text, "分類": "__PREP__", "價格": "", "幣別": "",
     "圖片網址": "", "購買地點": "", "備註": JSON.stringify({ scope: item.scope || "shared", owner: item.owner || "" }),
@@ -340,6 +340,10 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
     homeBaseAccommodationId: (() => {
       const row = (data.shopping || []).find((item: any) => String(item["分類"] || "") === "__TRIP_META__");
       try { return JSON.parse(String(row?.["備註"] || "{}")).homeBaseAccommodationId || ""; } catch { return ""; }
+    })(),
+    homeBaseByDay: (() => {
+      const row = (data.shopping || []).find((item: any) => String(item["分類"] || "") === "__TRIP_META__");
+      try { return JSON.parse(String(row?.["備註"] || "{}")).homeBaseByDay || {}; } catch { return {}; }
     })(),
     period: isIsoTripDate(String(cloudTrip["開始日期"] || ""))
       ? tripPeriodLabel(String(cloudTrip["開始日期"] || ""), String(cloudTrip["結束日期"] || ""))
@@ -1740,19 +1744,59 @@ export default function App() {
         ]
       };
     });
-    updateActiveTrip({ homeBaseAccommodationId: hotel.id, days: nextDays });
+    const homeBaseByDay = Object.fromEntries(activeTrip.days.slice(1, -1).map((day) => [day.id, hotel.id]));
+    updateActiveTrip({ homeBaseAccommodationId: hotel.id, homeBaseByDay, days: nextDays });
     showToast(`已將「${hotel.name}」設為中間日期的每日起終點`);
   };
 
   const clearAccommodationHomeBase = () => {
     updateActiveTrip({
       homeBaseAccommodationId: "",
+      homeBaseByDay: {},
       days: activeTrip.days.map((day) => ({
         ...day,
         stops: day.stops.filter((stop) => !stop.id.endsWith("-lodging-start") && !stop.id.endsWith("-lodging-end"))
       }))
     });
     showToast("已取消每日住宿起終點");
+  };
+
+  const toggleAccommodationForDay = (hotel: TripPlan["accommodations"][number], dayId: string) => {
+    const currentMap = Object.keys(activeTrip.homeBaseByDay || {}).length
+      ? (activeTrip.homeBaseByDay || {})
+      : activeTrip.homeBaseAccommodationId
+        ? Object.fromEntries(activeTrip.days.slice(1, -1).map((day) => [day.id, activeTrip.homeBaseAccommodationId!]))
+        : {};
+    const isSelected = currentMap[dayId] === hotel.id;
+    const nextMap = { ...currentMap };
+    if (isSelected) delete nextMap[dayId]; else nextMap[dayId] = hotel.id;
+    const nextDays = activeTrip.days.map((day) => {
+      if (day.id !== dayId) return day;
+      const withoutGenerated = day.stops.filter((stop) => !stop.id.endsWith("-lodging-start") && !stop.id.endsWith("-lodging-end"));
+      if (isSelected) return { ...day, stops: withoutGenerated };
+      const lodgingBase = {
+        title: hotel.name,
+        address: hotel.address || "住宿地址待補",
+        transportMode: "其他" as const,
+        note: "這一天指定的住宿起終點",
+        routeMode: "transit" as const,
+        openingHours: "24 小時住宿地點",
+        openingHoursSource: "這趟旅行的住宿設定",
+        durationMinutes: 0
+      };
+      return { ...day, stops: [
+        { ...lodgingBase, id: `${day.id}-lodging-start`, time: "08:00", transport: "從住宿出發" },
+        ...withoutGenerated,
+        { ...lodgingBase, id: `${day.id}-lodging-end`, time: "21:00", transport: "返回住宿" }
+      ] };
+    });
+    const assignedHotels = [...new Set(Object.values(nextMap))];
+    updateActiveTrip({
+      homeBaseByDay: nextMap,
+      homeBaseAccommodationId: assignedHotels.length === 1 ? assignedHotels[0] : "",
+      days: nextDays
+    });
+    showToast(isSelected ? `已取消 ${activeTrip.days.find((day) => day.id === dayId)?.label} 的住宿起終點` : `${activeTrip.days.find((day) => day.id === dayId)?.label} 已套用「${hotel.name}」`);
   };
 
   const createShoppingItem = () => {
@@ -2466,12 +2510,23 @@ export default function App() {
                         {!!hotel.facilities && <Text style={styles.hotelDetail}>設施｜{hotel.facilities}</Text>}
                         {!!hotel.frontDesk && <Text style={styles.hotelDetail}>櫃檯｜{hotel.frontDesk}</Text>}
                         {!!hotel.note && <Text style={styles.detailHint}>{hotel.note}</Text>}
+                        {activeTrip.days.length > 2 && <>
+                          <Text style={styles.hotelDayLabel}>套用到哪幾天？</Text>
+                          <View style={styles.hotelDayChoices}>
+                            {activeTrip.days.slice(1, -1).map((day) => {
+                              const selected = activeTrip.homeBaseByDay?.[day.id] === hotel.id;
+                              return <Pressable key={day.id} onPress={() => toggleAccommodationForDay(hotel, day.id)} style={[styles.hotelDayChoice, selected && styles.hotelDayChoiceActive]}>
+                                <Text style={[styles.hotelDayChoiceText, selected && styles.hotelDayChoiceTextActive]}>{selected ? "✓ " : ""}{day.label}</Text>
+                              </Pressable>;
+                            })}
+                          </View>
+                        </>}
                         <Pressable
                           style={[styles.homeBaseButton, activeTrip.homeBaseAccommodationId === hotel.id && styles.homeBaseButtonActive]}
                           onPress={() => activeTrip.homeBaseAccommodationId === hotel.id ? clearAccommodationHomeBase() : setAccommodationAsHomeBase(hotel)}
                         >
                           <Text style={[styles.homeBaseButtonText, activeTrip.homeBaseAccommodationId === hotel.id && styles.homeBaseButtonTextActive]}>
-                            {activeTrip.homeBaseAccommodationId === hotel.id ? "✓ 已設為每日住宿起終點（點此取消）" : "設為每日住宿起終點"}
+                            {activeTrip.homeBaseAccommodationId === hotel.id ? "✓ 已套用全部中間日期（點此取消）" : "套用全部中間日期"}
                           </Text>
                         </Pressable>
                       </View>
@@ -3109,6 +3164,12 @@ const styles = StyleSheet.create({
   homeBaseButtonActive: { backgroundColor: "#315248" },
   homeBaseButtonText: { color: "#315248", fontSize: 10, fontWeight: "900" },
   homeBaseButtonTextActive: { color: "#FFF" },
+  hotelDayLabel: { color: "#756E66", fontSize: 10, fontWeight: "800", marginTop: 12, marginBottom: 7 },
+  hotelDayChoices: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  hotelDayChoice: { borderRadius: 10, backgroundColor: "#EEEAE4", paddingHorizontal: 11, paddingVertical: 8 },
+  hotelDayChoiceActive: { backgroundColor: "#315248" },
+  hotelDayChoiceText: { color: "#766E65", fontSize: 10, fontWeight: "900" },
+  hotelDayChoiceTextActive: { color: "#FFF" },
   tripCardIndex: { position: "absolute", left: 20, top: 18, color: "rgba(255,255,255,.7)", letterSpacing: 1.5, fontWeight: "800", fontSize: 10 },
   tripCardDestination: { color: "#FFF", fontSize: 33, fontWeight: "900", letterSpacing: -1 },
   tripCardPeriod: { color: "rgba(255,255,255,.82)", fontSize: 12, fontWeight: "700", marginTop: 4 },
