@@ -441,7 +441,9 @@ export default function App() {
   const [newStopLatitude, setNewStopLatitude] = useState<number | undefined>();
   const [newStopLongitude, setNewStopLongitude] = useState<number | undefined>();
   const [addressLookupStatus, setAddressLookupStatus] = useState<"idle" | "loading" | "found" | "error">("idle");
+  const [addressLookupMessage, setAddressLookupMessage] = useState("");
   const [placeSuggestions, setPlaceSuggestions] = useState<any[]>([]);
+  const [placeSuggestionStatus, setPlaceSuggestionStatus] = useState<"idle" | "loading" | "empty">("idle");
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
   const [shoppingSource, setShoppingSource] = useState<"Olive Young" | "韓國藥局">("Olive Young");
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
@@ -583,8 +585,10 @@ export default function App() {
     const title = newStopTitle.trim();
     if (!addingStop || title.length < 2) {
       setPlaceSuggestions([]);
+      setPlaceSuggestionStatus("idle");
       return;
     }
+    setPlaceSuggestionStatus("loading");
     const timer = setTimeout(async () => {
       try {
         const destination = activeTrip.destination;
@@ -592,13 +596,21 @@ export default function App() {
         const isJapan = /日本|沖繩|東京|大阪|京都|北海道|福岡|japan|okinawa|tokyo|osaka|kyoto/i.test(destination);
         const countryFilter = isKorea ? "&countrycodes=kr" : isJapan ? "&countrycodes=jp" : "";
         const busanBounds = /釜山|busan/i.test(destination) ? "&viewbox=128.75,35.40,129.35,34.85&bounded=1" : "";
-        const aliases: Record<string, string> = { "釜山車站": "Busan Station", "釜山站": "Busan Station", "金海機場": "Gimhae International Airport" };
-        const query = `${aliases[title] || title} ${destination}`;
+        const compactTitle = title.replace(/\s+/g, "");
+        const alias = /釜山?樂天百貨|樂天百貨/.test(compactTitle) ? "Lotte Department Store Busan"
+          : /釜山車站|釜山站/.test(compactTitle) ? "Busan Station"
+          : /金海機場/.test(compactTitle) ? "Gimhae International Airport"
+          : /新世界百貨/.test(compactTitle) ? "Shinsegae Department Store Centum City"
+          : /海雲台/.test(compactTitle) ? title.replace(/海雲台/g, "Haeundae")
+          : title;
+        const query = `${alias} ${destination}`;
         const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&addressdetails=1&extratags=1&namedetails=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryFilter}${busanBounds}`);
         const rows = response.ok ? await response.json() : [];
         setPlaceSuggestions(Array.isArray(rows) ? rows : []);
+        setPlaceSuggestionStatus(Array.isArray(rows) && rows.length ? "idle" : "empty");
       } catch {
         setPlaceSuggestions([]);
+        setPlaceSuggestionStatus("empty");
       }
     }, 450);
     return () => clearTimeout(timer);
@@ -1455,27 +1467,35 @@ export default function App() {
       return;
     }
     setAddressLookupStatus("loading");
+    setAddressLookupMessage(`正在搜尋「${title}」……`);
     try {
       const destination = activeTrip.destination;
       const isKorea = /韓國|釜山|首爾|濟州|大邱|仁川|busan|seoul|jeju/i.test(destination);
       const isJapan = /日本|沖繩|東京|大阪|京都|北海道|福岡|japan|okinawa|tokyo|osaka|kyoto/i.test(destination);
       const countryCode = isKorea ? "kr" : isJapan ? "jp" : "";
       const busanBounds = /釜山|busan/i.test(destination) ? "&viewbox=128.75,35.40,129.35,34.85&bounded=1" : "";
-      const commonPlaceAliases: Record<string, string> = {
-        "釜山車站": "Busan Station", "釜山站": "Busan Station", "金海機場": "Gimhae International Airport",
-        "首爾車站": "Seoul Station", "東京車站": "Tokyo Station", "大阪車站": "Osaka Station",
-        "京都車站": "Kyoto Station", "那霸機場": "Naha Airport"
-      };
-      const searchTitle = commonPlaceAliases[title] || title;
+      const compactTitle = title.replace(/\s+/g, "");
+      const searchTitle = /釜山?樂天百貨|樂天百貨/.test(compactTitle) ? "Lotte Department Store Busan"
+        : /釜山車站|釜山站/.test(compactTitle) ? "Busan Station"
+        : /金海機場/.test(compactTitle) ? "Gimhae International Airport"
+        : /新世界百貨/.test(compactTitle) ? "Shinsegae Department Store Centum City"
+        : title;
       const query = `${searchTitle} ${destination}`.trim();
       const countryFilter = countryCode ? `&countrycodes=${countryCode}` : "";
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=3&addressdetails=1&extratags=1&namedetails=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryFilter}${busanBounds}`);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      let response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&addressdetails=1&extratags=1&namedetails=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryFilter}${busanBounds}`, { signal: controller.signal });
       if (!response.ok) throw new Error("搜尋服務暫時無法使用");
-      const rows = await response.json();
+      let rows = await response.json();
+      if (!rows?.length && busanBounds) {
+        response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&addressdetails=1&extratags=1&namedetails=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryFilter}`, { signal: controller.signal });
+        rows = response.ok ? await response.json() : [];
+      }
+      clearTimeout(timeout);
       const match = rows?.[0];
       if (!match?.display_name) {
         setAddressLookupStatus("error");
-        Alert.alert("找不到地址", "請嘗試輸入更完整的景點名稱，例如加上分店或城市。");
+        setAddressLookupMessage("找不到符合地點，請加上分店或區域名稱。");
         return;
       }
       setNewStopAddress(String(match.display_name));
@@ -1488,9 +1508,10 @@ export default function App() {
         setNewStopNote(hours ? `營業時間：${hours}。地點類型：${kind}。` : `地點類型：${kind}；營業時間尚未查證。`);
       }
       setAddressLookupStatus("found");
-    } catch {
+      setAddressLookupMessage(`已找到：${String(match.display_name).split(",").slice(0, 3).join("・")}`);
+    } catch (error: any) {
       setAddressLookupStatus("error");
-      Alert.alert("目前無法搜尋地址", "請稍後再試，或先手動貼上 Google Maps 地址。");
+      setAddressLookupMessage(error?.name === "AbortError" ? "搜尋逾時，請再按一次或加上分店名稱。" : "搜尋失敗，請檢查網路後再試一次。");
     }
   };
 
@@ -2757,7 +2778,9 @@ export default function App() {
                   </View>
                 )}
                 <Text style={styles.fieldLabel}>景點名稱 *</Text>
-                <TextInput value={newStopTitle} onChangeText={(text) => { setNewStopTitle(text); setAddressLookupStatus("idle"); }} placeholder="例如：釜山車站" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                <TextInput value={newStopTitle} onChangeText={(text) => { setNewStopTitle(text); setAddressLookupStatus("idle"); setAddressLookupMessage(""); }} placeholder="例如：釜山車站" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                {placeSuggestionStatus === "loading" && <Text style={styles.placeSearchStatus}>正在尋找這趟旅行附近的地點……</Text>}
+                {placeSuggestionStatus === "empty" && !placeSuggestions.length && <Text style={styles.placeSearchError}>沒有自動候選，可按下方「幫我找地址」再次搜尋。</Text>}
                 {!!placeSuggestions.length && <View style={styles.placeSuggestions}>
                   {placeSuggestions.map((place, index) => {
                     const hours = String(place.extratags?.opening_hours || "");
@@ -2792,7 +2815,7 @@ export default function App() {
                 <Pressable disabled={addressLookupStatus === "loading"} style={styles.addressLookupButton} onPress={findStopAddress}>
                   <Text style={styles.addressLookupText}>{addressLookupStatus === "loading" ? "正在搜尋地址……" : "⌖ 幫我找地址"}</Text>
                 </Pressable>
-                {addressLookupStatus === "found" && <Text style={styles.addressFoundText}>✓ 已找到地址與地圖座標，你仍可手動修改。</Text>}
+                {!!addressLookupMessage && <Text style={addressLookupStatus === "error" ? styles.placeSearchError : styles.addressFoundText}>{addressLookupStatus === "found" ? "✓ " : ""}{addressLookupMessage}</Text>}
                 <Text style={styles.fieldLabel}>預計停留時間（分鐘）</Text>
                 <TextInput value={newStopDuration} onChangeText={setNewStopDuration} keyboardType="number-pad" placeholder="例如：90" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                 <Text style={styles.fieldLabel}>備註</Text>
@@ -3009,6 +3032,8 @@ const styles = StyleSheet.create({
   placeSuggestion: { paddingHorizontal: 13, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "#EEE9E2" },
   placeSuggestionName: { color: "#29483F", fontSize: 13, fontWeight: "900" },
   placeSuggestionAddress: { color: "#8C837A", fontSize: 10, lineHeight: 14, marginTop: 3 },
+  placeSearchStatus: { color: "#52766B", fontSize: 10, marginTop: -5, marginBottom: 9 },
+  placeSearchError: { color: "#A45F49", fontSize: 10, lineHeight: 15, marginTop: 7, marginBottom: 5 },
   tripCardIndex: { position: "absolute", left: 20, top: 18, color: "rgba(255,255,255,.7)", letterSpacing: 1.5, fontWeight: "800", fontSize: 10 },
   tripCardDestination: { color: "#FFF", fontSize: 33, fontWeight: "900", letterSpacing: -1 },
   tripCardPeriod: { color: "rgba(255,255,255,.82)", fontSize: 12, fontWeight: "700", marginTop: 4 },
