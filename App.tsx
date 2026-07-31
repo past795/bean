@@ -67,6 +67,35 @@ const inclusiveDayCount = (start: string, end: string) => {
 const tripPeriodLabel = (start: string, end: string) =>
   start && end ? `${start.replaceAll("-", ".")} – ${end.replaceAll("-", ".")}` : start || end || "日期未定";
 const isIsoTripDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+const pickCompressedImage = () => new Promise<string>((resolve, reject) => {
+  if (Platform.OS !== "web") return reject(new Error("目前請使用網站版上傳照片"));
+  const documentRef = (globalThis as any).document;
+  const input = documentRef.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = () => {
+    const file = input.files?.[0];
+    if (!file) return reject(new Error("未選擇照片"));
+    const reader = new (globalThis as any).FileReader();
+    reader.onload = () => {
+      const image = new (globalThis as any).Image();
+      image.onload = () => {
+        const maxSide = 280;
+        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+        const canvas = documentRef.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", .62));
+      };
+      image.onerror = () => reject(new Error("無法讀取照片"));
+      image.src = reader.result;
+    };
+    reader.onerror = () => reject(new Error("無法讀取照片"));
+    reader.readAsDataURL(file);
+  };
+  input.click();
+});
 const screenWidth = Dimensions.get("window").width;
 const KNOWN_COORDINATES: Record<string, [number, number]> = {
   "d3-1": [35.1712, 129.1277], "d3-2": [35.0770, 129.0208],
@@ -412,6 +441,7 @@ export default function App() {
   const [newStopLatitude, setNewStopLatitude] = useState<number | undefined>();
   const [newStopLongitude, setNewStopLongitude] = useState<number | undefined>();
   const [addressLookupStatus, setAddressLookupStatus] = useState<"idle" | "loading" | "found" | "error">("idle");
+  const [placeSuggestions, setPlaceSuggestions] = useState<any[]>([]);
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
   const [shoppingSource, setShoppingSource] = useState<"Olive Young" | "韓國藥局">("Olive Young");
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
@@ -548,6 +578,31 @@ export default function App() {
   const activeTrip = trips.find((trip) => trip.id === activeTripId) ?? trips[0]!;
   const days = activeTrip.days;
   const selectedDay = days.find((d) => d.id === selectedDayId) ?? days[0]!;
+
+  useEffect(() => {
+    const title = newStopTitle.trim();
+    if (!addingStop || title.length < 2) {
+      setPlaceSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const destination = activeTrip.destination;
+        const isKorea = /韓國|釜山|首爾|濟州|大邱|仁川|busan|seoul|jeju/i.test(destination);
+        const isJapan = /日本|沖繩|東京|大阪|京都|北海道|福岡|japan|okinawa|tokyo|osaka|kyoto/i.test(destination);
+        const countryFilter = isKorea ? "&countrycodes=kr" : isJapan ? "&countrycodes=jp" : "";
+        const busanBounds = /釜山|busan/i.test(destination) ? "&viewbox=128.75,35.40,129.35,34.85&bounded=1" : "";
+        const aliases: Record<string, string> = { "釜山車站": "Busan Station", "釜山站": "Busan Station", "金海機場": "Gimhae International Airport" };
+        const query = `${aliases[title] || title} ${destination}`;
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&addressdetails=1&extratags=1&namedetails=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryFilter}${busanBounds}`);
+        const rows = response.ok ? await response.json() : [];
+        setPlaceSuggestions(Array.isArray(rows) ? rows : []);
+      } catch {
+        setPlaceSuggestions([]);
+      }
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [newStopTitle, addingStop, activeTrip.destination]);
 
   const selectDay = (dayId: string) => {
     setSelectedDayId(dayId);
@@ -2384,7 +2439,12 @@ export default function App() {
                       ))}
                     </View>
                     <Text style={styles.fieldLabel}>分類</Text><TextInput value={shoppingCategory} onChangeText={setShoppingCategory} placeholder="伴手禮／藥妝／食品" placeholderTextColor="#AAA198" style={styles.fieldInput} />
-                    <Text style={styles.fieldLabel}>商品圖片網址</Text><TextInput value={shoppingImageUrl} onChangeText={setShoppingImageUrl} placeholder="貼上圖片網址（可留空）" placeholderTextColor="#AAA198" style={styles.fieldInput} autoCapitalize="none" />
+                    <Text style={styles.fieldLabel}>商品圖片</Text>
+                    {!!shoppingImageUrl && <Image source={{ uri: shoppingImageUrl }} style={styles.uploadPreview} resizeMode="contain" />}
+                    <Pressable style={styles.addressLookupButton} onPress={async () => {
+                      try { setShoppingImageUrl(await pickCompressedImage()); } catch (error: any) { if (error?.message !== "未選擇照片") Alert.alert("無法上傳", error?.message); }
+                    }}><Text style={styles.addressLookupText}>＋ 從手機／電腦上傳照片</Text></Pressable>
+                    <TextInput value={shoppingImageUrl} onChangeText={setShoppingImageUrl} placeholder="或貼上直接圖片網址（不是 Google 搜尋頁）" placeholderTextColor="#AAA198" style={styles.fieldInput} autoCapitalize="none" />
                     <Text style={styles.fieldLabel}>是否共享給旅伴？</Text>
                     <View style={styles.currencyChoices}>
                       <Pressable onPress={() => setShoppingScope("shared")} style={[styles.currencyChoice, shoppingScope === "shared" && styles.currencyChoiceActive]}>
@@ -2395,7 +2455,7 @@ export default function App() {
                       </Pressable>
                     </View>
                     <Pressable style={styles.imageSearchButton} onPress={() => Linking.openURL(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(shoppingName || activeTrip.destination + " 必買商品")}`)}>
-                      <Text style={styles.imageSearchText}>用 Google 搜尋商品圖片 ↗</Text>
+                      <Text style={styles.imageSearchText}>在 Google 查看參考圖片 ↗</Text>
                     </Pressable>
                     <Pressable style={styles.primaryButton} onPress={createShoppingItem}><Text style={styles.primaryButtonText}>儲存商品</Text></Pressable>
                     <Pressable style={styles.cancelButton} onPress={() => setAddingShoppingItem(false)}><Text style={styles.cancelText}>返回必買清單</Text></Pressable>
@@ -2548,8 +2608,12 @@ export default function App() {
                   </View>
                 </View>
                 <Text style={styles.sourceHint}>日期填完整後會自動計算：{newDayCount} 天</Text>
-                <Text style={styles.fieldLabel}>封面照片網址（可留空）</Text>
-                <TextInput value={newCoverImage} onChangeText={setNewCoverImage} placeholder="貼上圖片網址" placeholderTextColor="#AAA198" autoCapitalize="none" style={styles.fieldInput} />
+                <Text style={styles.fieldLabel}>封面照片（可留空）</Text>
+                {!!newCoverImage && <Image source={{ uri: newCoverImage }} style={styles.coverUploadPreview} resizeMode="cover" />}
+                <Pressable style={styles.addressLookupButton} onPress={async () => {
+                  try { setNewCoverImage(await pickCompressedImage()); } catch (error: any) { if (error?.message !== "未選擇照片") Alert.alert("無法上傳", error?.message); }
+                }}><Text style={styles.addressLookupText}>＋ 上傳封面照片</Text></Pressable>
+                <TextInput value={newCoverImage} onChangeText={setNewCoverImage} placeholder="或貼上直接圖片網址" placeholderTextColor="#AAA198" autoCapitalize="none" style={styles.fieldInput} />
                 <View style={styles.fieldRow}>
                   <View style={styles.dayCountField}>
                     <Text style={styles.fieldLabel}>同行人數</Text>
@@ -2635,8 +2699,12 @@ export default function App() {
                   <TextInput value={tripEndDraft} onChangeText={setTripEndDraft} placeholder="2026-12-06" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                 </View>
               </View>
-              <Text style={styles.fieldLabel}>封面照片網址（清空即不顯示）</Text>
-              <TextInput value={tripCoverDraft} onChangeText={setTripCoverDraft} placeholder="貼上圖片網址" placeholderTextColor="#AAA198" autoCapitalize="none" style={styles.fieldInput} />
+              <Text style={styles.fieldLabel}>封面照片（清空即不顯示）</Text>
+              {!!tripCoverDraft && <Image source={{ uri: tripCoverDraft }} style={styles.coverUploadPreview} resizeMode="cover" />}
+              <Pressable style={styles.addressLookupButton} onPress={async () => {
+                try { setTripCoverDraft(await pickCompressedImage()); } catch (error: any) { if (error?.message !== "未選擇照片") Alert.alert("無法上傳", error?.message); }
+              }}><Text style={styles.addressLookupText}>＋ 更換封面照片</Text></Pressable>
+              <TextInput value={tripCoverDraft} onChangeText={setTripCoverDraft} placeholder="或貼上直接圖片網址" placeholderTextColor="#AAA198" autoCapitalize="none" style={styles.fieldInput} />
               <Text style={styles.fieldLabel}>人數</Text>
               <TextInput value={travelerDraft} onChangeText={setTravelerDraft} keyboardType="number-pad" placeholder="1" placeholderTextColor="#AAA198" style={styles.fieldInput} />
               <Pressable style={styles.primaryButton} onPress={() => {
@@ -2689,7 +2757,26 @@ export default function App() {
                   </View>
                 )}
                 <Text style={styles.fieldLabel}>景點名稱 *</Text>
-                <TextInput value={newStopTitle} onChangeText={setNewStopTitle} placeholder="例如：國際通" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                <TextInput value={newStopTitle} onChangeText={(text) => { setNewStopTitle(text); setAddressLookupStatus("idle"); }} placeholder="例如：釜山車站" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                {!!placeSuggestions.length && <View style={styles.placeSuggestions}>
+                  {placeSuggestions.map((place, index) => {
+                    const hours = String(place.extratags?.opening_hours || "");
+                    const placeName = String(place.namedetails?.name || place.name || String(place.display_name).split(",")[0]);
+                    return <Pressable key={`${place.place_id || index}`} style={styles.placeSuggestion} onPress={() => {
+                      setNewStopTitle(placeName);
+                      setNewStopAddress(String(place.display_name || ""));
+                      setNewStopLatitude(Number(place.lat));
+                      setNewStopLongitude(Number(place.lon));
+                      setNewStopOpeningHours(hours);
+                      if (!newStopNote.trim()) setNewStopNote(hours ? `營業時間：${hours}。` : `地點類型：${place.type || place.category || "景點"}；營業時間尚未查證。`);
+                      setPlaceSuggestions([]);
+                      setAddressLookupStatus("found");
+                    }}>
+                      <Text style={styles.placeSuggestionName}>{placeName}</Text>
+                      <Text style={styles.placeSuggestionAddress} numberOfLines={2}>{String(place.display_name || "")}</Text>
+                    </Pressable>;
+                  })}
+                </View>}
                 <View style={styles.fieldRow}>
                   <View style={styles.dayCountField}>
                     <Text style={styles.fieldLabel}>時間</Text>
@@ -2916,6 +3003,12 @@ const styles = StyleSheet.create({
   tripCardCover: { minHeight: 168, padding: 20, justifyContent: "flex-end" },
   tripCoverPhoto: { ...StyleSheet.absoluteFillObject, width: "auto", height: "auto" },
   tripCoverShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(18,35,31,.46)" },
+  coverUploadPreview: { width: "100%", height: 150, borderRadius: 16, backgroundColor: "#EEEAE4", marginBottom: 9 },
+  uploadPreview: { width: 110, height: 110, borderRadius: 14, backgroundColor: "#EEEAE4", marginBottom: 9, alignSelf: "center" },
+  placeSuggestions: { backgroundColor: "#FFF", borderWidth: 1, borderColor: "#DED8D0", borderRadius: 14, overflow: "hidden", marginTop: -5, marginBottom: 10 },
+  placeSuggestion: { paddingHorizontal: 13, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "#EEE9E2" },
+  placeSuggestionName: { color: "#29483F", fontSize: 13, fontWeight: "900" },
+  placeSuggestionAddress: { color: "#8C837A", fontSize: 10, lineHeight: 14, marginTop: 3 },
   tripCardIndex: { position: "absolute", left: 20, top: 18, color: "rgba(255,255,255,.7)", letterSpacing: 1.5, fontWeight: "800", fontSize: 10 },
   tripCardDestination: { color: "#FFF", fontSize: 33, fontWeight: "900", letterSpacing: -1 },
   tripCardPeriod: { color: "rgba(255,255,255,.82)", fontSize: 12, fontWeight: "700", marginTop: 4 },
