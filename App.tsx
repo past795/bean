@@ -705,6 +705,36 @@ export default function App() {
     return result.data;
   };
 
+  const recreateMissingCloudTrip = async (trip: TripPlan, tripExpenses: Expense[], link: CloudLink) => {
+    if (link.role === "member") throw new Error("雲端旅行遺失，請由旅行建立者開啟豆遊進行修復");
+    await postCloud({
+      action: "createTrip",
+      inviteCode: link.inviteCode,
+      idToken: googleUser?.idToken || "",
+      trip: {
+        "旅行ID": trip.id,
+        "名稱": trip.title,
+        "目的地": trip.destination,
+        "開始日期": trip.startDate || trip.period,
+        "結束日期": trip.endDate || "",
+        "封面圖片": trip.coverImage || "",
+        "主要幣別": tripExpenses[0]?.currency || "TWD"
+      },
+      member: {
+        "成員ID": link.memberId || (googleUser ? `google:${googleUser.sub}` : `owner-${Date.now()}`),
+        "顯示名稱": link.memberName || googleUser?.name || "建立者",
+        "角色": "owner"
+      }
+    });
+    await postCloud({
+      action: "syncTrip",
+      tripId: trip.id,
+      inviteCode: link.inviteCode,
+      idToken: googleUser?.idToken || "",
+      data: tripToCloud(trip, tripExpenses)
+    });
+  };
+
   const syncTripNow = async (trip: TripPlan, tripExpenses: Expense[]) => {
     const link = cloudLinksRef.current[trip.id];
     if (!link?.inviteCode) {
@@ -722,6 +752,19 @@ export default function App() {
       });
       setSyncStatus("synced");
     } catch (error: any) {
+      if (String(error?.message || "").includes("找不到旅行") && link.role !== "member") {
+        try {
+          await recreateMissingCloudTrip(trip, tripExpenses, link);
+          setSyncStatus("synced");
+          setSyncErrorMessage("");
+          showToast("雲端旅行已從本機資料恢復並重新同步");
+          return;
+        } catch (repairError: any) {
+          setSyncStatus("error");
+          setSyncErrorMessage(repairError?.message || "無法恢復雲端旅行");
+          return;
+        }
+      }
       setSyncStatus("error");
       setSyncErrorMessage(error?.message || "上傳失敗，請稍後再試。");
     } finally {
@@ -749,6 +792,19 @@ export default function App() {
       });
       setSyncStatus("synced");
     } catch (error: any) {
+      if (String(error?.message || "").includes("找不到旅行") && link.role !== "member") {
+        try {
+          await recreateMissingCloudTrip(trip, tripExpenses, link);
+          setSyncStatus("synced");
+          setSyncErrorMessage("");
+          showToast("雲端旅行已從本機資料恢復並重新同步");
+          return;
+        } catch (repairError: any) {
+          setSyncStatus("error");
+          setSyncErrorMessage(repairError?.message || "無法恢復雲端旅行");
+          return;
+        }
+      }
       setSyncStatus("error");
       setSyncErrorMessage(error?.message || "支出上傳失敗，請稍後再試。");
     } finally {
@@ -818,6 +874,21 @@ export default function App() {
       if (shouldRecoverBusan) setTimeout(() => syncTripNow(incomingTrip, converted.expenses), 0);
       return incomingTrip;
     } catch (error: any) {
+      const link = cloudLinksRef.current[tripId];
+      const localTripForRepair = trips.find((trip) => trip.id === tripId);
+      if (String(error?.message || "").includes("找不到旅行") && link && link.role !== "member" && localTripForRepair) {
+        try {
+          await recreateMissingCloudTrip(localTripForRepair, expenses[tripId] || [], link);
+          setSyncStatus("synced");
+          setSyncErrorMessage("");
+          showToast("雲端旅行已從本機完整恢復");
+          return localTripForRepair;
+        } catch (repairError: any) {
+          setSyncStatus("error");
+          setSyncErrorMessage(repairError?.message || "無法恢復雲端旅行");
+          return null;
+        }
+      }
       setSyncStatus("error");
       setSyncErrorMessage(error?.message || "讀取同步資料失敗。");
       if (!quiet) Alert.alert("無法加入旅行", error?.message || "請確認旅行 ID 與邀請碼");
