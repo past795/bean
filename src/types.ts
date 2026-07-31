@@ -85,6 +85,7 @@ export type TripPlan = {
   coverImage?: string;
   homeBaseAccommodationId?: string;
   homeBaseByDay?: Record<string, string>;
+  accommodationByNight?: Record<string, string>;
   travelers: number;
   days: TripDay[];
   flights: FlightInfo[];

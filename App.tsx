@@ -291,9 +291,9 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
     "商品ID": item.id, "商品名稱": item.name, "分類": item.category || "",
     "價格": item.price || "", "幣別": item.currency || "", "圖片網址": item.imageUrl || "",
     "購買地點": "", "備註": JSON.stringify({ scope: item.scope || "shared", owner: item.owner || "" }), "已購買": !!item.purchased
-  })).concat((trip.homeBaseAccommodationId || Object.keys(trip.homeBaseByDay || {}).length) ? [{
+  })).concat((trip.homeBaseAccommodationId || Object.keys(trip.homeBaseByDay || {}).length || Object.keys(trip.accommodationByNight || {}).length) ? [{
     "商品ID": `trip-meta-${trip.id}`, "商品名稱": "旅行設定", "分類": "__TRIP_META__", "價格": "", "幣別": "",
-    "圖片網址": "", "購買地點": "", "備註": JSON.stringify({ homeBaseAccommodationId: trip.homeBaseAccommodationId, homeBaseByDay: trip.homeBaseByDay || {} }), "已購買": false
+    "圖片網址": "", "購買地點": "", "備註": JSON.stringify({ homeBaseAccommodationId: trip.homeBaseAccommodationId, homeBaseByDay: trip.homeBaseByDay || {}, accommodationByNight: trip.accommodationByNight || {} }), "已購買": false
   }] : []).concat((trip.checklist || []).filter((item) => item.scope !== "personal").map((item) => ({
     "商品ID": item.id, "商品名稱": item.text, "分類": "__PREP__", "價格": "", "幣別": "",
     "圖片網址": "", "購買地點": "", "備註": JSON.stringify({ scope: item.scope || "shared", owner: item.owner || "" }),
@@ -344,6 +344,10 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
     homeBaseByDay: (() => {
       const row = (data.shopping || []).find((item: any) => String(item["分類"] || "") === "__TRIP_META__");
       try { return JSON.parse(String(row?.["備註"] || "{}")).homeBaseByDay || {}; } catch { return {}; }
+    })(),
+    accommodationByNight: (() => {
+      const row = (data.shopping || []).find((item: any) => String(item["分類"] || "") === "__TRIP_META__");
+      try { return JSON.parse(String(row?.["備註"] || "{}")).accommodationByNight || {}; } catch { return {}; }
     })(),
     period: isIsoTripDate(String(cloudTrip["開始日期"] || ""))
       ? tripPeriodLabel(String(cloudTrip["開始日期"] || ""), String(cloudTrip["結束日期"] || ""))
@@ -1799,6 +1803,58 @@ export default function App() {
     showToast(isSelected ? `已取消 ${activeTrip.days.find((day) => day.id === dayId)?.label} 的住宿起終點` : `${activeTrip.days.find((day) => day.id === dayId)?.label} 已套用「${hotel.name}」`);
   };
 
+  const daysWithNightAccommodations = (nightMap: Record<string, string>) => activeTrip.days.map((day, dayIndex) => {
+    const withoutGenerated = day.stops.filter((stop) => !stop.id.endsWith("-lodging-start") && !stop.id.endsWith("-lodging-end"));
+    const startHotel = dayIndex > 0 ? activeTrip.accommodations.find((hotel) => hotel.id === nightMap[`night-${dayIndex}`]) : undefined;
+    const endHotel = dayIndex < activeTrip.days.length - 1 ? activeTrip.accommodations.find((hotel) => hotel.id === nightMap[`night-${dayIndex + 1}`]) : undefined;
+    const makeLodgingStop = (hotel: TripPlan["accommodations"][number], position: "start" | "end"): Stop => ({
+      id: `${day.id}-lodging-${position}`,
+      time: position === "start" ? "08:00" : "21:00",
+      title: hotel.name,
+      address: hotel.address || "住宿地址待補",
+      transport: position === "start" ? "從住宿出發" : "返回住宿",
+      transportMode: "其他",
+      note: position === "start" ? "昨晚住宿・今天從這裡出發" : "今晚住宿・今天回到這裡",
+      routeMode: "transit",
+      openingHours: "24 小時住宿地點",
+      openingHoursSource: "這趟旅行的住宿設定",
+      durationMinutes: 0
+    });
+    return {
+      ...day,
+      stops: [
+        ...(startHotel ? [makeLodgingStop(startHotel, "start")] : []),
+        ...withoutGenerated,
+        ...(endHotel ? [makeLodgingStop(endHotel, "end")] : [])
+      ]
+    };
+  });
+
+  const toggleAccommodationForNight = (hotel: TripPlan["accommodations"][number], nightNumber: number) => {
+    const key = `night-${nightNumber}`;
+    const currentMap = Object.keys(activeTrip.accommodationByNight || {}).length
+      ? (activeTrip.accommodationByNight || {})
+      : activeTrip.homeBaseAccommodationId
+        ? Object.fromEntries(Array.from({ length: Math.max(0, activeTrip.days.length - 1) }, (_, index) => [`night-${index + 1}`, activeTrip.homeBaseAccommodationId!]))
+        : {};
+    const nextMap = { ...currentMap };
+    const isSelected = nextMap[key] === hotel.id;
+    if (isSelected) delete nextMap[key]; else nextMap[key] = hotel.id;
+    updateActiveTrip({ accommodationByNight: nextMap, homeBaseAccommodationId: "", homeBaseByDay: {}, days: daysWithNightAccommodations(nextMap) });
+    showToast(isSelected ? `已取消第 ${nightNumber} 晚住宿` : `第 ${nightNumber} 晚已設定為「${hotel.name}」`);
+  };
+
+  const applyAccommodationToAllNights = (hotel: TripPlan["accommodations"][number]) => {
+    const nextMap = Object.fromEntries(Array.from({ length: Math.max(0, activeTrip.days.length - 1) }, (_, index) => [`night-${index + 1}`, hotel.id]));
+    updateActiveTrip({ accommodationByNight: nextMap, homeBaseAccommodationId: hotel.id, homeBaseByDay: {}, days: daysWithNightAccommodations(nextMap) });
+    showToast(`每一晚都已設定為「${hotel.name}」`);
+  };
+
+  const clearAllNightAccommodations = () => {
+    updateActiveTrip({ accommodationByNight: {}, homeBaseAccommodationId: "", homeBaseByDay: {}, days: daysWithNightAccommodations({}) });
+    showToast("已取消所有晚間住宿設定");
+  };
+
   const createShoppingItem = () => {
     if (!shoppingName.trim()) {
       Alert.alert("請填寫商品名稱");
@@ -2510,23 +2566,24 @@ export default function App() {
                         {!!hotel.facilities && <Text style={styles.hotelDetail}>設施｜{hotel.facilities}</Text>}
                         {!!hotel.frontDesk && <Text style={styles.hotelDetail}>櫃檯｜{hotel.frontDesk}</Text>}
                         {!!hotel.note && <Text style={styles.detailHint}>{hotel.note}</Text>}
-                        {activeTrip.days.length > 2 && <>
-                          <Text style={styles.hotelDayLabel}>套用到哪幾天？</Text>
+                        {activeTrip.days.length > 1 && <>
+                          <Text style={styles.hotelDayLabel}>哪一晚住這裡？</Text>
                           <View style={styles.hotelDayChoices}>
-                            {activeTrip.days.slice(1, -1).map((day) => {
-                              const selected = activeTrip.homeBaseByDay?.[day.id] === hotel.id;
-                              return <Pressable key={day.id} onPress={() => toggleAccommodationForDay(hotel, day.id)} style={[styles.hotelDayChoice, selected && styles.hotelDayChoiceActive]}>
-                                <Text style={[styles.hotelDayChoiceText, selected && styles.hotelDayChoiceTextActive]}>{selected ? "✓ " : ""}{day.label}</Text>
+                            {Array.from({ length: activeTrip.days.length - 1 }, (_, index) => index + 1).map((nightNumber) => {
+                              const selected = activeTrip.accommodationByNight?.[`night-${nightNumber}`] === hotel.id
+                                || (!Object.keys(activeTrip.accommodationByNight || {}).length && activeTrip.homeBaseAccommodationId === hotel.id);
+                              return <Pressable key={nightNumber} onPress={() => toggleAccommodationForNight(hotel, nightNumber)} style={[styles.hotelDayChoice, selected && styles.hotelDayChoiceActive]}>
+                                <Text style={[styles.hotelDayChoiceText, selected && styles.hotelDayChoiceTextActive]}>{selected ? "✓ " : ""}第 {nightNumber} 晚</Text>
                               </Pressable>;
                             })}
                           </View>
                         </>}
                         <Pressable
                           style={[styles.homeBaseButton, activeTrip.homeBaseAccommodationId === hotel.id && styles.homeBaseButtonActive]}
-                          onPress={() => activeTrip.homeBaseAccommodationId === hotel.id ? clearAccommodationHomeBase() : setAccommodationAsHomeBase(hotel)}
+                          onPress={() => activeTrip.homeBaseAccommodationId === hotel.id ? clearAllNightAccommodations() : applyAccommodationToAllNights(hotel)}
                         >
                           <Text style={[styles.homeBaseButtonText, activeTrip.homeBaseAccommodationId === hotel.id && styles.homeBaseButtonTextActive]}>
-                            {activeTrip.homeBaseAccommodationId === hotel.id ? "✓ 已套用全部中間日期（點此取消）" : "套用全部中間日期"}
+                            {activeTrip.homeBaseAccommodationId === hotel.id ? "✓ 每一晚都住這裡（點此取消）" : "每一晚都住這裡"}
                           </Text>
                         </Pressable>
                       </View>
