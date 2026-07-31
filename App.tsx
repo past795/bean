@@ -2013,6 +2013,22 @@ export default function App() {
                   </View>
                   <View style={styles.tripCardActions}>
                     <Pressable
+                      style={styles.editTripButton}
+                      onPress={(event) => {
+                        event.stopPropagation?.();
+                        setActiveTripId(trip.id);
+                        setSelectedDayId(trip.days[0]?.id || "");
+                        setTravelerDraft(String(trip.travelers));
+                        setTripNameDraft(trip.title);
+                        setTripStartDraft(trip.startDate || "");
+                        setTripEndDraft(trip.endDate || "");
+                        setTripCoverDraft(trip.coverImage || "");
+                        setEditingTravelers(true);
+                      }}
+                    >
+                      <Text style={styles.editTripText}>編輯旅行</Text>
+                    </Pressable>
+                    <Pressable
                       accessibilityLabel={`刪除 ${trip.title}`}
                       style={styles.deleteTripButton}
                       onPress={(event) => {
@@ -2033,6 +2049,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
+            <Text style={styles.versionLabel}>豆遊版本 2026.07.31.3</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -2909,6 +2926,9 @@ const styles = StyleSheet.create({
   tripCardActions: { flexDirection: "row", alignItems: "center", gap: 9 },
   deleteTripButton: { backgroundColor: "#F5EAE5", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   deleteTripText: { color: "#A95D4C", fontSize: 10, fontWeight: "900" },
+  editTripButton: { backgroundColor: "#E7EFEA", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
+  editTripText: { color: "#315248", fontSize: 10, fontWeight: "900" },
+  versionLabel: { color: "#AAA198", fontSize: 9, textAlign: "center", marginTop: 16 },
   tripCardName: { color: "#292622", fontSize: 16, fontWeight: "900" },
   tripCardStatus: { color: "#938A80", fontSize: 11, marginTop: 4 },
   newTripCard: { borderWidth: 1.5, borderStyle: "dashed", borderColor: "#CFC5BA", borderRadius: 22, padding: 24, alignItems: "center", backgroundColor: "#F8F5EF" },
