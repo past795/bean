@@ -96,6 +96,20 @@ const pickCompressedImage = () => new Promise<string>((resolve, reject) => {
   };
   input.click();
 });
+const localizedPlaceName = (place: any) => {
+  const details = place?.namedetails || {};
+  const address = String(place?.display_name || "");
+  const rawName = String(details["name:zh-Hant"] || details["name:zh"] || details["name:en"] || place?.name || address.split(",")[0] || "地點");
+  if (/롯데백화점|樂天百貨|Lotte Department/i.test(`${rawName} ${address}`)) {
+    if (/中區|南浦|中央洞|남포|중구/.test(address)) return "樂天百貨 光復店";
+    if (/釜山鎮區|釜田|西面|부산진|서면/.test(address)) return "樂天百貨 釜山本店（西面）";
+    if (/海雲臺|Centum|센텀|해운대/.test(address)) return "樂天百貨 Centum City 店";
+    if (/機張|기장/.test(address)) return "樂天百貨 東釜山店";
+    if (/東萊|동래/.test(address)) return "樂天百貨 東萊店";
+    return "樂天百貨（釜山）";
+  }
+  return rawName;
+};
 const screenWidth = Dimensions.get("window").width;
 const KNOWN_COORDINATES: Record<string, [number, number]> = {
   "d3-1": [35.1712, 129.1277], "d3-2": [35.0770, 129.0208],
@@ -2784,7 +2798,7 @@ export default function App() {
                 {!!placeSuggestions.length && <View style={styles.placeSuggestions}>
                   {placeSuggestions.map((place, index) => {
                     const hours = String(place.extratags?.opening_hours || "");
-                    const placeName = String(place.namedetails?.name || place.name || String(place.display_name).split(",")[0]);
+                    const placeName = localizedPlaceName(place);
                     return <Pressable key={`${place.place_id || index}`} style={styles.placeSuggestion} onPress={() => {
                       setNewStopTitle(placeName);
                       setNewStopAddress(String(place.display_name || ""));
@@ -3028,11 +3042,11 @@ const styles = StyleSheet.create({
   tripCoverShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(18,35,31,.46)" },
   coverUploadPreview: { width: "100%", height: 150, borderRadius: 16, backgroundColor: "#EEEAE4", marginBottom: 9 },
   uploadPreview: { width: 110, height: 110, borderRadius: 14, backgroundColor: "#EEEAE4", marginBottom: 9, alignSelf: "center" },
-  placeSuggestions: { backgroundColor: "#FFF", borderWidth: 1, borderColor: "#DED8D0", borderRadius: 14, overflow: "hidden", marginTop: -5, marginBottom: 10 },
+  placeSuggestions: { backgroundColor: "#FFF", borderWidth: 1, borderColor: "#DED8D0", borderRadius: 14, overflow: "hidden", marginTop: 4, marginBottom: 12 },
   placeSuggestion: { paddingHorizontal: 13, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "#EEE9E2" },
   placeSuggestionName: { color: "#29483F", fontSize: 13, fontWeight: "900" },
   placeSuggestionAddress: { color: "#8C837A", fontSize: 10, lineHeight: 14, marginTop: 3 },
-  placeSearchStatus: { color: "#52766B", fontSize: 10, marginTop: -5, marginBottom: 9 },
+  placeSearchStatus: { color: "#52766B", fontSize: 10, lineHeight: 16, marginTop: 2, marginBottom: 10, paddingHorizontal: 2 },
   placeSearchError: { color: "#A45F49", fontSize: 10, lineHeight: 15, marginTop: 7, marginBottom: 5 },
   tripCardIndex: { position: "absolute", left: 20, top: 18, color: "rgba(255,255,255,.7)", letterSpacing: 1.5, fontWeight: "800", fontSize: 10 },
   tripCardDestination: { color: "#FFF", fontSize: 33, fontWeight: "900", letterSpacing: -1 },
