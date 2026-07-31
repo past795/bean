@@ -83,6 +83,7 @@ export type TripPlan = {
   startDate?: string;
   endDate?: string;
   coverImage?: string;
+  homeBaseAccommodationId?: string;
   travelers: number;
   days: TripDay[];
   flights: FlightInfo[];
