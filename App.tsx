@@ -437,11 +437,8 @@ export default function App() {
   const [shoppingCategory, setShoppingCategory] = useState("");
   const [shoppingImageUrl, setShoppingImageUrl] = useState("");
   const [shoppingScope, setShoppingScope] = useState<"shared" | "personal">("shared");
-  const [shoppingOwner, setShoppingOwner] = useState("");
   const [shoppingView, setShoppingView] = useState<"shared" | "mine">("shared");
   const [checklistText, setChecklistText] = useState("");
-  const [checklistScope, setChecklistScope] = useState<"shared" | "personal">("shared");
-  const [checklistView, setChecklistView] = useState<"shared" | "mine">("shared");
   const [previousStops, setPreviousStops] = useState<Stop[] | null>(null);
   const [cloudLinks, setCloudLinks] = useState<CloudLinks>({});
   const [cloudMembers, setCloudMembers] = useState<Record<string, string[]>>({});
@@ -1565,11 +1562,11 @@ export default function App() {
     updateActiveTrip({ shopping: [...activeTrip.shopping, {
       id: `shopping-${Date.now()}`, name: shoppingName.trim(), price: shoppingPrice.trim(),
       currency: shoppingCurrency, category: shoppingCategory.trim(), imageUrl: shoppingImageUrl.trim(),
-      scope: shoppingScope, owner: shoppingScope === "personal" ? (shoppingOwner || myDisplayName || "") : ""
+      scope: shoppingScope, owner: shoppingScope === "personal" ? (myDisplayName || "") : ""
     }] });
     setAddingShoppingItem(false);
     setShoppingName(""); setShoppingPrice(""); setShoppingCurrency("KRW"); setShoppingCategory(""); setShoppingImageUrl("");
-    setShoppingScope("shared"); setShoppingOwner("");
+    setShoppingScope("shared");
   };
 
   const deleteShoppingItem = (id: string) => {
@@ -1608,8 +1605,8 @@ export default function App() {
     }
     updateActiveTrip({
       checklist: [...(activeTrip.checklist || []), {
-        id: `prep-${Date.now()}`, text, completed: false, scope: checklistScope,
-        owner: checklistScope === "personal" ? (myDisplayName || "") : ""
+        id: `prep-${Date.now()}`, text, completed: false, scope: "personal",
+        owner: myDisplayName || ""
       }]
     });
     setChecklistText("");
@@ -1623,17 +1620,21 @@ export default function App() {
     updateActiveTrip({ checklist: (activeTrip.checklist || []).filter((item) => item.id !== id) });
   };
 
-  const visibleChecklistItems = (activeTrip.checklist || []).filter((item) =>
-    checklistView === "shared"
-      ? (item.scope || "shared") === "shared"
-      : item.scope === "personal" && item.owner === myDisplayName
+  const visibleChecklistItems = (activeTrip.checklist || []).filter(
+    (item) => item.scope === "personal" && item.owner === myDisplayName
   );
 
   useEffect(() => {
     if (!myDisplayName || !activeTrip.id || activeTrip.id === "local-welcome") return;
     const checklist = activeTrip.checklist || [];
     if (checklist.some((item) => item.scope === "personal" && item.owner === myDisplayName)) return;
-    updateActiveTrip({ checklist: [...checklist, ...defaultPersonalPacking(myDisplayName)] });
+    const personalBasics = defaultPrepChecklist().map((item) => ({
+      ...item,
+      id: `prep-personal-${encodeURIComponent(myDisplayName)}-${item.id}`,
+      scope: "personal" as const,
+      owner: myDisplayName
+    }));
+    updateActiveTrip({ checklist: [...checklist, ...personalBasics, ...defaultPersonalPacking(myDisplayName)] });
   }, [
     activeTrip.id,
     myDisplayName,
@@ -2296,24 +2297,15 @@ export default function App() {
                     </View>
                     <Text style={styles.fieldLabel}>分類</Text><TextInput value={shoppingCategory} onChangeText={setShoppingCategory} placeholder="伴手禮／藥妝／食品" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                     <Text style={styles.fieldLabel}>商品圖片網址</Text><TextInput value={shoppingImageUrl} onChangeText={setShoppingImageUrl} placeholder="貼上圖片網址（可留空）" placeholderTextColor="#AAA198" style={styles.fieldInput} autoCapitalize="none" />
-                    <Text style={styles.fieldLabel}>這是誰的清單？</Text>
+                    <Text style={styles.fieldLabel}>是否共享給旅伴？</Text>
                     <View style={styles.currencyChoices}>
                       <Pressable onPress={() => setShoppingScope("shared")} style={[styles.currencyChoice, shoppingScope === "shared" && styles.currencyChoiceActive]}>
-                        <Text style={[styles.currencyChoiceText, shoppingScope === "shared" && styles.currencyChoiceTextActive]}>共享</Text>
+                        <Text style={[styles.currencyChoiceText, shoppingScope === "shared" && styles.currencyChoiceTextActive]}>共享給大家看</Text>
                       </Pressable>
-                      <Pressable onPress={() => { setShoppingScope("personal"); setShoppingOwner(myDisplayName || ""); }} style={[styles.currencyChoice, shoppingScope === "personal" && styles.currencyChoiceActive]}>
-                        <Text style={[styles.currencyChoiceText, shoppingScope === "personal" && styles.currencyChoiceTextActive]}>指定成員</Text>
+                      <Pressable onPress={() => setShoppingScope("personal")} style={[styles.currencyChoice, shoppingScope === "personal" && styles.currencyChoiceActive]}>
+                        <Text style={[styles.currencyChoiceText, shoppingScope === "personal" && styles.currencyChoiceTextActive]}>只有我看</Text>
                       </Pressable>
                     </View>
-                    {shoppingScope === "personal" && (
-                      <View style={styles.payerChoices}>
-                        {activeMemberNames.map((name) => (
-                          <Pressable key={name} onPress={() => setShoppingOwner(name)} style={[styles.payerChoice, shoppingOwner === name && styles.payerChoiceActive]}>
-                            <Text style={[styles.payerChoiceText, shoppingOwner === name && styles.payerChoiceTextActive]}>{name}</Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    )}
                     <Pressable style={styles.imageSearchButton} onPress={() => Linking.openURL(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(shoppingName || activeTrip.destination + " 必買商品")}`)}>
                       <Text style={styles.imageSearchText}>用 Google 搜尋商品圖片 ↗</Text>
                     </Pressable>
@@ -2321,12 +2313,12 @@ export default function App() {
                     <Pressable style={styles.cancelButton} onPress={() => setAddingShoppingItem(false)}><Text style={styles.cancelText}>返回必買清單</Text></Pressable>
                   </> : <>
                     <View style={styles.shoppingHeader}>
-                      <View><Text style={styles.detailTitle}>{activeTrip.destination} 必買清單</Text><Text style={styles.detailHint}>共享與個人商品分開管理</Text></View>
+                      <View><Text style={styles.detailTitle}>{activeTrip.destination} 必買清單</Text><Text style={styles.detailHint}>新增商品時可決定是否共享給旅伴</Text></View>
                       <Pressable style={styles.smallAddButton} onPress={() => setAddingShoppingItem(true)}><Text style={styles.smallAddButtonText}>＋</Text></Pressable>
                     </View>
                     <View style={styles.sourceTabs}>
-                      <Pressable onPress={() => setShoppingView("shared")} style={[styles.sourceTab, shoppingView === "shared" && styles.sourceTabActive]}><Text style={[styles.sourceTabText, shoppingView === "shared" && styles.sourceTabTextActive]}>大家共享</Text></Pressable>
-                      <Pressable onPress={() => setShoppingView("mine")} style={[styles.sourceTab, shoppingView === "mine" && styles.sourceTabActive]}><Text style={[styles.sourceTabText, shoppingView === "mine" && styles.sourceTabTextActive]}>只看我的</Text></Pressable>
+                      <Pressable onPress={() => setShoppingView("shared")} style={[styles.sourceTab, shoppingView === "shared" && styles.sourceTabActive]}><Text style={[styles.sourceTabText, shoppingView === "shared" && styles.sourceTabTextActive]}>共享清單</Text></Pressable>
+                      <Pressable onPress={() => setShoppingView("mine")} style={[styles.sourceTab, shoppingView === "mine" && styles.sourceTabActive]}><Text style={[styles.sourceTabText, shoppingView === "mine" && styles.sourceTabTextActive]}>我的商品</Text></Pressable>
                     </View>
                     {!!visibleShoppingItems.filter((item) => !item.purchased).length && <Text style={styles.shoppingSectionTitle}>待購買</Text>}
                     {visibleShoppingItems.filter((item) => !item.purchased).map((item) => (
@@ -2381,16 +2373,8 @@ export default function App() {
               {selectedTool === "行前準備" && (
                 <View style={styles.detailBlock}>
                   <Text style={styles.detailTitle}>行前準備清單</Text>
-                  <Text style={styles.detailHint}>共享事項全員可見；個人事項只有自己的清單會顯示。</Text>
-                  <View style={styles.sourceTabs}>
-                    <Pressable onPress={() => setChecklistView("shared")} style={[styles.sourceTab, checklistView === "shared" && styles.sourceTabActive]}><Text style={[styles.sourceTabText, checklistView === "shared" && styles.sourceTabTextActive]}>大家共享</Text></Pressable>
-                    <Pressable onPress={() => setChecklistView("mine")} style={[styles.sourceTab, checklistView === "mine" && styles.sourceTabActive]}><Text style={[styles.sourceTabText, checklistView === "mine" && styles.sourceTabTextActive]}>只看我的</Text></Pressable>
-                  </View>
+                  <Text style={styles.detailHint}>這是你的個人準備與行李清單；每位旅伴各自勾選，互不影響。</Text>
                   <TextInput value={checklistText} onChangeText={setChecklistText} placeholder="例如：購買網卡、確認護照效期" placeholderTextColor="#AAA198" style={styles.fieldInput} />
-                  <View style={styles.currencyChoices}>
-                    <Pressable onPress={() => setChecklistScope("shared")} style={[styles.currencyChoice, checklistScope === "shared" && styles.currencyChoiceActive]}><Text style={[styles.currencyChoiceText, checklistScope === "shared" && styles.currencyChoiceTextActive]}>共享事項</Text></Pressable>
-                    <Pressable onPress={() => setChecklistScope("personal")} style={[styles.currencyChoice, checklistScope === "personal" && styles.currencyChoiceActive]}><Text style={[styles.currencyChoiceText, checklistScope === "personal" && styles.currencyChoiceTextActive]}>我的事項</Text></Pressable>
-                  </View>
                   <Pressable style={styles.primaryButton} onPress={createChecklistItem}><Text style={styles.primaryButtonText}>＋ 新增準備事項</Text></Pressable>
                   <View style={styles.shoppingList}>
                     {visibleChecklistItems.map((item) => (
@@ -2398,7 +2382,7 @@ export default function App() {
                         <Pressable onPress={() => toggleChecklistItem(item.id)} style={[styles.shoppingCheck, item.completed && styles.shoppingCheckActive]}><Text style={styles.shoppingCheckText}>{item.completed ? "✓" : ""}</Text></Pressable>
                         <View style={styles.shoppingInfo}>
                           <Text style={[styles.shoppingName, item.completed && styles.shoppingNamePurchased]}>{item.text}</Text>
-                          <Text style={styles.shoppingCategory}>{item.scope === "personal" ? item.owner || "我的事項" : "共享事項"}</Text>
+                          <Text style={styles.shoppingCategory}>我的準備</Text>
                         </View>
                         <Pressable onPress={() => deleteChecklistItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
                       </View>
