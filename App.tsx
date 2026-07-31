@@ -706,7 +706,8 @@ export default function App() {
   };
 
   const recreateMissingCloudTrip = async (trip: TripPlan, tripExpenses: Expense[], link: CloudLink) => {
-    if (link.role === "member") throw new Error("雲端旅行遺失，請由旅行建立者開啟豆遊進行修復");
+    const localStopCount = trip.days.reduce((sum, day) => sum + day.stops.length, 0);
+    if (!localStopCount) throw new Error("這台裝置沒有完整行程，請改由保有行程資料的裝置修復");
     await postCloud({
       action: "createTrip",
       inviteCode: link.inviteCode,
@@ -761,7 +762,7 @@ export default function App() {
       });
       setSyncStatus("synced");
     } catch (error: any) {
-      if (String(error?.message || "").includes("找不到旅行") && link.role !== "member") {
+      if (String(error?.message || "").includes("找不到旅行")) {
         try {
           await recreateMissingCloudTrip(trip, tripExpenses, link);
           resetCloudMembersToOwner(trip.id, link);
@@ -802,7 +803,7 @@ export default function App() {
       });
       setSyncStatus("synced");
     } catch (error: any) {
-      if (String(error?.message || "").includes("找不到旅行") && link.role !== "member") {
+      if (String(error?.message || "").includes("找不到旅行")) {
         try {
           await recreateMissingCloudTrip(trip, tripExpenses, link);
           resetCloudMembersToOwner(trip.id, link);
@@ -887,7 +888,8 @@ export default function App() {
     } catch (error: any) {
       const link = cloudLinksRef.current[tripId];
       const localTripForRepair = trips.find((trip) => trip.id === tripId);
-      if (String(error?.message || "").includes("找不到旅行") && link && link.role !== "member" && localTripForRepair) {
+      if (String(error?.message || "").includes("找不到旅行") && link && localTripForRepair) {
+        resetCloudMembersToOwner(tripId, link);
         try {
           await recreateMissingCloudTrip(localTripForRepair, expenses[tripId] || [], link);
           resetCloudMembersToOwner(tripId, link);
