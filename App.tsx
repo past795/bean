@@ -66,6 +66,11 @@ const inclusiveDayCount = (start: string, end: string) => {
 };
 const tripPeriodLabel = (start: string, end: string) =>
   start && end ? `${start.replaceAll("-", ".")} – ${end.replaceAll("-", ".")}` : start || end || "日期未定";
+const normalizeTripDate = (value: unknown) => {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match?.[1] || "";
+};
 const tripDayDateLabel = (start: string, dayIndex: number) => {
   if (!isIsoTripDate(start)) return `第 ${dayIndex + 1} 天`;
   const [year, month, day] = start.split("-").map(Number);
@@ -305,10 +310,15 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
     "商品ID": item.id, "商品名稱": item.name, "分類": item.category || "",
     "價格": item.price || "", "幣別": item.currency || "", "圖片網址": item.imageUrl || "",
     "購買地點": "", "備註": JSON.stringify({ scope: item.scope || "shared", owner: item.owner || "" }), "已購買": !!item.purchased
-  })).concat((trip.homeBaseAccommodationId || Object.keys(trip.homeBaseByDay || {}).length || Object.keys(trip.accommodationByNight || {}).length) ? [{
+  })).concat([{
     "商品ID": `trip-meta-${trip.id}`, "商品名稱": "旅行設定", "分類": "__TRIP_META__", "價格": "", "幣別": "",
-    "圖片網址": "", "購買地點": "", "備註": JSON.stringify({ homeBaseAccommodationId: trip.homeBaseAccommodationId, homeBaseByDay: trip.homeBaseByDay || {}, accommodationByNight: trip.accommodationByNight || {} }), "已購買": false
-  }] : []).concat((trip.checklist || []).filter((item) => item.scope !== "personal").map((item) => ({
+    "圖片網址": "", "購買地點": "", "備註": JSON.stringify({
+      homeBaseAccommodationId: trip.homeBaseAccommodationId,
+      homeBaseByDay: trip.homeBaseByDay || {},
+      accommodationByNight: trip.accommodationByNight || {},
+      days: trip.days.map((day) => ({ id: day.id, date: day.date, title: day.title }))
+    }), "已購買": false
+  }]).concat((trip.checklist || []).filter((item) => item.scope !== "personal").map((item) => ({
     "商品ID": item.id, "商品名稱": item.text, "分類": "__PREP__", "價格": "", "幣別": "",
     "圖片網址": "", "購買地點": "", "備註": JSON.stringify({ scope: item.scope || "shared", owner: item.owner || "" }),
     "已購買": !!item.completed
@@ -323,14 +333,22 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
 const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
   const cloudTrip = data.trip || {};
   const itinerary = Array.isArray(data.itinerary) ? data.itinerary : [];
-  const dayIds = [...new Set(itinerary.map((row: any) => String(row["日期ID"] || "day-1")))] as string[];
+  const tripMetaRow = (data.shopping || []).find((item: any) => String(item["分類"] || "") === "__TRIP_META__");
+  let tripMeta: any = {};
+  try { tripMeta = JSON.parse(String(tripMetaRow?.["備註"] || "{}")); } catch { tripMeta = {}; }
+  const savedDays = Array.isArray(tripMeta.days) ? tripMeta.days : [];
+  const dayIds = [...new Set([
+    ...savedDays.map((day: any) => String(day.id || "")),
+    ...itinerary.map((row: any) => String(row["日期ID"] || "day-1"))
+  ].filter(Boolean))] as string[];
   const days: TripDay[] = dayIds.map((dayId, dayIndex) => {
     const rows = itinerary.filter((row: any) => String(row["日期ID"] || "day-1") === dayId)
       .sort((a: any, b: any) => Number(a["排序"] || 0) - Number(b["排序"] || 0));
-    const date = rows[0]?.["日期"] || `第 ${dayIndex + 1} 天`;
+    const savedDay = savedDays.find((day: any) => String(day.id) === dayId);
+    const date = rows[0]?.["日期"] || savedDay?.date || `第 ${dayIndex + 1} 天`;
     return {
       id: dayId, label: `DAY ${dayIndex + 1}`, date,
-      title: `${cloudTrip["目的地"] || "旅行"}・自由安排`,
+      title: savedDay?.title || `${cloudTrip["目的地"] || "旅行"}・自由安排`,
       stops: rows.map((row: any) => {
         const meta = parseStopMeta(row["結束時間"]);
         return {
@@ -345,11 +363,13 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
     };
   });
   const id = String(cloudTrip["旅行ID"]);
+  const startDate = normalizeTripDate(cloudTrip["開始日期"]);
+  const endDate = normalizeTripDate(cloudTrip["結束日期"]);
   const trip: TripPlan = {
     id, title: String(cloudTrip["名稱"] || "未命名旅行"),
     destination: String(cloudTrip["目的地"] || ""),
-    startDate: isIsoTripDate(String(cloudTrip["開始日期"] || "")) ? String(cloudTrip["開始日期"]) : "",
-    endDate: isIsoTripDate(String(cloudTrip["結束日期"] || "")) ? String(cloudTrip["結束日期"]) : "",
+    startDate,
+    endDate,
     coverImage: String(cloudTrip["封面圖片"] || ""),
     homeBaseAccommodationId: (() => {
       const row = (data.shopping || []).find((item: any) => String(item["分類"] || "") === "__TRIP_META__");
@@ -363,8 +383,8 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
       const row = (data.shopping || []).find((item: any) => String(item["分類"] || "") === "__TRIP_META__");
       try { return JSON.parse(String(row?.["備註"] || "{}")).accommodationByNight || {}; } catch { return {}; }
     })(),
-    period: isIsoTripDate(String(cloudTrip["開始日期"] || ""))
-      ? tripPeriodLabel(String(cloudTrip["開始日期"] || ""), String(cloudTrip["結束日期"] || ""))
+    period: startDate
+      ? tripPeriodLabel(startDate, endDate)
       : String(cloudTrip["開始日期"] || "日期未定"),
     travelers: Math.max(1, (data.members || []).length || 1),
     days: days.length ? days : [{ id: `${id}-day-1`, label: "DAY 1", date: "第 1 天", title: "自由安排", stops: [] }],
@@ -510,6 +530,7 @@ export default function App() {
   const [flightTerminal, setFlightTerminal] = useState("");
   const [flightNote, setFlightNote] = useState("");
   const [deletingTrip, setDeletingTrip] = useState<TripPlan | null>(null);
+  const [deletingDay, setDeletingDay] = useState<TripDay | null>(null);
   const [leavingTrip, setLeavingTrip] = useState<TripPlan | null>(null);
   const [editingTravelers, setEditingTravelers] = useState(false);
   const [travelerDraft, setTravelerDraft] = useState("2");
@@ -564,6 +585,7 @@ export default function App() {
   const uploadingRef = useRef(false);
   const pullingRef = useRef(false);
   const localMutationAtRef = useRef(0);
+  const tripDirtyRef = useRef(false);
   const cloudLinksRef = useRef<CloudLinks>({});
   const itineraryListRef = useRef<any>(null);
   const geocodedDaysRef = useRef<Set<string>>(new Set());
@@ -782,11 +804,13 @@ export default function App() {
         action: "syncTrip", tripId: trip.id, inviteCode: link.inviteCode,
         data: tripToCloud(trip, tripExpenses)
       });
+      tripDirtyRef.current = false;
       setSyncStatus("synced");
     } catch (error: any) {
       if (String(error?.message || "").includes("找不到旅行")) {
         try {
           await recreateMissingCloudTrip(trip, tripExpenses, link);
+          tripDirtyRef.current = false;
           resetCloudMembersToOwner(trip.id, link);
           setSyncStatus("synced");
           setSyncErrorMessage("");
@@ -849,11 +873,14 @@ export default function App() {
   const queueCloudSync = (trip: TripPlan, tripExpenses: Expense[]) => {
     if (!cloudLinksRef.current[trip.id]) return;
     if (syncTimer.current) clearTimeout(syncTimer.current);
-    syncTimer.current = setTimeout(() => syncTripNow(trip, tripExpenses), 700);
+    syncTimer.current = setTimeout(() => {
+      syncTimer.current = null;
+      syncTripNow(trip, tripExpenses);
+    }, 700);
   };
 
   const pullCloudTrip = async (tripId: string, inviteCode: string, quiet = false) => {
-    if (pullingRef.current || (quiet && uploadingRef.current)) return null;
+    if (pullingRef.current || (quiet && (uploadingRef.current || tripDirtyRef.current || !!syncTimer.current))) return null;
     const requestStartedAt = Date.now();
     pullingRef.current = true;
     if (!quiet) setSyncStatus("syncing");
@@ -967,6 +994,7 @@ export default function App() {
 
   const persistTrips = (next: TripPlan[]) => {
     localMutationAtRef.current = Date.now();
+    tripDirtyRef.current = true;
     setTrips(next);
     AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
     const changed = next.find((trip) => trip.id === activeTripId);
@@ -1867,6 +1895,20 @@ export default function App() {
     showToast(`${current.label} 的整天行程已${direction < 0 ? "前移" : "後移"}`);
   };
 
+  const confirmDeleteDay = () => {
+    if (!deletingDay || activeTrip.days.length <= 1) return;
+    const removedIndex = activeTrip.days.findIndex((day) => day.id === deletingDay.id);
+    const days = activeTrip.days.filter((day) => day.id !== deletingDay.id).map((day, index) => ({
+      ...day,
+      label: `DAY ${index + 1}`,
+      date: tripDayDateLabel(activeTrip.startDate || "", index)
+    }));
+    updateActiveTrip({ days });
+    setSelectedDayId(days[Math.min(Math.max(0, removedIndex), days.length - 1)]!.id);
+    setDeletingDay(null);
+    showToast("已刪除一天，後續日期已重新排列");
+  };
+
   const createAccommodation = () => {
     if (!hotelName.trim() || !hotelPeriod.trim()) {
       Alert.alert("請填寫住宿名稱與入住日期");
@@ -2322,6 +2364,9 @@ export default function App() {
                         <Pressable disabled={days.findIndex((day) => day.id === selectedDay.id) === days.length - 1} style={styles.dayMoveButton} onPress={() => moveWholeDay(1)}>
                           <Text style={[styles.dayMoveText, days.findIndex((day) => day.id === selectedDay.id) === days.length - 1 && styles.reorderDisabled]}>整天後移 →</Text>
                         </Pressable>
+                        {days.length > 1 && <Pressable style={styles.dayDeleteButton} onPress={() => setDeletingDay(selectedDay)}>
+                          <Text style={styles.dayDeleteText}>刪除這一天</Text>
+                        </Pressable>}
                         <Pressable style={styles.smallAddButton} onPress={() => setAddingStop(true)}>
                           <Text style={styles.smallAddButtonText}>＋</Text>
                         </Pressable>
@@ -2471,7 +2516,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.3</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.4</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -3078,6 +3123,19 @@ export default function App() {
           </View>
         </Modal>
 
+        <Modal visible={!!deletingDay} animationType="fade" transparent onRequestClose={() => setDeletingDay(null)}>
+          <View style={styles.modalShade}>
+            <View style={styles.sheet}>
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetEyebrow}>DELETE A DAY</Text>
+              <Text style={styles.sheetTitle}>刪除 {deletingDay?.label}？</Text>
+              <Text style={styles.sheetAddress}>這一天的所有景點都會刪除，後面的 DAY 與日期會自動往前遞補。</Text>
+              <Pressable style={styles.destructiveButton} onPress={confirmDeleteDay}><Text style={styles.primaryButtonText}>確認刪除這一天</Text></Pressable>
+              <Pressable style={styles.cancelButton} onPress={() => setDeletingDay(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
+            </View>
+          </View>
+        </Modal>
+
         <Modal visible={!!leavingTrip} animationType="fade" transparent onRequestClose={() => setLeavingTrip(null)}>
           <View style={styles.modalShade}>
             <View style={styles.sheet}>
@@ -3128,12 +3186,17 @@ export default function App() {
               <Pressable style={styles.primaryButton} onPress={() => {
                 const calculatedDays = inclusiveDayCount(tripStartDraft, tripEndDraft);
                 const currentDays = activeTrip.days;
-                const nextDays = calculatedDays > currentDays.length
+                const resizedDays = calculatedDays > currentDays.length
                   ? [...currentDays, ...Array.from({ length: calculatedDays - currentDays.length }, (_, index) => {
                       const dayNumber = currentDays.length + index + 1;
                       return { id: `${activeTrip.id}-day-${dayNumber}`, label: `DAY ${dayNumber}`, date: `第 ${dayNumber} 天`, title: `${activeTrip.destination}・自由安排`, stops: [] };
                     })]
                   : currentDays;
+                const nextDays = resizedDays.map((day, index) => ({
+                  ...day,
+                  label: `DAY ${index + 1}`,
+                  date: tripDayDateLabel(tripStartDraft, index)
+                }));
                 updateActiveTrip({
                   title: tripNameDraft.trim() || activeTrip.title,
                   startDate: tripStartDraft,
@@ -3350,6 +3413,8 @@ const styles = StyleSheet.create({
   dayActionRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", gap: 7 },
   dayMoveButton: { backgroundColor: "#EEEAE4", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 8 },
   dayMoveText: { color: "#315248", fontSize: 9, fontWeight: "900" },
+  dayDeleteButton: { backgroundColor: "#F5E6E1", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 8 },
+  dayDeleteText: { color: "#A55748", fontSize: 9, fontWeight: "900" },
   smallAddButton: { width: 30, height: 30, borderRadius: 11, backgroundColor: "#2F5147", alignItems: "center", justifyContent: "center" },
   smallAddButtonText: { color: "#FFF", fontSize: 19, marginTop: -2 },
   dayCount: { fontSize: 12, color: "#978F85" },
