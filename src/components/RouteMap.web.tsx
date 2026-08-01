@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center"
   },
-  placeholderEmoji: { color: "#315248", fontSize: 25, fontWeight: "900" },
+  placeholderEmoji: { color: "#536783", fontSize: 25, fontWeight: "900" },
   placeholderTitle: { marginTop: 12, fontWeight: "900", fontSize: 15, color: "#274940" },
   placeholderText: { marginTop: 5, color: "#718078", fontSize: 11, textAlign: "center", lineHeight: 17 }
 });

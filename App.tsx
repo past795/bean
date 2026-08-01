@@ -408,7 +408,10 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
       flightNumber: String(row["航班編號"] || ""), departure: formatCloudDateTime(row["出發時間"]),
       arrival: formatCloudDateTime(row["抵達時間"]), terminal: String(row["航廈"] || ""), note: String(row["備註"] || "")
     })),
-    accommodations: (data.accommodations || []).map((row: any) => ({
+    accommodations: ((data.accommodations || []).length
+      ? data.accommodations
+      : String(cloudTrip["旅行ID"] || "") === "trip-1785397565924" ? BUSAN_ACCOMMODATIONS : []
+    ).map((row: any) => ({
       id: String(row["住宿ID"]), name: String(row["住宿名稱"] || ""), period: formatCloudDateTime(row["入住日期"]),
       address: String(row["地址"] || ""), checkIn: formatCloudDateTime(row["入住時間"]), checkOut: formatCloudDateTime(row["退房時間"]),
       facilities: String(row["設施"] || ""), frontDesk: String(row["櫃檯資訊"] || ""), note: String(row["備註"] || "")
@@ -450,6 +453,23 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
   });
   return { trip, expenses };
 };
+
+const BUSAN_ACCOMMODATIONS = [
+  {
+    "住宿ID": "busan-hotel-1", "住宿名稱": "Toyoko Inn Busan Jungang Station", "入住日期": "2026-10-04",
+    "退房日期": "2026-10-05", "入住時間": "15:00", "退房時間": "10:00",
+    "地址": "125 Jungang-daero, Jung-gu, Busan 48924", "櫃檯資訊": "24 小時櫃檯；電話 +82 51-442-1045",
+    "設施": "免費早餐 06:30–09:00、免費 Wi-Fi、投幣洗衣、微波爐、飲水／製冰機、販賣機、按摩椅、停車場",
+    "訂房編號": "", "備註": "中央站 17 號出口步行約 5 分鐘；資料來源：Toyoko Inn 官方網站"
+  },
+  {
+    "住宿ID": "busan-hotel-2", "住宿名稱": "Avani Central Busan", "入住日期": "2026-10-05",
+    "退房日期": "2026-10-08", "入住時間": "15:00", "退房時間": "11:00",
+    "地址": "133 Jeonpo-daero, Nam-gu, Busan 48400", "櫃檯資訊": "24 小時櫃檯；電話 +82 51-791-5800",
+    "設施": "免費 Wi-Fi、健身中心、SPA、餐廳、會議及活動空間", "訂房編號": "",
+    "備註": "釜山國際金融中心旁、地鐵 2 號線 BIFC／Busan Bank Station 附近；資料來源：Avani 官方網站"
+  }
+];
 
 const starterTrips: TripPlan[] = [{
   id: "local-welcome",
@@ -2479,7 +2499,7 @@ export default function App() {
             {trips.map((trip, index) => (
               <Pressable key={trip.id} style={styles.tripCard} onPress={() => selectTrip(trip)}>
                 <LinearGradient
-                  colors={index % 2 === 0 ? ["#244C43", "#4E7467"] : ["#9B6248", "#D49772"]}
+                  colors={index % 2 === 0 ? ["#536783", "#8B9AB0"] : ["#927A73", "#C5A28C"]}
                   style={styles.tripCardCover}
                 >
                   {!!trip.coverImage && <Image source={{ uri: trip.coverImage }} style={styles.tripCoverPhoto} resizeMode="cover" />}
@@ -2536,7 +2556,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.7</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.8</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -2567,7 +2587,7 @@ export default function App() {
                   </Pressable>
             )}
             {!!syncErrorMessage && <Text style={styles.joinErrorText}>同步失敗｜{syncErrorMessage}</Text>}
-            <LinearGradient colors={["#244C43", "#54796D"]} style={styles.totalCard}>
+            <LinearGradient colors={["#536783", "#8999B1"]} style={styles.totalCard}>
               <Text style={styles.totalLabel}>目前總支出</Text>
               {Object.keys(currencyTotals).length === 0
                 ? <Text style={styles.totalAmount}>尚無支出</Text>
@@ -3342,12 +3362,12 @@ function GoogleSignInButton({ onCredential }: { onCredential: (credential: strin
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#F7F3EC" },
   authGate: { alignItems: "center", justifyContent: "center", padding: 24 },
-  authCard: { width: "100%", maxWidth: 430, alignItems: "center", backgroundColor: "#FFF", borderRadius: 32, paddingHorizontal: 28, paddingVertical: 42, borderWidth: 1, borderColor: "#E9E1D7", shadowColor: "#2F5147", shadowOpacity: 0.12, shadowRadius: 24, shadowOffset: { width: 0, height: 12 } },
+  authCard: { width: "100%", maxWidth: 430, alignItems: "center", backgroundColor: "#FFF", borderRadius: 32, paddingHorizontal: 28, paddingVertical: 42, borderWidth: 1, borderColor: "#E9E1D7", shadowColor: "#536783", shadowOpacity: 0.12, shadowRadius: 24, shadowOffset: { width: 0, height: 12 } },
   authAppIcon: { width: 104, height: 104, borderRadius: 28, marginBottom: 20 },
-  authLogo: { color: "#2F5147", fontSize: 35, fontWeight: "900" },
+  authLogo: { color: "#536783", fontSize: 35, fontWeight: "900" },
   authLoading: { color: "#8B8177", fontSize: 13, marginTop: 10 },
   authEyebrow: { color: "#9A6248", fontSize: 11, fontWeight: "900", letterSpacing: 2 },
-  authTitle: { color: "#243B35", fontSize: 32, fontWeight: "900", marginTop: 8 },
+  authTitle: { color: "#333C4C", fontSize: 32, fontWeight: "900", marginTop: 8 },
   authDescription: { color: "#7E756D", fontSize: 14, lineHeight: 22, textAlign: "center", marginTop: 12, marginBottom: 24 },
   authPrivacy: { color: "#A0978F", fontSize: 10, marginTop: 18 },
   joinErrorText: { color: "#A5443C", backgroundColor: "#FBECEA", borderRadius: 12, paddingHorizontal: 13, paddingVertical: 10, fontSize: 11, fontWeight: "800", marginTop: 10 },
@@ -3358,27 +3378,27 @@ const styles = StyleSheet.create({
   eyebrow: { color: "#9A6A4F", fontSize: 11, fontWeight: "800", letterSpacing: 1.5 },
   mainTitle: { color: "#1F2925", fontSize: 32, fontWeight: "900", marginTop: 5, letterSpacing: -1 },
   subtitle: { color: "#756E65", fontSize: 13, marginTop: 10 },
-  tripBadge: { backgroundColor: "#2F5147", borderRadius: 16, paddingHorizontal: 11, paddingVertical: 9, alignItems: "center" },
+  tripBadge: { backgroundColor: "#536783", borderRadius: 16, paddingHorizontal: 11, paddingVertical: 9, alignItems: "center" },
   headerBadges: { alignItems: "flex-end", gap: 6 },
   syncBadge: { backgroundColor: "rgba(255,255,255,.9)", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9, borderWidth: 1, borderColor: "#CFC4B6", minWidth: 92, alignItems: "center", zIndex: 20 },
   syncBadgeLocal: { backgroundColor: "#FFF8E8", borderColor: "#D9B86D" },
   syncBadgeText: { color: "#49675E", fontSize: 10, fontWeight: "900" },
   cloudLabel: { color: "#897E73", fontSize: 11, fontWeight: "800", marginTop: 15 },
-  cloudCode: { color: "#233D35", backgroundColor: "#EFF4F1", padding: 12, borderRadius: 12, fontSize: 13, fontWeight: "800", marginTop: 5 },
-  cloudInvite: { color: "#233D35", fontSize: 29, letterSpacing: 7, fontWeight: "900", marginTop: 4 },
+  cloudCode: { color: "#3E4B60", backgroundColor: "#F0F3F8", padding: 12, borderRadius: 12, fontSize: 13, fontWeight: "800", marginTop: 5 },
+  cloudInvite: { color: "#3E4B60", fontSize: 29, letterSpacing: 7, fontWeight: "900", marginTop: 4 },
   memberChips: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 7 },
-  memberChip: { backgroundColor: "#E7EFEA", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 },
-  memberChipText: { color: "#315248", fontSize: 11, fontWeight: "800" },
+  memberChip: { backgroundColor: "#E9EDF5", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 },
+  memberChipText: { color: "#536783", fontSize: 11, fontWeight: "800" },
   memberAddRow: { flexDirection: "row", gap: 8, marginTop: 10 },
   memberInput: { flex: 1, backgroundColor: "#F5F2ED", borderRadius: 11, paddingHorizontal: 11, paddingVertical: 10, color: "#302B27", fontSize: 12 },
-  memberAddButton: { backgroundColor: "#315248", borderRadius: 11, paddingHorizontal: 15, justifyContent: "center" },
+  memberAddButton: { backgroundColor: "#536783", borderRadius: 11, paddingHorizontal: 15, justifyContent: "center" },
   memberAddText: { color: "#FFF", fontSize: 11, fontWeight: "900" },
   inviteShareGrid: { flexDirection: "row", gap: 8, marginTop: 13 },
   inviteShareButton: { flex: 1, backgroundColor: "#E7EFEA", borderRadius: 12, paddingVertical: 12, alignItems: "center" },
   inviteShareText: { color: "#315248", fontSize: 11, fontWeight: "900" },
   lineShareButton: { backgroundColor: "#E4F8E9" },
   lineShareText: { color: "#06A944" },
-  toast: { position: "absolute", top: 18, alignSelf: "center", zIndex: 9999, elevation: 40, backgroundColor: "#244C43", borderRadius: 999, paddingHorizontal: 18, paddingVertical: 11, shadowColor: "#000", shadowOpacity: .18, shadowRadius: 12, shadowOffset: { width: 0, height: 5 } },
+  toast: { position: "absolute", top: 18, alignSelf: "center", zIndex: 9999, elevation: 40, backgroundColor: "#536783", borderRadius: 999, paddingHorizontal: 18, paddingVertical: 11, shadowColor: "#000", shadowOpacity: .18, shadowRadius: 12, shadowOffset: { width: 0, height: 5 } },
   toastText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
   expenseTripId: { color: "#9A9188", fontSize: 9, marginTop: 5 },
   refreshSyncButton: { alignSelf: "flex-start", backgroundColor: "#E7EFEA", borderRadius: 11, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12 },
@@ -3395,7 +3415,7 @@ const styles = StyleSheet.create({
   addDayPlus: { color: "#315248", fontSize: 20, fontWeight: "700", lineHeight: 21 },
   addDayText: { color: "#315248", fontSize: 10, fontWeight: "800", marginTop: 2 },
   dayTab: { width: 65, borderRadius: 18, backgroundColor: "rgba(255,255,255,.7)", paddingVertical: 9, alignItems: "center", borderWidth: 1, borderColor: "#EAE0D5" },
-  dayTabActive: { backgroundColor: "#2F5147", borderColor: "#2F5147" },
+  dayTabActive: { backgroundColor: "#536783", borderColor: "#536783" },
   dayLabel: { fontSize: 11, fontWeight: "800", color: "#7D756C" },
   dayLabelActive: { color: "#FFF" },
   dayDate: { fontSize: 10, marginTop: 3, color: "#A49C92" },
@@ -3413,7 +3433,7 @@ const styles = StyleSheet.create({
   dayMoveText: { color: "#315248", fontSize: 9, fontWeight: "900" },
   dayDeleteButton: { backgroundColor: "#F5E6E1", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 8 },
   dayDeleteText: { color: "#A55748", fontSize: 9, fontWeight: "900" },
-  smallAddButton: { width: 30, height: 30, borderRadius: 11, backgroundColor: "#2F5147", alignItems: "center", justifyContent: "center" },
+  smallAddButton: { width: 30, height: 30, borderRadius: 11, backgroundColor: "#536783", alignItems: "center", justifyContent: "center" },
   smallAddButtonText: { color: "#FFF", fontSize: 19, marginTop: -2 },
   dayCount: { fontSize: 12, color: "#978F85" },
   mapCard: { backgroundColor: "#FFF", borderRadius: 24, overflow: "hidden", borderWidth: 1, borderColor: "#ECE7DF", shadowColor: "#3A2E22", shadowOpacity: .08, shadowRadius: 14, shadowOffset: { width: 0, height: 6 } },
@@ -3438,7 +3458,7 @@ const styles = StyleSheet.create({
   stopWrap: { flexDirection: "row", minHeight: 170 },
   dragging: { opacity: .92, transform: [{ scale: 1.02 }] },
   timeline: { width: 36, alignItems: "center" },
-  numberDot: { width: 28, height: 28, borderRadius: 14, backgroundColor: "#2F5147", alignItems: "center", justifyContent: "center", zIndex: 2, marginTop: 20 },
+  numberDot: { width: 28, height: 28, borderRadius: 14, backgroundColor: "#536783", alignItems: "center", justifyContent: "center", zIndex: 2, marginTop: 20 },
   numberText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
   timelineLine: { width: 2, backgroundColor: "#D9D4CC", flex: 1 },
   stopCard: { flex: 1, backgroundColor: "#FFF", borderRadius: 20, padding: 15, marginBottom: 12, borderWidth: 1, borderColor: "#EEE8E0" },
@@ -3463,7 +3483,7 @@ const styles = StyleSheet.create({
   legEstimate: { color: "#315248", fontSize: 13, fontWeight: "900", marginBottom: 8 },
   legRouteActions: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
   legModeButton: { borderRadius: 9, paddingHorizontal: 9, paddingVertical: 8, backgroundColor: "#EAE6E0" },
-  legModeButtonActive: { backgroundColor: "#315248" },
+  legModeButtonActive: { backgroundColor: "#536783" },
   legModeText: { color: "#766E65", fontSize: 10, fontWeight: "900" },
   legModeTextActive: { color: "#FFF" },
   fastRouteButton: { borderRadius: 9, borderWidth: 1, borderColor: "#D7E4DE", paddingHorizontal: 9, paddingVertical: 8, alignItems: "center", backgroundColor: "#F7FAF8" },
@@ -3484,12 +3504,12 @@ const styles = StyleSheet.create({
   tabButton: { flex: 1, alignItems: "center", justifyContent: "center" },
   tabIcon: { fontSize: 20, color: "#A8A199", fontWeight: "700" },
   tabText: { fontSize: 10, color: "#A8A199", marginTop: 4, fontWeight: "700" },
-  tabActive: { color: "#2F5147" },
+  tabActive: { color: "#536783" },
   page: { flex: 1, backgroundColor: "#FBFAF7" },
   pageContent: { padding: 22, paddingTop: 36, paddingBottom: 110 },
   homeContent: { padding: 22, paddingTop: 32, paddingBottom: 115 },
   homeHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  addTripButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: "#2F5147", alignItems: "center", justifyContent: "center", shadowColor: "#2F5147", shadowOpacity: .18, shadowRadius: 10 },
+  addTripButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: "#536783", alignItems: "center", justifyContent: "center", shadowColor: "#536783", shadowOpacity: .18, shadowRadius: 10 },
   homeHeaderActions: { flexDirection: "row", alignItems: "center", gap: 9 },
   accountCard: { backgroundColor: "#FFF", borderRadius: 18, padding: 14, marginTop: 14, marginBottom: 4, borderWidth: 1, borderColor: "#E9E2D9" },
   accountTitle: { color: "#263D35", fontSize: 14, fontWeight: "900" },
@@ -3519,13 +3539,13 @@ const styles = StyleSheet.create({
   placeSearchStatus: { color: "#52766B", fontSize: 10, lineHeight: 16, marginTop: 2, marginBottom: 10, paddingHorizontal: 2 },
   placeSearchError: { color: "#A45F49", fontSize: 10, lineHeight: 15, marginTop: 7, marginBottom: 5 },
   homeBaseButton: { marginTop: 12, borderRadius: 11, backgroundColor: "#E8EFEA", paddingHorizontal: 12, paddingVertical: 10, alignItems: "center" },
-  homeBaseButtonActive: { backgroundColor: "#315248" },
+  homeBaseButtonActive: { backgroundColor: "#536783" },
   homeBaseButtonText: { color: "#315248", fontSize: 10, fontWeight: "900" },
   homeBaseButtonTextActive: { color: "#FFF" },
   hotelDayLabel: { color: "#756E66", fontSize: 10, fontWeight: "800", marginTop: 12, marginBottom: 7 },
   hotelDayChoices: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
   hotelDayChoice: { borderRadius: 10, backgroundColor: "#EEEAE4", paddingHorizontal: 11, paddingVertical: 8 },
-  hotelDayChoiceActive: { backgroundColor: "#315248" },
+  hotelDayChoiceActive: { backgroundColor: "#536783" },
   hotelDayChoiceText: { color: "#766E65", fontSize: 10, fontWeight: "900" },
   hotelDayChoiceTextActive: { color: "#FFF" },
   tripCardIndex: { position: "absolute", left: 20, top: 18, color: "rgba(255,255,255,.7)", letterSpacing: 1.5, fontWeight: "800", fontSize: 10 },
@@ -3571,7 +3591,7 @@ const styles = StyleSheet.create({
   fieldRow: { flexDirection: "row", gap: 10 },
   fieldHalf: { flex: 1 },
   dayCountField: { width: 90 },
-  primaryButton: { backgroundColor: "#2F5147", height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginTop: 16 },
+  primaryButton: { backgroundColor: "#536783", height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginTop: 16 },
   primaryButtonText: { color: "#FFF", fontWeight: "800", fontSize: 15 },
   destructiveButton: { backgroundColor: "#A85445", height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginTop: 20 },
   cancelButton: { height: 44, alignItems: "center", justifyContent: "center" },
@@ -3629,7 +3649,7 @@ const styles = StyleSheet.create({
   shoppingItem: { flexDirection: "row", gap: 12, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: "#ECE7E0", alignItems: "center" },
   shoppingItemPurchased: { opacity: .6, backgroundColor: "#F1F5F2" },
   shoppingCheck: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "#B9B1A8", alignItems: "center", justifyContent: "center" },
-  shoppingCheckActive: { backgroundColor: "#2F5147", borderColor: "#2F5147" },
+  shoppingCheckActive: { backgroundColor: "#536783", borderColor: "#536783" },
   shoppingCheckText: { color: "#FFF", fontSize: 15, fontWeight: "900" },
   shoppingNamePurchased: { textDecorationLine: "line-through", color: "#7C857F" },
   productImage: { width: 58, height: 58, borderRadius: 12, backgroundColor: "#FFF" },
@@ -3667,12 +3687,12 @@ const styles = StyleSheet.create({
   deleteExpense: { color: "#B8AFA7", fontSize: 22, paddingLeft: 4 },
   currencyChoices: { flexDirection: "row", gap: 8 },
   currencyChoice: { flex: 1, alignItems: "center", paddingVertical: 11, borderRadius: 12, backgroundColor: "#EEE9E2" },
-  currencyChoiceActive: { backgroundColor: "#2F5147" },
+  currencyChoiceActive: { backgroundColor: "#536783" },
   currencyChoiceText: { color: "#776F67", fontSize: 11, fontWeight: "900" },
   currencyChoiceTextActive: { color: "#FFF" },
   payerChoices: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 7, marginBottom: 8 },
   payerChoice: { paddingHorizontal: 16, paddingVertical: 11, borderRadius: 999, backgroundColor: "#EEE9E2", borderWidth: 1, borderColor: "#E5DED5" },
-  payerChoiceActive: { backgroundColor: "#2F5147", borderColor: "#2F5147" },
+  payerChoiceActive: { backgroundColor: "#536783", borderColor: "#536783" },
   payerChoiceText: { color: "#776F67", fontSize: 12, fontWeight: "900" },
   payerChoiceTextActive: { color: "#FFF" }
   ,

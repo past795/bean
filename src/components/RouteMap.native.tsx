@@ -46,7 +46,7 @@ const styles = StyleSheet.create({
   map: { width: "100%", height: 210 },
   placeholder: { height: 210, backgroundColor: "#E5EEE9", alignItems: "center", justifyContent: "center" },
   placeholderIcon: { fontSize: 36 },
-  placeholderTitle: { marginTop: 8, fontWeight: "800", color: "#315248" },
+  placeholderTitle: { marginTop: 8, fontWeight: "800", color: "#536783" },
   placeholderText: { marginTop: 4, color: "#6F827A", fontSize: 12 },
   marker: { width: 27, height: 27, borderRadius: 14, backgroundColor: "#E76F51", borderWidth: 3, borderColor: "#FFF", alignItems: "center", justifyContent: "center" },
   markerText: { color: "#FFF", fontWeight: "900", fontSize: 11 }
