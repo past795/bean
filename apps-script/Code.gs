@@ -4,7 +4,7 @@ const GOOGLE_CLIENT_ID = '280761518317-gdvrt4provk183vi87j6uoapmu5umn30.apps.goo
 const TABLES = {
   trips: {
     sheet: '豆遊_旅行',
-    headers: ['旅行ID', '名稱', '目的地', '開始日期', '結束日期', '主要幣別', '封面圖片', '邀請碼雜湊', '建立時間', '更新時間', '版本'],
+    headers: ['旅行ID', '名稱', '目的地', '開始日期', '結束日期', '主要幣別', '封面圖片', '邀請碼雜湊', '建立時間', '更新時間', '版本', '封存狀態', '封存時間', '預定刪除時間', '封存信箱'],
     id: '旅行ID',
   },
   members: {
@@ -56,7 +56,15 @@ function doGet(e) {
       const tripIds = readObjects_(TABLES.members)
         .filter(row => String(row['成員ID']) === memberId)
         .map(row => String(row['旅行ID']));
-      return json_({ ok: true, data: tripIds.map(tripId => readTrip_(tripId)) });
+      return json_({ ok: true, data: tripIds.map(tripId => readTrip_(tripId)).filter(data => String(data.trip['封存狀態'] || '') !== 'archived') });
+    }
+    if (action === 'myArchivedTrips') {
+      const user = verifyGoogleToken_(required_(e.parameter.idToken, '請先登入 Google'));
+      const memberId = 'google:' + user.sub;
+      const ownerTripIds = readObjects_(TABLES.members)
+        .filter(row => String(row['成員ID']) === memberId && String(row['角色']) === 'owner')
+        .map(row => String(row['旅行ID']));
+      return json_({ ok: true, data: ownerTripIds.map(findTrip_).filter(trip => trip && String(trip['封存狀態']) === 'archived').map(publicTrip_) });
     }
     throw new Error('不支援的 action');
   } catch (error) {
@@ -103,6 +111,19 @@ function doPost(e) {
       removeMember_(tripId, memberId);
       return json_({ ok: true, data: { tripId: tripId, memberId: memberId } });
     }
+    if (body.action === 'archiveTrip') {
+      const tripId = required_(body.tripId, '缺少 tripId');
+      const email = required_(body.email, '請輸入收件信箱');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Email 格式不正確');
+      verifyOwner_(tripId, required_(body.idToken, '請先登入 Google'));
+      return json_({ ok: true, data: archiveTrip_(tripId, email) });
+    }
+    if (body.action === 'restoreArchivedTrip') {
+      const tripId = required_(body.tripId, '缺少 tripId');
+      verifyOwner_(tripId, required_(body.idToken, '請先登入 Google'));
+      restoreArchivedTrip_(tripId);
+      return json_({ ok: true, data: readTrip_(tripId) });
+    }
     throw new Error('不支援的 action');
   } catch (error) {
     return json_({ ok: false, error: String(error.message || error) });
@@ -140,6 +161,7 @@ function writeTrip_(tripId, data) {
   const index = tripRows.findIndex(row => String(row['旅行ID']) === tripId);
   if (index < 0) throw new Error('找不到旅行');
   const current = tripRows[index];
+  if (String(current['封存狀態']) === 'archived') throw new Error('旅行已封存，請先由建立者復原後再編輯');
   Object.assign(current, data.trip || {});
   current['旅行ID'] = tripId;
   current['邀請碼雜湊'] = tripRows[index]['邀請碼雜湊'];
@@ -229,6 +251,92 @@ function verifyAccess_(tripId, inviteCode, idToken) {
   return null;
 }
 
+function verifyOwner_(tripId, idToken) {
+  const user = verifyGoogleToken_(idToken);
+  const memberId = 'google:' + user.sub;
+  const owner = readObjects_(TABLES.members).some(row => String(row['旅行ID']) === String(tripId) && String(row['成員ID']) === memberId && String(row['角色']) === 'owner');
+  if (!owner) throw new Error('只有旅行建立者可以打包或復原旅行');
+  return user;
+}
+
+function archiveTrip_(tripId, email) {
+  const trip = findTrip_(tripId);
+  if (!trip) throw new Error('找不到旅行');
+  if (String(trip['封存狀態']) === 'archived') throw new Error('這趟旅行已經封存');
+  if (MailApp.getRemainingDailyQuota() < 1) throw new Error('今日寄信額度已用完，請明天再試');
+  const blob = buildTripWorkbook_(tripId);
+  MailApp.sendEmail({
+    to: email,
+    subject: '豆遊旅行封存｜' + String(trip['名稱'] || trip['目的地'] || tripId),
+    htmlBody: '<p>你的豆遊旅行已完成打包，Excel 檔案附在本信。</p><p>雲端資料將保留 30 天，期間可在豆遊封存區復原；到期後會永久刪除。</p>',
+    attachments: [blob],
+    name: '豆遊'
+  });
+  const archivedAt = new Date();
+  const deleteAt = new Date(archivedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const rows = readObjects_(TABLES.trips);
+  const index = rows.findIndex(row => String(row['旅行ID']) === String(tripId));
+  rows[index]['封存狀態'] = 'archived';
+  rows[index]['封存時間'] = archivedAt.toISOString();
+  rows[index]['預定刪除時間'] = deleteAt.toISOString();
+  rows[index]['封存信箱'] = email;
+  rows[index]['更新時間'] = archivedAt.toISOString();
+  replaceObjects_(TABLES.trips, rows);
+  return { trip: publicTrip_(rows[index]), email: email };
+}
+
+function restoreArchivedTrip_(tripId) {
+  const rows = readObjects_(TABLES.trips);
+  const index = rows.findIndex(row => String(row['旅行ID']) === String(tripId));
+  if (index < 0) throw new Error('找不到旅行');
+  rows[index]['封存狀態'] = '';
+  rows[index]['封存時間'] = '';
+  rows[index]['預定刪除時間'] = '';
+  rows[index]['封存信箱'] = '';
+  rows[index]['更新時間'] = new Date().toISOString();
+  replaceObjects_(TABLES.trips, rows);
+}
+
+function buildTripWorkbook_(tripId) {
+  const trip = findTrip_(tripId);
+  const fileName = String(trip['名稱'] || trip['目的地'] || '豆遊旅行').replace(/[\\/:*?"<>|]/g, '_');
+  const book = SpreadsheetApp.create('豆遊封存_' + fileName);
+  try {
+    const summary = book.getSheets()[0];
+    summary.setName('旅行總覽');
+    const summaryRows = TABLES.trips.headers.filter(header => header !== '邀請碼雜湊').map(header => [header, trip[header] == null ? '' : trip[header]]);
+    summary.getRange(1, 1, summaryRows.length, 2).setValues(summaryRows);
+    summary.getRange(1, 1, summaryRows.length, 1).setFontWeight('bold').setBackground('#E8EDF6');
+    ['members', 'itinerary', 'flights', 'accommodations', 'shopping', 'expenses'].forEach(key => {
+      const table = TABLES[key];
+      const rows = readObjects_(table).filter(row => String(row['旅行ID']) === String(tripId));
+      const sheet = book.insertSheet(table.sheet.replace('豆遊_', ''));
+      sheet.getRange(1, 1, 1, table.headers.length).setValues([table.headers]).setFontWeight('bold').setBackground('#E8EDF6');
+      if (rows.length) sheet.getRange(2, 1, rows.length, table.headers.length).setValues(rows.map(row => table.headers.map(header => row[header] == null ? '' : row[header])));
+      sheet.setFrozenRows(1);
+    });
+    SpreadsheetApp.flush();
+    const response = UrlFetchApp.fetch('https://docs.google.com/spreadsheets/d/' + book.getId() + '/export?format=xlsx', { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() } });
+    return response.getBlob().setName(fileName + '.xlsx');
+  } finally {
+    DriveApp.getFileById(book.getId()).setTrashed(true);
+  }
+}
+
+function purgeExpiredArchivedTrips() {
+  const now = Date.now();
+  const trips = readObjects_(TABLES.trips);
+  const expiredIds = trips.filter(row => String(row['封存狀態']) === 'archived' && Date.parse(String(row['預定刪除時間'] || '')) <= now).map(row => String(row['旅行ID']));
+  if (!expiredIds.length) return;
+  replaceObjects_(TABLES.trips, trips.filter(row => expiredIds.indexOf(String(row['旅行ID'])) < 0));
+  ['members', 'itinerary', 'flights', 'accommodations', 'shopping', 'expenses'].forEach(key => replaceObjects_(TABLES[key], readObjects_(TABLES[key]).filter(row => expiredIds.indexOf(String(row['旅行ID'])) < 0)));
+}
+
+function setupArchiveCleanupTrigger() {
+  ScriptApp.getProjectTriggers().filter(trigger => trigger.getHandlerFunction() === 'purgeExpiredArchivedTrips').forEach(trigger => ScriptApp.deleteTrigger(trigger));
+  ScriptApp.newTrigger('purgeExpiredArchivedTrips').timeBased().everyDays(1).atHour(3).create();
+}
+
 function verifyGoogleToken_(idToken) {
   const response = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), {
     muteHttpExceptions: true
@@ -251,7 +359,7 @@ function publicTrip_(trip) {
 }
 
 function readObjects_(table) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(table.sheet);
+  const sheet = ensureTableHeaders_(table);
   if (!sheet || sheet.getLastRow() < 2) return [];
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, table.headers.length).getValues();
   return values.filter(row => row.some(value => value !== '')).map(row => {
@@ -263,16 +371,25 @@ function readObjects_(table) {
 
 function appendObjects_(table, objects) {
   if (!objects.length) return;
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(table.sheet);
+  const sheet = ensureTableHeaders_(table);
   const rows = objects.map(object => table.headers.map(header => object[header] == null ? '' : object[header]));
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, table.headers.length).setValues(rows);
 }
 
 function replaceObjects_(table, objects) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(table.sheet);
+  const sheet = ensureTableHeaders_(table);
   const existing = Math.max(sheet.getLastRow() - 1, 0);
   if (existing) sheet.getRange(2, 1, existing, table.headers.length).clearContent();
   appendObjects_(table, objects);
+}
+
+function ensureTableHeaders_(table) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(table.sheet);
+  if (!sheet) throw new Error('找不到資料表：' + table.sheet);
+  if (sheet.getMaxColumns() < table.headers.length) sheet.insertColumnsAfter(sheet.getMaxColumns(), table.headers.length - sheet.getMaxColumns());
+  const current = sheet.getRange(1, 1, 1, table.headers.length).getValues()[0].map(String);
+  if (current.join('\n') !== table.headers.join('\n')) sheet.getRange(1, 1, 1, table.headers.length).setValues([table.headers]);
+  return sheet;
 }
 
 function hash_(text) {

@@ -540,6 +540,10 @@ export default function App() {
   const [batchFavoriteCountry, setBatchFavoriteCountry] = useState("");
   const [batchFavoriteCity, setBatchFavoriteCity] = useState("");
   const [batchFavoriteStatus, setBatchFavoriteStatus] = useState("");
+  const [archivedTrips, setArchivedTrips] = useState<any[]>([]);
+  const [archiveTripTarget, setArchiveTripTarget] = useState<TripPlan | null>(null);
+  const [archiveEmail, setArchiveEmail] = useState("");
+  const [archiveBusy, setArchiveBusy] = useState(false);
   const [editing, setEditing] = useState<Stop | null>(null);
   const [draftNote, setDraftNote] = useState("");
   const [draftOpeningHours, setDraftOpeningHours] = useState("");
@@ -873,6 +877,51 @@ export default function App() {
     if (!result.ok) throw new Error(result.error || "同步失敗");
     return result.data;
   };
+
+  const loadArchivedTrips = async (user = googleUser) => {
+    if (!user?.idToken) { setArchivedTrips([]); return; }
+    try {
+      const response = await fetch(`${SYNC_URL}?action=myArchivedTrips&idToken=${encodeURIComponent(user.idToken)}&t=${Date.now()}`);
+      const result = await response.json();
+      if (result.ok && Array.isArray(result.data)) setArchivedTrips(result.data);
+    } catch {}
+  };
+
+  const archiveTripAndEmail = async () => {
+    if (!archiveTripTarget || !archiveEmail.trim()) { Alert.alert("請輸入收件信箱"); return; }
+    const link = cloudLinksRef.current[archiveTripTarget.id];
+    if (!googleUser?.idToken || !link || link.role !== "owner") { Alert.alert("只有建立者可以打包旅行", "請確認已登入建立這趟旅行的 Google 帳號，且旅行已開啟雲端同步。"); return; }
+    setArchiveBusy(true);
+    try {
+      const data = await postCloud({ action: "archiveTrip", tripId: archiveTripTarget.id, email: archiveEmail.trim(), idToken: googleUser.idToken });
+      setArchivedTrips((current) => [data.trip, ...current.filter((trip) => String(trip["旅行ID"]) !== archiveTripTarget.id)]);
+      const remaining = trips.filter((trip) => trip.id !== archiveTripTarget.id);
+      const fallback: TripPlan = { id: `local-next-${Date.now()}`, title: "我的下一趟旅行", destination: "目的地未設定", period: "日期未定", travelers: 1, flights: [], accommodations: [], shopping: [], checklist: defaultPrepChecklist(), days: [{ id: `local-next-day-${Date.now()}`, label: "DAY 1", date: "日期未定", title: "自由安排", stops: [] }] };
+      const next = remaining.length ? remaining : [fallback];
+      persistTrips(next); setActiveTripId(next[0]!.id); setSelectedDayId(next[0]!.days[0]?.id || "");
+      setArchiveTripTarget(null); setArchiveEmail(""); setTab("home");
+      Alert.alert("旅行已打包", `Excel 已寄到 ${data.email}。雲端資料將保留 30 天，期間可從封存區復原。`);
+    } catch (error: any) {
+      Alert.alert("打包失敗，旅行未封存", error?.message || "請稍後再試。原旅行資料仍完整保留。");
+    } finally { setArchiveBusy(false); }
+  };
+
+  const restoreArchivedTrip = async (tripId: string) => {
+    if (!googleUser?.idToken) return;
+    try {
+      const data = await postCloud({ action: "restoreArchivedTrip", tripId, idToken: googleUser.idToken });
+      const converted = cloudToTrip(data);
+      persistTrips([...trips.filter((trip) => trip.id !== converted.trip.id && !trip.id.startsWith("local-next-")), converted.trip]);
+      setExpenses((current) => ({ ...current, [converted.trip.id]: converted.expenses }));
+      setArchivedTrips((current) => current.filter((trip) => String(trip["旅行ID"]) !== tripId));
+      setActiveTripId(converted.trip.id); setSelectedDayId(converted.trip.days[0]?.id || ""); setTab("itinerary");
+      showToast("旅行已從封存區復原");
+    } catch (error: any) { Alert.alert("復原失敗", error?.message || "請稍後再試。"); }
+  };
+
+  useEffect(() => {
+    if (authReady && googleUser?.idToken) loadArchivedTrips(googleUser);
+  }, [authReady, googleUser?.sub]);
 
   const recreateMissingCloudTrip = async (trip: TripPlan, tripExpenses: Expense[], link: CloudLink) => {
     const localStopCount = trip.days.reduce((sum, day) => sum + day.stops.length, 0);
@@ -1662,6 +1711,7 @@ export default function App() {
     setSelectedDayId(starterTrips[0]!.days[0]?.id ?? "");
     setExpenses({});
     setCloudMembers({});
+    setArchivedTrips([]);
     saveCloudLinks({});
     AsyncStorage.removeItem(AUTH_KEY).catch(() => undefined);
     AsyncStorage.removeItem(CLOUD_MEMBER_KEY).catch(() => undefined);
@@ -2838,6 +2888,7 @@ export default function App() {
                     >
                       <Text style={styles.editTripText}>編輯旅行</Text>
                     </Pressable>
+                    {cloudLinks[trip.id]?.role === "owner" && <Pressable style={styles.archiveTripButton} onPress={(event) => { event.stopPropagation?.(); setArchiveTripTarget(trip); setArchiveEmail(googleUser?.email || ""); }}><Text style={styles.archiveTripText}>打包</Text></Pressable>}
                     <Pressable
                       accessibilityLabel={`刪除 ${trip.title}`}
                       style={styles.deleteTripButton}
@@ -2854,12 +2905,13 @@ export default function App() {
                 </View>
               </Pressable>
             ))}
+            {!!archivedTrips.length && <View style={styles.archiveSection}><Text style={styles.archiveSectionTitle}>封存區</Text><Text style={styles.archiveSectionHint}>Excel 已寄出；到期前可復原，30 天後永久刪除雲端資料。</Text>{archivedTrips.map((trip) => { const daysLeft = Math.max(0, Math.ceil((Date.parse(String(trip["預定刪除時間"] || "")) - Date.now()) / 86400000)); return <View key={String(trip["旅行ID"])} style={styles.archiveCard}><View style={styles.archiveCardText}><Text style={styles.archiveCardTitle}>{String(trip["名稱"] || trip["目的地"] || "已封存旅行")}</Text><Text style={styles.archiveCardSub}>剩餘 {daysLeft} 天永久刪除 · 已寄至 {String(trip["封存信箱"] || "指定信箱")}</Text></View><Pressable style={styles.restoreArchiveButton} onPress={() => restoreArchivedTrip(String(trip["旅行ID"]))}><Text style={styles.restoreArchiveText}>復原</Text></Pressable></View>; })}</View>}
             <Pressable style={styles.newTripCard} onPress={() => setCreatingTrip(true)}>
               <Text style={styles.newTripIcon}>＋</Text>
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.8</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.9</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -3037,6 +3089,16 @@ export default function App() {
             {!!batchFavoriteStatus && <Text style={styles.placeSearchStatus}>{batchFavoriteStatus}</Text>}
             <Pressable style={[styles.primaryButton, !!batchFavoriteStatus && styles.disabledButton]} disabled={!!batchFavoriteStatus} onPress={importFavoriteBatch}><Text style={styles.primaryButtonText}>{batchFavoriteStatus ? "正在查找地址…" : "查找並匯入收藏"}</Text></Pressable>
             <Pressable style={styles.cancelButton} disabled={!!batchFavoriteStatus} onPress={() => setBatchFavoriteVisible(false)}><Text style={styles.cancelText}>取消</Text></Pressable>
+          </View></View>
+        </Modal>
+
+        <Modal visible={!!archiveTripTarget} animationType="slide" transparent onRequestClose={() => !archiveBusy && setArchiveTripTarget(null)}>
+          <View style={styles.modalShade}><View style={styles.sheet}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>PACK & ARCHIVE</Text><Text style={styles.sheetTitle}>打包旅行</Text>
+            <View style={styles.archiveWarning}><Text style={styles.archiveWarningTitle}>請先確認</Text><Text style={styles.archiveWarningText}>系統會先把完整 Excel 寄到指定信箱；寄送成功後，旅行會移至封存區。雲端資料保留 30 天，之後永久刪除。只有建立者可以操作，寄信失敗不會刪除任何資料。</Text></View>
+            <Text style={styles.fieldLabel}>旅行</Text><Text style={styles.archiveTripName}>{archiveTripTarget?.title}</Text>
+            <Text style={styles.fieldLabel}>Excel 收件信箱 *</Text><TextInput value={archiveEmail} onChangeText={setArchiveEmail} keyboardType="email-address" autoCapitalize="none" style={styles.fieldInput} placeholder="name@example.com" placeholderTextColor="#A49C90" />
+            <Pressable style={[styles.primaryButton, archiveBusy && styles.disabledButton]} disabled={archiveBusy} onPress={archiveTripAndEmail}><Text style={styles.primaryButtonText}>{archiveBusy ? "正在產生 Excel 並寄送…" : "確認寄送並封存"}</Text></Pressable>
+            <Pressable style={styles.cancelButton} disabled={archiveBusy} onPress={() => setArchiveTripTarget(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
           </View></View>
         </Modal>
 
@@ -3929,6 +3991,21 @@ const styles = StyleSheet.create({
   tripCardActions: { flexDirection: "row", alignItems: "center", gap: 9 },
   deleteTripButton: { backgroundColor: "#F5EAE5", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   deleteTripText: { color: "#A95D4C", fontSize: 10, fontWeight: "900" },
+  archiveTripButton: { backgroundColor: "#E8EDF6", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
+  archiveTripText: { color: "#536783", fontSize: 10, fontWeight: "900" },
+  archiveSection: { marginTop: 18, backgroundColor: "#F2F4F8", borderRadius: 18, padding: 15, borderWidth: 1, borderColor: "#DDE3EE" },
+  archiveSectionTitle: { color: "#425571", fontSize: 15, fontWeight: "900" },
+  archiveSectionHint: { color: "#718099", fontSize: 10, lineHeight: 16, marginTop: 4, marginBottom: 10 },
+  archiveCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF", borderRadius: 13, padding: 12, marginTop: 8 },
+  archiveCardText: { flex: 1 },
+  archiveCardTitle: { color: "#343D50", fontSize: 12, fontWeight: "900" },
+  archiveCardSub: { color: "#887F76", fontSize: 9, lineHeight: 14, marginTop: 4 },
+  restoreArchiveButton: { backgroundColor: "#536783", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  restoreArchiveText: { color: "#FFF", fontSize: 10, fontWeight: "900" },
+  archiveWarning: { backgroundColor: "#FFF0ED", borderRadius: 14, padding: 13, borderWidth: 1, borderColor: "#F1D4CE", marginBottom: 10 },
+  archiveWarningTitle: { color: "#9C4B42", fontSize: 12, fontWeight: "900" },
+  archiveWarningText: { color: "#775D58", fontSize: 10, lineHeight: 17, marginTop: 5 },
+  archiveTripName: { color: "#343D50", fontSize: 15, fontWeight: "900", marginBottom: 8 },
   editTripButton: { backgroundColor: "#E9EDF5", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   editTripText: { color: "#536783", fontSize: 10, fontWeight: "900" },
   versionLabel: { color: "#AAA198", fontSize: 9, textAlign: "center", marginTop: 16 },
