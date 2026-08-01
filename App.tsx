@@ -458,6 +458,8 @@ export default function App() {
   const [draftNote, setDraftNote] = useState("");
   const [draftOpeningHours, setDraftOpeningHours] = useState("");
   const [draftDuration, setDraftDuration] = useState("");
+  const [draftTransport, setDraftTransport] = useState("");
+  const [draftRouteMode, setDraftRouteMode] = useState<RouteMode>("driving");
   const [creatingTrip, setCreatingTrip] = useState(false);
   const [newTripName, setNewTripName] = useState("");
   const [newDestination, setNewDestination] = useState("");
@@ -480,6 +482,7 @@ export default function App() {
   const [addressLookupMessage, setAddressLookupMessage] = useState("");
   const [placeSuggestions, setPlaceSuggestions] = useState<any[]>([]);
   const [placeSuggestionStatus, setPlaceSuggestionStatus] = useState<"idle" | "loading" | "empty">("idle");
+  const suppressNextPlaceSearchRef = useRef(false);
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
   const [shoppingSource, setShoppingSource] = useState<"Olive Young" | "韓國藥局">("Olive Young");
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
@@ -619,6 +622,12 @@ export default function App() {
 
   useEffect(() => {
     const title = newStopTitle.trim();
+    if (suppressNextPlaceSearchRef.current) {
+      suppressNextPlaceSearchRef.current = false;
+      setPlaceSuggestions([]);
+      setPlaceSuggestionStatus("idle");
+      return;
+    }
     if (!addingStop || title.length < 2) {
       setPlaceSuggestions([]);
       setPlaceSuggestionStatus("idle");
@@ -949,6 +958,7 @@ export default function App() {
   }, [activeTrip.id, selectedDayId, googleUser?.sub, cloudLinks[activeTrip.id]?.inviteCode]);
 
   const persistTrips = (next: TripPlan[]) => {
+    localMutationAtRef.current = Date.now();
     setTrips(next);
     AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
     const changed = next.find((trip) => trip.id === activeTripId);
@@ -1006,8 +1016,13 @@ export default function App() {
   const saveNote = () => {
     if (!editing) return;
     const durationMinutes = Math.max(0, Number.parseInt(draftDuration, 10) || 0);
+    const transport = draftTransport.trim() || "尚未安排";
+    const transportMode: Stop["transportMode"] =
+      draftRouteMode === "walking" ? "步行" :
+      draftRouteMode === "transit" ? (/公車/.test(transport) ? "公車" : "地鐵") :
+      draftRouteMode === "taxi" ? "計程車" : "其他";
     const next = selectedDay.stops.map((stop) =>
-      stop.id === editing.id ? { ...stop, note: draftNote, openingHours: draftOpeningHours.trim(), durationMinutes } : stop
+      stop.id === editing.id ? { ...stop, note: draftNote, openingHours: draftOpeningHours.trim(), durationMinutes, transport, transportMode, routeMode: draftRouteMode } : stop
     );
     const index = next.findIndex((stop) => stop.id === editing.id);
     const current = next[index];
@@ -1786,8 +1801,10 @@ export default function App() {
       title: `${activeTrip.destination || "旅行"}・自由安排`,
       stops: []
     };
-    updateActiveTrip({ days: [...activeTrip.days, day] });
-    selectDay(day.id);
+    const nextTrip = { ...activeTrip, days: [...activeTrip.days, day] };
+    persistTrips(trips.map((trip) => trip.id === activeTrip.id ? nextTrip : trip));
+    setSelectedDayId(day.id);
+    setTimeout(() => itineraryListRef.current?.scrollToOffset?.({ offset: 0, animated: false }), 0);
     showToast(`已新增 DAY ${dayNumber}`);
   };
 
@@ -2066,7 +2083,14 @@ export default function App() {
           onLongPress={drag}
           delayLongPress={180}
           style={styles.stopCard}
-          onPress={() => { setEditing(item); setDraftNote(item.note); setDraftOpeningHours(item.openingHours || ""); setDraftDuration(String(item.durationMinutes || "")); }}
+          onPress={() => {
+            setEditing(item);
+            setDraftNote(item.note);
+            setDraftOpeningHours(item.openingHours || "");
+            setDraftDuration(String(item.durationMinutes || ""));
+            setDraftTransport(item.transport || "");
+            setDraftRouteMode(item.routeMode || (item.transport.includes("步行") ? "walking" : item.transport.includes("地鐵") || item.transport.includes("公車") ? "transit" : item.transport.includes("計程車") ? "taxi" : "driving"));
+          }}
         >
           <View style={styles.stopTop}>
             <View style={styles.timePill}><Text style={styles.timeText}>{item.time || "彈性"}</Text></View>
@@ -2540,6 +2564,31 @@ export default function App() {
               <Text style={styles.sheetEyebrow}>景點備註</Text>
               <Text style={styles.sheetTitle}>{editing?.title}</Text>
               <Text style={styles.sheetAddress}>{editing?.address}</Text>
+              <Text style={styles.fieldLabel}>交通方式</Text>
+              <View style={styles.legRouteActions}>
+                {([
+                  ["driving", "🚗 開車"],
+                  ["walking", "🚶 步行"],
+                  ["transit", "🚇 大眾運輸"],
+                  ["taxi", "🚕 計程車"]
+                ] as [RouteMode, string][]).map(([mode, label]) => (
+                  <Pressable key={mode} onPress={() => {
+                    setDraftRouteMode(mode);
+                    if (!draftTransport.trim() || draftTransport === "尚未安排") {
+                      setDraftTransport(mode === "driving" ? "開車" : mode === "walking" ? "步行" : mode === "transit" ? "大眾運輸" : "計程車");
+                    }
+                  }} style={[styles.legModeButton, draftRouteMode === mode && styles.legModeButtonActive]}>
+                    <Text style={[styles.legModeText, draftRouteMode === mode && styles.legModeTextActive]}>{label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <TextInput
+                value={draftTransport}
+                onChangeText={setDraftTransport}
+                placeholder="例如：地鐵約 20 分鐘"
+                placeholderTextColor="#A49C90"
+                style={styles.fieldInput}
+              />
               <Text style={styles.fieldLabel}>營業時間（網路查證資料）</Text>
               <TextInput
                 value={draftOpeningHours}
@@ -3066,6 +3115,7 @@ export default function App() {
                     const hours = String(place.extratags?.opening_hours || "");
                     const placeName = localizedPlaceName(place);
                     return <Pressable key={`${place.place_id || index}`} style={styles.placeSuggestion} onPress={() => {
+                      suppressNextPlaceSearchRef.current = true;
                       setNewStopTitle(placeName);
                       setNewStopAddress(String(place.display_name || ""));
                       setNewStopLatitude(Number(place.lat));
@@ -3073,6 +3123,7 @@ export default function App() {
                       setNewStopOpeningHours(hours);
                       if (!newStopNote.trim()) setNewStopNote(hours ? `營業時間：${hours}。` : `地點類型：${place.type || place.category || "景點"}；營業時間尚未查證。`);
                       setPlaceSuggestions([]);
+                      setPlaceSuggestionStatus("idle");
                       setAddressLookupStatus("found");
                     }}>
                       <Text style={styles.placeSuggestionName}>{placeName}</Text>
