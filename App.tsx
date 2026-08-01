@@ -528,6 +528,8 @@ export default function App() {
   const [favoriteCity, setFavoriteCity] = useState("");
   const [favoriteNote, setFavoriteNote] = useState("");
   const [favoriteDayCount, setFavoriteDayCount] = useState("5");
+  const [selectedFavoriteIds, setSelectedFavoriteIds] = useState<string[]>([]);
+  const [favoriteTargetTripId, setFavoriteTargetTripId] = useState("");
   const [editingFavoriteId, setEditingFavoriteId] = useState<string | null>(null);
   const [favoriteSuggestions, setFavoriteSuggestions] = useState<any[]>([]);
   const [favoriteSearchStatus, setFavoriteSearchStatus] = useState<"idle" | "loading" | "empty">("idle");
@@ -727,6 +729,7 @@ export default function App() {
   const days = activeTrip.days;
   const selectedDay = days.find((d) => d.id === selectedDayId) ?? days[0]!;
   const showingAllDays = selectedDayId === ALL_DAYS_ID;
+  const selectedFavorites = favorites.filter((place) => selectedFavoriteIds.includes(place.id));
 
   const favoriteFeatureText = (name: string, address = "") => {
     const text = `${name} ${address}`.toLowerCase();
@@ -1420,34 +1423,63 @@ export default function App() {
     showToast(wasEditing ? "收藏景點已更新" : "收藏景點已新增並自動分類");
   };
 
+  const toggleFavoriteSelection = (ids: string[]) => {
+    setSelectedFavoriteIds((current) => ids.every((id) => current.includes(id)) ? current.filter((id) => !ids.includes(id)) : [...new Set([...current, ...ids])]);
+  };
+
+  const generatedStop = (place: FavoritePlace, dayIndex: number, index: number): Stop => ({
+    id: `generated-${Date.now()}-${dayIndex}-${index}-${place.id}`, time: `${String(10 + Math.floor(index * 2)).padStart(2, "0")}:00`, title: place.name,
+    address: place.address, transport: index === 0 ? "從住宿出發・大眾運輸" : "大眾運輸", transportMode: "地鐵", routeMode: "transit",
+    note: place.note || "由收藏景點自動排入", latitude: place.latitude, longitude: place.longitude, openingHours: place.openingHours, durationMinutes: 90
+  });
+
   const generateTripFromFavorites = () => {
-    const count = Math.max(1, Math.min(14, Number.parseInt(favoriteDayCount, 10) || activeTrip.days.length || 1));
-    if (!favorites.length) { Alert.alert("還沒有收藏景點", "請先新增想去的地方。"); return; }
-    Alert.alert("一鍵產生建議行程", `將依地區與距離，把 ${favorites.length} 個收藏景點安排成 ${count} 天。現有一般景點會被替換，但機場與住宿節點會保留。`, [
+    const count = Math.max(1, Math.min(14, Number.parseInt(favoriteDayCount, 10) || 1));
+    if (!selectedFavorites.length) { Alert.alert("尚未勾選景點", "請先勾選城市或個別收藏景點。"); return; }
+    const cities = [...new Set(selectedFavorites.map((place) => place.city).filter(Boolean))];
+    const countries = [...new Set(selectedFavorites.map((place) => place.country).filter(Boolean))];
+    const destination = cities.join("・") || countries.join("・") || "收藏景點";
+    Alert.alert("建立全新旅行？", `會用已勾選的 ${selectedFavorites.length} 個景點，建立「${destination}」${count} 天新旅行，不會修改目前旅行。`, [
       { text: "取消", style: "cancel" },
       { text: "開始安排", onPress: () => {
-        const sorted = [...favorites].sort((a, b) => `${a.country}${a.city}`.localeCompare(`${b.country}${b.city}`));
+        const id = `trip-${Date.now()}`;
+        const sorted = [...selectedFavorites].sort((a, b) => `${a.country}${a.city}`.localeCompare(`${b.country}${b.city}`));
         const buckets = Array.from({ length: count }, () => [] as FavoritePlace[]);
         sorted.forEach((place, index) => buckets[Math.min(count - 1, Math.floor(index * count / sorted.length))]!.push(place));
         const nextDays: TripDay[] = buckets.map((bucket, dayIndex) => {
-          const existingDay = activeTrip.days[dayIndex];
-          const fixed = existingDay?.stops.filter((stop) => /機場|airport|飯店|酒店|旅館|hotel|inn|住宿|check.?in|check.?out/i.test(`${stop.title} ${stop.address}`)) || [];
-          const generated = bucket.map((place, index): Stop => ({
-            id: `generated-${Date.now()}-${dayIndex}-${index}`, time: `${String(10 + Math.floor(index * 2)).padStart(2, "0")}:00`, title: place.name,
-            address: place.address, transport: index === 0 ? "從住宿出發・大眾運輸" : "大眾運輸", transportMode: "地鐵", routeMode: "transit",
-            note: place.note || "由收藏景點自動排入", latitude: place.latitude, longitude: place.longitude, openingHours: place.openingHours, durationMinutes: 90
-          }));
-          const startFixed = fixed.filter((stop) => /機場|寄放|check.?out|出發/i.test(stop.title));
-          const endFixed = fixed.filter((stop) => !startFixed.includes(stop));
-          return existingDay ? { ...existingDay, label: `DAY ${dayIndex + 1}`, stops: [...startFixed, ...generated, ...endFixed] } : {
-            id: `${activeTrip.id}-day-${Date.now()}-${dayIndex}`, label: `DAY ${dayIndex + 1}`, date: tripDayDateLabel(activeTrip.startDate || "", dayIndex), title: `${activeTrip.destination}・建議行程`, stops: generated
-          };
+          return { id: `${id}-day-${dayIndex + 1}`, label: `DAY ${dayIndex + 1}`, date: "日期未定", title: `${bucket[0]?.city || destination}・建議行程`, stops: bucket.map((place, index) => generatedStop(place, dayIndex, index)) };
         });
-        updateActiveTrip({ days: nextDays });
-        setSelectedDayId(nextDays[0]?.id || ""); setTab("itinerary");
-        showToast(`已產生 ${count} 天建議行程`);
+        const trip: TripPlan = { id, title: `${destination} ${count}日收藏旅行`, destination, period: "日期未定", travelers: 1, days: nextDays, flights: [], accommodations: [], shopping: [], checklist: defaultPrepChecklist() };
+        persistTrips([...trips, trip]); setSelectedFavoriteIds([]); selectTrip(trip);
+        showToast(`已建立 ${count} 天新旅行`);
       }}
     ]);
+  };
+
+  const addFavoritesToExistingTrip = () => {
+    if (!selectedFavorites.length) { Alert.alert("尚未勾選景點", "請先勾選城市或個別收藏景點。"); return; }
+    const target = trips.find((trip) => trip.id === favoriteTargetTripId) || activeTrip;
+    const assignments = selectedFavorites.map((place) => {
+      let bestIndex = 0; let bestScore = Number.POSITIVE_INFINITY;
+      target.days.forEach((day, dayIndex) => {
+        const located = day.stops.filter((stop) => stop.latitude != null && stop.longitude != null);
+        const score = place.latitude != null && place.longitude != null && located.length
+          ? Math.min(...located.map((stop) => Math.hypot((stop.latitude! - place.latitude!) * 111, (stop.longitude! - place.longitude!) * 91)))
+          : day.stops.length + dayIndex * 0.01;
+        if (score < bestScore) { bestScore = score; bestIndex = dayIndex; }
+      });
+      return { place, dayIndex: bestIndex };
+    });
+    const summary = assignments.map(({ place, dayIndex }) => `${place.name} → 第 ${dayIndex + 1} 天`).join("\n");
+    Alert.alert(`建議加入「${target.title}」`, summary, [{ text: "取消", style: "cancel" }, { text: "確認加入", onPress: () => {
+      const nextDays = target.days.map((day, dayIndex) => {
+        const additions = assignments.filter((item) => item.dayIndex === dayIndex).map((item, index) => generatedStop(item.place, dayIndex, day.stops.length + index));
+        return additions.length ? { ...day, stops: [...day.stops, ...additions] } : day;
+      });
+      persistTrips(trips.map((trip) => trip.id === target.id ? { ...trip, days: nextDays } : trip));
+      setSelectedFavoriteIds([]); setActiveTripId(target.id); setSelectedDayId(nextDays[0]?.id || ""); setTab("itinerary");
+      showToast(`已依距離加入「${target.title}」`);
+    }}]);
   };
 
   const deleteEditingStop = () => {
@@ -2652,13 +2684,17 @@ export default function App() {
           <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
             <View style={styles.favoriteHeader}><View><Text style={styles.eyebrow}>MY SAVED PLACES</Text><Text style={styles.pageTitle}>景點收藏</Text><Text style={styles.pageSubtitle}>個人收藏會依國家與城市自動整理。</Text></View><Pressable style={styles.addTripButton} onPress={() => openFavoriteEditor()}><Text style={styles.addTripPlus}>＋</Text></Pressable></View>
             <View style={styles.favoritePlanner}>
-              <Text style={styles.favoritePlannerTitle}>✨ 用收藏一鍵產生行程</Text>
-              <Text style={styles.favoritePlannerText}>會參考目前旅行的天數、班機、住宿、景點地區與座標，把相近景點排在同一天。</Text>
-              <View style={styles.favoritePlannerRow}><TextInput value={favoriteDayCount} onChangeText={setFavoriteDayCount} keyboardType="number-pad" style={[styles.fieldInput, styles.favoriteDayInput]} placeholder="天數" /><Pressable style={styles.favoriteGenerateButton} onPress={generateTripFromFavorites}><Text style={styles.primaryButtonText}>產生建議行程</Text></Pressable></View>
+              <Text style={styles.favoritePlannerTitle}>✨ 已選 {selectedFavorites.length} 個景點</Text>
+              <Text style={styles.favoritePlannerText}>收藏是你的跨國個人景點庫。勾選城市或景點後，可建立全新旅行，也能加入既有旅行。</Text>
+              <View style={styles.favoritePlannerRow}><TextInput value={favoriteDayCount} onChangeText={setFavoriteDayCount} keyboardType="number-pad" style={[styles.fieldInput, styles.favoriteDayInput]} placeholder="天數" /><Pressable style={styles.favoriteGenerateButton} onPress={generateTripFromFavorites}><Text style={styles.primaryButtonText}>建立新旅行</Text></Pressable></View>
+              <Text style={styles.favoriteTargetLabel}>或加入既有旅行</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.favoriteTripChips}>{trips.map((trip) => <Pressable key={trip.id} style={[styles.favoriteTripChip, (favoriteTargetTripId || activeTrip.id) === trip.id && styles.favoriteTripChipActive]} onPress={() => setFavoriteTargetTripId(trip.id)}><Text style={[(favoriteTargetTripId || activeTrip.id) === trip.id && styles.favoriteTripChipTextActive]}>{trip.title}</Text></Pressable>)}</ScrollView>
+              <Pressable style={styles.favoriteExistingButton} onPress={addFavoritesToExistingTrip}><Text style={styles.favoriteExistingButtonText}>取得建議天數並加入</Text></Pressable>
             </View>
             {Object.entries(favorites.reduce((groups, place) => { const key = `${place.country}|||${place.city}`; (groups[key] ||= []).push(place); return groups; }, {} as Record<string, FavoritePlace[]>)).map(([key, places]) => {
               const [country, city] = key.split("|||");
-              return <View key={key} style={styles.favoriteGroup}><Text style={styles.favoriteCountry}>└ {country}</Text><Text style={styles.favoriteCity}>　└ {city}</Text>{places.map((place) => <View key={place.id} style={styles.favoriteCard}><Pressable style={styles.favoriteCardText} onPress={() => openFavoriteEditor(place)}><Text style={styles.favoriteName}>{place.name}</Text><Text style={styles.favoriteAddress}>{place.address}</Text><Text style={styles.favoriteFeature}>特色｜{place.note || favoriteFeatureText(place.name, place.address)}</Text><Text style={styles.favoriteEditHint}>點此編輯景點</Text></Pressable><Pressable onPress={() => persistFavorites(favorites.filter((item) => item.id !== place.id))}><Text style={styles.favoriteDelete}>×</Text></Pressable></View>)}</View>;
+              const ids = places.map((place) => place.id); const citySelected = ids.every((id) => selectedFavoriteIds.includes(id));
+              return <View key={key} style={styles.favoriteGroup}><Text style={styles.favoriteCountry}>└ {country}</Text><Pressable style={styles.favoriteCitySelect} onPress={() => toggleFavoriteSelection(ids)}><View style={[styles.favoriteCheckbox, citySelected && styles.favoriteCheckboxActive]}><Text style={styles.favoriteCheckboxMark}>{citySelected ? "✓" : ""}</Text></View><Text style={styles.favoriteCity}>└ {city}（全選）</Text></Pressable>{places.map((place) => { const selected = selectedFavoriteIds.includes(place.id); return <View key={place.id} style={[styles.favoriteCard, selected && styles.favoriteCardSelected]}><Pressable style={[styles.favoriteCheckbox, selected && styles.favoriteCheckboxActive]} onPress={() => toggleFavoriteSelection([place.id])}><Text style={styles.favoriteCheckboxMark}>{selected ? "✓" : ""}</Text></Pressable><Pressable style={styles.favoriteCardText} onPress={() => openFavoriteEditor(place)}><Text style={styles.favoriteName}>{place.name}</Text><Text style={styles.favoriteAddress}>{place.address}</Text><Text style={styles.favoriteFeature}>特色｜{place.note || favoriteFeatureText(place.name, place.address)}</Text><Text style={styles.favoriteEditHint}>點此編輯景點</Text></Pressable><Pressable onPress={() => { persistFavorites(favorites.filter((item) => item.id !== place.id)); setSelectedFavoriteIds((current) => current.filter((id) => id !== place.id)); }}><Text style={styles.favoriteDelete}>×</Text></Pressable></View>; })}</View>;
             })}
             {!favorites.length && <View style={styles.emptyItinerary}><Text style={styles.emptyItineraryIcon}>♡</Text><Text style={styles.emptyItineraryTitle}>還沒有收藏景點</Text><Text style={styles.emptyItineraryText}>可以按右上角新增，或從行程景點的編輯頁加入收藏。</Text></View>}
           </ScrollView>
@@ -2774,7 +2810,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.5</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.6</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -2868,9 +2904,9 @@ export default function App() {
         <View style={styles.bottomBar}>
           <TabButton icon="⌂" label="首頁" active={tab === "home"} onPress={() => setTab("home")} />
           <TabButton icon="≣" label="行程" active={tab === "itinerary"} onPress={() => setTab("itinerary")} />
-          <TabButton icon="♡" label="收藏" active={tab === "favorites"} onPress={() => setTab("favorites")} />
           <TabButton icon="✦" label="工具箱" active={tab === "toolbox"} onPress={() => setTab("toolbox")} />
           <TabButton icon="🧾" label="記帳" active={tab === "expenses"} onPress={() => setTab("expenses")} />
+          <TabButton icon="♡" label="收藏" active={tab === "favorites"} onPress={() => setTab("favorites")} />
         </View>
 
         <Modal visible={cloudPanelVisible} animationType="fade" transparent onRequestClose={() => setCloudPanelVisible(false)}>
@@ -3975,10 +4011,22 @@ const styles = StyleSheet.create({
   favoritePlannerRow: { flexDirection: "row", gap: 9, alignItems: "center", marginTop: 12 },
   favoriteDayInput: { width: 78, marginTop: 0 },
   favoriteGenerateButton: { flex: 1, height: 48, borderRadius: 14, backgroundColor: "#536783", alignItems: "center", justifyContent: "center" },
+  favoriteTargetLabel: { color: "#536783", fontSize: 11, fontWeight: "900", marginTop: 15 },
+  favoriteTripChips: { gap: 7, paddingVertical: 9 },
+  favoriteTripChip: { backgroundColor: "#FFF", borderRadius: 999, borderWidth: 1, borderColor: "#D9E0EA", paddingHorizontal: 12, paddingVertical: 8 },
+  favoriteTripChipActive: { backgroundColor: "#536783", borderColor: "#536783" },
+  favoriteTripChipTextActive: { color: "#FFF", fontWeight: "900" },
+  favoriteExistingButton: { backgroundColor: "#FFF", borderWidth: 1, borderColor: "#536783", borderRadius: 13, paddingVertical: 12, alignItems: "center" },
+  favoriteExistingButtonText: { color: "#536783", fontSize: 12, fontWeight: "900" },
   favoriteGroup: { marginBottom: 18 },
   favoriteCountry: { color: "#343D50", fontSize: 15, fontWeight: "900", marginBottom: 4 },
   favoriteCity: { color: "#65758E", fontSize: 13, fontWeight: "900", marginBottom: 8 },
+  favoriteCitySelect: { flexDirection: "row", alignItems: "center", gap: 8 },
+  favoriteCheckbox: { width: 24, height: 24, borderRadius: 8, borderWidth: 2, borderColor: "#A8B4C8", alignItems: "center", justifyContent: "center", marginRight: 10 },
+  favoriteCheckboxActive: { backgroundColor: "#536783", borderColor: "#536783" },
+  favoriteCheckboxMark: { color: "#FFF", fontSize: 13, fontWeight: "900" },
   favoriteCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF", borderRadius: 15, padding: 13, marginBottom: 8, borderWidth: 1, borderColor: "#E9E2DA" },
+  favoriteCardSelected: { backgroundColor: "#F2F5FA", borderColor: "#8596B2" },
   favoriteCardText: { flex: 1 },
   favoriteName: { color: "#2C2925", fontSize: 13, fontWeight: "900" },
   favoriteAddress: { color: "#887F76", fontSize: 10, lineHeight: 15, marginTop: 4 },
