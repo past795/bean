@@ -66,6 +66,13 @@ const inclusiveDayCount = (start: string, end: string) => {
 };
 const tripPeriodLabel = (start: string, end: string) =>
   start && end ? `${start.replaceAll("-", ".")} – ${end.replaceAll("-", ".")}` : start || end || "日期未定";
+const tripDayDateLabel = (start: string, dayIndex: number) => {
+  if (!isIsoTripDate(start)) return `第 ${dayIndex + 1} 天`;
+  const [year, month, day] = start.split("-").map(Number);
+  const date = new Date(Date.UTC(year!, month! - 1, day! + dayIndex));
+  const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
+  return `${String(date.getUTCMonth() + 1).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}（${weekdays[date.getUTCDay()]}）`;
+};
 const isIsoTripDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 const pickCompressedImage = () => new Promise<string>((resolve, reject) => {
   if (Platform.OS !== "web") return reject(new Error("目前請使用網站版上傳照片"));
@@ -1060,6 +1067,43 @@ export default function App() {
     );
   };
 
+  const resolveFullAddress = async (stop: Stop) => {
+    const specificAddress = /\d|路|街|巷|弄|號|구|동|로|길|대로/.test(stop.address || "");
+    if (specificAddress && stop.address !== "地址待補") return stop.address;
+    try {
+      const url = stop.latitude != null && stop.longitude != null
+        ? `https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=zh-TW&lat=${stop.latitude}&lon=${stop.longitude}`
+        : `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&accept-language=zh-TW&q=${encodeURIComponent(`${stop.title} ${activeTrip.destination}`)}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      const result = Array.isArray(data) ? data[0] : data;
+      const fullAddress = String(result?.display_name || stop.address || stop.title);
+      if (fullAddress && fullAddress !== stop.address) {
+        updateStops(selectedDay.stops.map((item) => item.id === stop.id ? {
+          ...item,
+          address: fullAddress,
+          latitude: Number(result?.lat) || item.latitude,
+          longitude: Number(result?.lon) || item.longitude
+        } : item));
+      }
+      return fullAddress;
+    } catch {
+      return stop.address || stop.title;
+    }
+  };
+
+  const copyAddressAndOpenUber = async (stop: Stop) => {
+    const address = await resolveFullAddress(stop);
+    try {
+      await (globalThis as any).navigator?.clipboard?.writeText(address);
+      showToast("地址已複製，正在開啟 Uber");
+    } catch {
+      showToast("正在開啟 Uber");
+    }
+    const uberUrl = `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff%5Bformatted_address%5D=${encodeURIComponent(address)}`;
+    Linking.openURL(uberUrl).catch(() => Alert.alert("無法開啟 Uber", `地址已複製：${address}`));
+  };
+
   const stopLocation = (stop: Stop) =>
     stop.latitude != null && stop.longitude != null
       ? `${stop.latitude},${stop.longitude}`
@@ -1797,7 +1841,7 @@ export default function App() {
     const day: TripDay = {
       id: `${activeTrip.id}-day-${Date.now()}`,
       label: `DAY ${dayNumber}`,
-      date: `第 ${dayNumber} 天`,
+      date: tripDayDateLabel(activeTrip.startDate || "", dayNumber - 1),
       title: `${activeTrip.destination || "旅行"}・自由安排`,
       stops: []
     };
@@ -1806,6 +1850,21 @@ export default function App() {
     setSelectedDayId(day.id);
     setTimeout(() => itineraryListRef.current?.scrollToOffset?.({ offset: 0, animated: false }), 0);
     showToast(`已新增 DAY ${dayNumber}`);
+  };
+
+  const moveWholeDay = (direction: -1 | 1) => {
+    const index = activeTrip.days.findIndex((day) => day.id === selectedDay.id);
+    const otherIndex = index + direction;
+    if (index < 0 || otherIndex < 0 || otherIndex >= activeTrip.days.length) return;
+    const days = activeTrip.days.map((day) => ({ ...day, stops: [...day.stops] }));
+    const current = days[index]!;
+    const other = days[otherIndex]!;
+    days[index] = { ...current, title: other.title, stops: other.stops };
+    days[otherIndex] = { ...other, title: current.title, stops: current.stops };
+    updateActiveTrip({ days });
+    setSelectedDayId(days[otherIndex]!.id);
+    setTimeout(() => itineraryListRef.current?.scrollToOffset?.({ offset: 0, animated: false }), 0);
+    showToast(`${current.label} 的整天行程已${direction < 0 ? "前移" : "後移"}`);
   };
 
   const createAccommodation = () => {
@@ -2102,7 +2161,10 @@ export default function App() {
             ) : <Text style={styles.dragHint}>長按拖曳  ≡</Text>}
           </View>
           <Text style={styles.stopTitle}>{stopDisplayTitle(item)}</Text>
-          <Text style={styles.address} numberOfLines={1}>📍 {item.address}</Text>
+          <Pressable onPress={() => copyAddressAndOpenUber(item)} style={styles.addressButton}>
+            <Text style={styles.address} numberOfLines={2}>📍 {item.address}</Text>
+            <Text style={styles.addressAction}>複製地址・開啟 Uber ↗</Text>
+          </Pressable>
           <View style={styles.transportRow}>
             <Text style={styles.transportIcon}>{transportIcon(item.transportMode)}</Text>
             <View>
@@ -2254,6 +2316,12 @@ export default function App() {
                     <View style={styles.dayHeadingActions}>
                       <Text style={styles.dayCount}>{selectedDay.stops.length} 個安排</Text>
                       <View style={styles.dayActionRow}>
+                        <Pressable disabled={days.findIndex((day) => day.id === selectedDay.id) === 0} style={styles.dayMoveButton} onPress={() => moveWholeDay(-1)}>
+                          <Text style={[styles.dayMoveText, days.findIndex((day) => day.id === selectedDay.id) === 0 && styles.reorderDisabled]}>← 整天前移</Text>
+                        </Pressable>
+                        <Pressable disabled={days.findIndex((day) => day.id === selectedDay.id) === days.length - 1} style={styles.dayMoveButton} onPress={() => moveWholeDay(1)}>
+                          <Text style={[styles.dayMoveText, days.findIndex((day) => day.id === selectedDay.id) === days.length - 1 && styles.reorderDisabled]}>整天後移 →</Text>
+                        </Pressable>
                         <Pressable style={styles.smallAddButton} onPress={() => setAddingStop(true)}>
                           <Text style={styles.smallAddButtonText}>＋</Text>
                         </Pressable>
@@ -2403,7 +2471,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.2</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.3</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -3279,7 +3347,9 @@ const styles = StyleSheet.create({
   dayHeadingDate: { fontSize: 11, fontWeight: "800", color: "#A06447", marginBottom: 4 },
   dayHeadingTitle: { fontSize: 23, fontWeight: "900", color: "#252D29", letterSpacing: -.4 },
   dayHeadingActions: { alignItems: "flex-end", gap: 7 },
-  dayActionRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  dayActionRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", gap: 7 },
+  dayMoveButton: { backgroundColor: "#EEEAE4", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 8 },
+  dayMoveText: { color: "#315248", fontSize: 9, fontWeight: "900" },
   smallAddButton: { width: 30, height: 30, borderRadius: 11, backgroundColor: "#2F5147", alignItems: "center", justifyContent: "center" },
   smallAddButtonText: { color: "#FFF", fontSize: 19, marginTop: -2 },
   dayCount: { fontSize: 12, color: "#978F85" },
@@ -3318,7 +3388,9 @@ const styles = StyleSheet.create({
   reorderText: { color: "#2F5147", fontSize: 15, fontWeight: "900" },
   reorderDisabled: { color: "#C8C1B9" },
   stopTitle: { color: "#292622", fontWeight: "800", fontSize: 17, marginTop: 10 },
-  address: { color: "#8D857C", fontSize: 12, marginTop: 7 },
+  addressButton: { alignSelf: "stretch", marginTop: 7, backgroundColor: "#F8F6F2", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
+  address: { color: "#716A63", fontSize: 12 },
+  addressAction: { color: "#437166", fontSize: 9, fontWeight: "900", marginTop: 4 },
   transportRow: { flexDirection: "row", backgroundColor: "#F2F6F3", padding: 10, borderRadius: 13, marginTop: 11, gap: 9, alignItems: "center" },
   transportIcon: { fontSize: 20 },
   transportLabel: { color: "#819087", fontSize: 9, fontWeight: "700" },
