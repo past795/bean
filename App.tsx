@@ -80,13 +80,20 @@ const pickCompressedImage = () => new Promise<string>((resolve, reject) => {
     reader.onload = () => {
       const image = new (globalThis as any).Image();
       image.onload = () => {
-        const maxSide = 280;
-        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
         const canvas = documentRef.createElement("canvas");
-        canvas.width = Math.max(1, Math.round(image.width * scale));
-        canvas.height = Math.max(1, Math.round(image.height * scale));
-        canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", .62));
+        let maxSide = 1000;
+        let quality = .84;
+        let dataUrl = "";
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+          canvas.width = Math.max(1, Math.round(image.width * scale));
+          canvas.height = Math.max(1, Math.round(image.height * scale));
+          canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+          dataUrl = canvas.toDataURL("image/jpeg", quality);
+          if (dataUrl.length <= 46000) break;
+          if (quality > .58) quality -= .08; else maxSide = Math.round(maxSide * .78);
+        }
+        resolve(dataUrl);
       };
       image.onerror = () => reject(new Error("無法讀取照片"));
       image.src = reader.result;
@@ -711,7 +718,6 @@ export default function App() {
     await postCloud({
       action: "createTrip",
       inviteCode: link.inviteCode,
-      idToken: googleUser?.idToken || "",
       trip: {
         "旅行ID": trip.id,
         "名稱": trip.title,
@@ -731,7 +737,6 @@ export default function App() {
       action: "syncTrip",
       tripId: trip.id,
       inviteCode: link.inviteCode,
-      idToken: googleUser?.idToken || "",
       data: tripToCloud(trip, tripExpenses)
     });
   };
@@ -922,7 +927,6 @@ export default function App() {
           action: "joinTrip",
           tripId: activeTrip.id,
           inviteCode: link.inviteCode,
-          idToken: googleUser.idToken,
           member: {
             "成員ID": link.memberId || `google:${googleUser.sub}`,
             "顯示名稱": link.memberName || googleUser.name,
@@ -1217,7 +1221,7 @@ export default function App() {
       AsyncStorage.setItem(AUTH_KEY, JSON.stringify(user)).catch(() => undefined);
       const linkedTrips = Object.entries(cloudLinksRef.current);
       await Promise.all(linkedTrips.map(([tripId, link]) => postCloud({
-        action: "joinTrip", tripId, inviteCode: link.inviteCode, idToken: credential,
+        action: "joinTrip", tripId, inviteCode: link.inviteCode,
         member: { "成員ID": `google:${user.sub}`, "顯示名稱": user.name, "角色": link.role || "member" }
       }).catch(() => undefined)));
       setCloudMembers((current) => {
@@ -1464,7 +1468,7 @@ export default function App() {
     setSyncStatus("syncing");
     try {
       await postCloud({
-        action: "createTrip", inviteCode, idToken: googleUser?.idToken || "",
+        action: "createTrip", inviteCode,
         trip: { "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination, "開始日期": trip.startDate || trip.period, "結束日期": trip.endDate || "", "封面圖片": trip.coverImage || "", "主要幣別": "TWD" },
         member: { "成員ID": googleUser ? `google:${googleUser.sub}` : `member-${Date.now()}`, "顯示名稱": googleUser?.name || "我", "角色": "owner" }
       });
@@ -1960,9 +1964,11 @@ export default function App() {
   };
 
   const toggleShoppingItem = (id: string) => {
+    const item = activeTrip.shopping.find((entry) => entry.id === id);
     updateActiveTrip({
       shopping: activeTrip.shopping.map((item) => item.id === id ? { ...item, purchased: !item.purchased } : item)
     });
+    if (item) showToast(item.purchased ? "已移回待購買清單" : "已移到已購買清單");
   };
 
   const toggleCatalogPurchase = (catalogItem: (typeof shoppingItems)[number]) => {
@@ -2733,7 +2739,9 @@ export default function App() {
                     <Pressable style={styles.addressLookupButton} onPress={async () => {
                       try { setShoppingImageUrl(await pickCompressedImage()); } catch (error: any) { if (error?.message !== "未選擇照片") Alert.alert("無法上傳", error?.message); }
                     }}><Text style={styles.addressLookupText}>＋ 從手機／電腦上傳照片</Text></Pressable>
-                    <TextInput value={shoppingImageUrl} onChangeText={setShoppingImageUrl} placeholder="或貼上直接圖片網址（不是 Google 搜尋頁）" placeholderTextColor="#AAA198" style={styles.fieldInput} autoCapitalize="none" />
+                    {shoppingImageUrl.startsWith("data:image/")
+                      ? <Pressable onPress={() => setShoppingImageUrl("")}><Text style={styles.removeUploadedImage}>移除已上傳照片</Text></Pressable>
+                      : <TextInput value={shoppingImageUrl} onChangeText={setShoppingImageUrl} placeholder="或貼上直接圖片網址（不是 Google 搜尋頁）" placeholderTextColor="#AAA198" style={styles.fieldInput} autoCapitalize="none" />}
                     <Text style={styles.fieldLabel}>是否共享給旅伴？</Text>
                     <View style={styles.currencyChoices}>
                       <Pressable onPress={() => setShoppingScope("shared")} style={[styles.currencyChoice, shoppingScope === "shared" && styles.currencyChoiceActive]}>
@@ -2902,7 +2910,9 @@ export default function App() {
                 <Pressable style={styles.addressLookupButton} onPress={async () => {
                   try { setNewCoverImage(await pickCompressedImage()); } catch (error: any) { if (error?.message !== "未選擇照片") Alert.alert("無法上傳", error?.message); }
                 }}><Text style={styles.addressLookupText}>＋ 上傳封面照片</Text></Pressable>
-                <TextInput value={newCoverImage} onChangeText={setNewCoverImage} placeholder="或貼上直接圖片網址" placeholderTextColor="#AAA198" autoCapitalize="none" style={styles.fieldInput} />
+                {newCoverImage.startsWith("data:image/")
+                  ? <Pressable onPress={() => setNewCoverImage("")}><Text style={styles.removeUploadedImage}>移除已上傳封面</Text></Pressable>
+                  : <TextInput value={newCoverImage} onChangeText={setNewCoverImage} placeholder="或貼上直接圖片網址" placeholderTextColor="#AAA198" autoCapitalize="none" style={styles.fieldInput} />}
                 <View style={styles.fieldRow}>
                   <View style={styles.dayCountField}>
                     <Text style={styles.fieldLabel}>同行人數</Text>
@@ -2993,7 +3003,9 @@ export default function App() {
               <Pressable style={styles.addressLookupButton} onPress={async () => {
                 try { setTripCoverDraft(await pickCompressedImage()); } catch (error: any) { if (error?.message !== "未選擇照片") Alert.alert("無法上傳", error?.message); }
               }}><Text style={styles.addressLookupText}>＋ 更換封面照片</Text></Pressable>
-              <TextInput value={tripCoverDraft} onChangeText={setTripCoverDraft} placeholder="或貼上直接圖片網址" placeholderTextColor="#AAA198" autoCapitalize="none" style={styles.fieldInput} />
+              {tripCoverDraft.startsWith("data:image/")
+                ? <Pressable onPress={() => setTripCoverDraft("")}><Text style={styles.removeUploadedImage}>移除已上傳封面</Text></Pressable>
+                : <TextInput value={tripCoverDraft} onChangeText={setTripCoverDraft} placeholder="或貼上直接圖片網址" placeholderTextColor="#AAA198" autoCapitalize="none" style={styles.fieldInput} />}
               <Text style={styles.fieldLabel}>人數</Text>
               <TextInput value={travelerDraft} onChangeText={setTravelerDraft} keyboardType="number-pad" placeholder="1" placeholderTextColor="#AAA198" style={styles.fieldInput} />
               <Pressable style={styles.primaryButton} onPress={() => {
@@ -3296,6 +3308,7 @@ const styles = StyleSheet.create({
   tripCoverShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(18,35,31,.46)" },
   coverUploadPreview: { width: "100%", height: 150, borderRadius: 16, backgroundColor: "#EEEAE4", marginBottom: 9 },
   uploadPreview: { width: 110, height: 110, borderRadius: 14, backgroundColor: "#EEEAE4", marginBottom: 9, alignSelf: "center" },
+  removeUploadedImage: { color: "#A45F49", fontSize: 10, fontWeight: "800", textAlign: "center", marginBottom: 10 },
   placeSuggestions: { backgroundColor: "#FFF", borderWidth: 1, borderColor: "#DED8D0", borderRadius: 14, overflow: "hidden", marginTop: 4, marginBottom: 12 },
   placeSuggestion: { paddingHorizontal: 13, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "#EEE9E2" },
   placeSuggestionName: { color: "#29483F", fontSize: 13, fontWeight: "900" },
