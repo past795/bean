@@ -2859,7 +2859,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.7</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.8</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -2951,12 +2951,12 @@ export default function App() {
         )}
 
         <View style={styles.bottomBar}>
-          <TabButton icon="⌂" label="首頁" active={tab === "home"} onPress={() => setTab("home")} />
-          <TabButton icon="♡" label="收藏" active={tab === "favorites"} onPress={() => setTab("favorites")} />
+          <TabButton icon="home" label="首頁" active={tab === "home"} onPress={() => setTab("home")} />
+          <TabButton icon="heart" label="收藏" active={tab === "favorites"} onPress={() => setTab("favorites")} />
           <View style={styles.bottomGroupDivider} />
-          <TabButton icon="≣" label="行程" active={tab === "itinerary"} onPress={() => setTab("itinerary")} />
-          <TabButton icon="✦" label="工具箱" active={tab === "toolbox"} onPress={() => setTab("toolbox")} />
-          <TabButton icon="🧾" label="記帳" active={tab === "expenses"} onPress={() => setTab("expenses")} />
+          <TabButton icon="list" label="行程" active={tab === "itinerary"} onPress={() => setTab("itinerary")} />
+          <TabButton icon="toolbox" label="工具箱" active={tab === "toolbox"} onPress={() => setTab("toolbox")} />
+          <TabButton icon="receipt" label="記帳" active={tab === "expenses"} onPress={() => setTab("expenses")} />
         </View>
 
         <Modal visible={cloudPanelVisible} animationType="fade" transparent onRequestClose={() => setCloudPanelVisible(false)}>
@@ -3664,8 +3664,21 @@ function EmptyPage({ eyebrow, title, text }: { eyebrow: string; title: string; t
   return <View style={styles.emptyPage}><Text style={styles.eyebrow}>{eyebrow}</Text><Text style={styles.pageTitle}>{title}</Text><Text style={styles.pageSubtitle}>{text}</Text></View>;
 }
 
-function TabButton({ icon, label, active, onPress }: { icon: string; label: string; active: boolean; onPress: () => void }) {
-  return <Pressable style={styles.tabButton} onPress={onPress}><Text style={[styles.tabIcon, active && styles.tabActive]}>{icon}</Text><Text style={[styles.tabText, active && styles.tabActive]}>{label}</Text></Pressable>;
+type NavIconName = "home" | "heart" | "list" | "toolbox" | "receipt";
+
+const navIconPaths: Record<NavIconName, string> = {
+  home: '<path d="M3 10.8 12 3l9 7.8v9.7H14.8v-6.3H9.2v6.3H3z"/>',
+  heart: '<path d="M20.8 5.9c-2-2.1-5.2-2.1-7.2 0L12 7.5l-1.6-1.6a5 5 0 0 0-7.2 7L12 21l8.8-8.1a5 5 0 0 0 0-7z"/>',
+  list: '<path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',
+  toolbox: '<path d="M4 8.5h16v11H4zM9 8.5V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2.5M4 12.5h16M10 12.5v2h4v-2"/>',
+  receipt: '<path d="M6 3.5 8 5l2-1.5L12 5l2-1.5L16 5l2-1.5v17L16 19l-2 1.5L12 19l-2 1.5L8 19l-2 1.5zM9 9h6M9 13h6M9 17h4"/>'
+};
+
+const navIconUri = (name: NavIconName, color: string) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${navIconPaths[name]}</svg>`)}`;
+
+function TabButton({ icon, label, active, onPress }: { icon: NavIconName; label: string; active: boolean; onPress: () => void }) {
+  const color = active ? "#536783" : "#A8A199";
+  return <Pressable style={styles.tabButton} onPress={onPress}><View style={styles.tabIconFrame}><Image source={{ uri: navIconUri(icon, color) }} style={styles.tabIconImage} resizeMode="contain" /></View><Text style={[styles.tabText, active && styles.tabActive]}>{label}</Text></Pressable>;
 }
 
 function GoogleSignInButton({ onCredential }: { onCredential: (credential: string) => void }) {
@@ -3859,8 +3872,9 @@ const styles = StyleSheet.create({
   floatingUndoButton: { position: "absolute", right: 20, bottom: 92, zIndex: 120, elevation: 25, backgroundColor: "#9C613F", borderRadius: 999, paddingHorizontal: 17, height: 42, alignItems: "center", justifyContent: "center", shadowColor: "#3A2419", shadowOpacity: .22, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
   floatingUndoText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
   tabButton: { flex: 1, alignItems: "center", justifyContent: "center" },
-  tabIcon: { fontSize: 20, color: "#A8A199", fontWeight: "700" },
-  tabText: { fontSize: 10, color: "#A8A199", marginTop: 4, fontWeight: "700" },
+  tabIconFrame: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
+  tabIconImage: { width: 22, height: 22 },
+  tabText: { fontSize: 10, lineHeight: 13, color: "#A8A199", marginTop: 4, fontWeight: "700" },
   tabActive: { color: "#536783" },
   page: { flex: 1, backgroundColor: "#FBFAF7" },
   pageContent: { padding: 22, paddingTop: 36, paddingBottom: 110 },
