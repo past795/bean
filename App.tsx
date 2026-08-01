@@ -473,6 +473,7 @@ export default function App() {
   const [newStopTime, setNewStopTime] = useState("");
   const [newStopAddress, setNewStopAddress] = useState("");
   const [newStopTransport, setNewStopTransport] = useState("");
+  const [newStopRouteMode, setNewStopRouteMode] = useState<RouteMode>("transit");
   const [newStopNote, setNewStopNote] = useState("");
   const [newStopOpeningHours, setNewStopOpeningHours] = useState("");
   const [newStopDuration, setNewStopDuration] = useState("");
@@ -1560,11 +1561,9 @@ export default function App() {
     }
     const transport = newStopTransport.trim() || "尚未安排";
     const transportMode: Stop["transportMode"] =
-      transport.includes("步行") ? "步行" :
-      transport.includes("計程車") ? "計程車" :
-      transport.includes("公車") ? "公車" :
-      transport.includes("地鐵") ? "地鐵" :
-      transport.includes("飛機") ? "飛機" : "其他";
+      newStopRouteMode === "walking" ? "步行" :
+      newStopRouteMode === "transit" ? (/公車/.test(transport) ? "公車" : "地鐵") :
+      newStopRouteMode === "taxi" ? "計程車" : "其他";
     updateStops([...selectedDay.stops, {
       id: `${selectedDay.id}-stop-${Date.now()}`,
       time: newStopTime.trim() || "彈性",
@@ -1578,13 +1577,14 @@ export default function App() {
       latitude: newStopLatitude,
       longitude: newStopLongitude,
       durationMinutes: Math.max(0, Number.parseInt(newStopDuration, 10) || 0),
-      routeMode: transport.includes("步行") ? "walking" : "driving"
+      routeMode: newStopRouteMode
     }]);
     setAddingStop(false);
     setNewStopTitle("");
     setNewStopTime("");
     setNewStopAddress("");
     setNewStopTransport("");
+    setNewStopRouteMode("transit");
     setNewStopNote("");
     setNewStopOpeningHours("");
     setNewStopDuration("");
@@ -2403,7 +2403,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.2</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -3138,6 +3138,23 @@ export default function App() {
                   </View>
                   <View style={styles.fieldHalf}>
                     <Text style={styles.fieldLabel}>交通方式</Text>
+                    <View style={styles.legRouteActions}>
+                      {([
+                        ["driving", "🚗 開車"],
+                        ["walking", "🚶 步行"],
+                        ["transit", "🚇 大眾運輸"],
+                        ["taxi", "🚕 計程車"]
+                      ] as [RouteMode, string][]).map(([mode, label]) => (
+                        <Pressable key={mode} onPress={() => {
+                          setNewStopRouteMode(mode);
+                          if (!newStopTransport.trim() || newStopTransport === "尚未安排") {
+                            setNewStopTransport(mode === "driving" ? "開車" : mode === "walking" ? "步行" : mode === "transit" ? "大眾運輸" : "計程車");
+                          }
+                        }} style={[styles.legModeButton, newStopRouteMode === mode && styles.legModeButtonActive]}>
+                          <Text style={[styles.legModeText, newStopRouteMode === mode && styles.legModeTextActive]}>{label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
                     <TextInput value={newStopTransport} onChangeText={setNewStopTransport} placeholder="地鐵約 20 分鐘" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                   </View>
                 </View>
