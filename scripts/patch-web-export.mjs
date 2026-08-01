@@ -1,7 +1,15 @@
 import { copyFile, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 
 const path = new URL("../dist/index.html", import.meta.url);
 let html = await readFile(path, "utf8");
+const bundleMatch = html.match(/<script src="([^"]+\.js)" defer><\/script>/);
+if (bundleMatch) {
+  const bundlePath = new URL(`../dist${bundleMatch[1].replace("/bean", "")}`, import.meta.url);
+  const bundle = await readFile(bundlePath);
+  const bundleVersion = createHash("sha256").update(bundle).digest("hex").slice(0, 12);
+  html = html.replace(bundleMatch[1], `${bundleMatch[1]}?v=${bundleVersion}`);
+}
 html = html.replace(
   "<head>",
   `<head>
