@@ -2694,7 +2694,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.2</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.3</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -3493,10 +3493,13 @@ function GoogleSignInButton({ onCredential }: { onCredential: (credential: strin
     if (Platform.OS !== "web") return;
     let cancelled = false;
     let attempts = 0;
+    let rendered = false;
     const render = () => {
+      if (rendered) return true;
       const google = (globalThis as any).google;
       const target = (globalThis as any).document?.getElementById("douyou-google-signin");
       if (!google?.accounts?.id || !target) return false;
+      rendered = true;
       google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: (response: any) => onCredential(response.credential) });
       target.innerHTML = "";
       google.accounts.id.renderButton(target, { theme: "outline", size: "large", shape: "pill", text: "signin_with", locale: "zh-TW", width: 280 });
