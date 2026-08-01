@@ -535,6 +535,11 @@ export default function App() {
   const [favoriteSearchStatus, setFavoriteSearchStatus] = useState<"idle" | "loading" | "empty">("idle");
   const [favoriteLatitude, setFavoriteLatitude] = useState<number | undefined>();
   const [favoriteLongitude, setFavoriteLongitude] = useState<number | undefined>();
+  const [batchFavoriteVisible, setBatchFavoriteVisible] = useState(false);
+  const [batchFavoriteText, setBatchFavoriteText] = useState("");
+  const [batchFavoriteCountry, setBatchFavoriteCountry] = useState("");
+  const [batchFavoriteCity, setBatchFavoriteCity] = useState("");
+  const [batchFavoriteStatus, setBatchFavoriteStatus] = useState("");
   const [editing, setEditing] = useState<Stop | null>(null);
   const [draftNote, setDraftNote] = useState("");
   const [draftOpeningHours, setDraftOpeningHours] = useState("");
@@ -750,22 +755,23 @@ export default function App() {
     const timer = setTimeout(async () => {
       try {
         const compact = title.replace(/\s+/g, "");
-        const alias = /白淺灘/.test(compact) ? "Huinnyeoul Culture Village"
+        const alias = /伏見稻荷/.test(compact) ? "Fushimi Inari Taisha"
+          : /白淺灘/.test(compact) ? "Huinnyeoul Culture Village"
           : /釜山車站|釜山站/.test(compact) ? "Busan Station"
           : /樂天百貨/.test(compact) ? "Lotte Department Store Busan"
           : /新世界百貨/.test(compact) ? "Shinsegae Department Store Centum City" : title;
-        const isKorea = /韓國|釜山|首爾|濟州|大邱|仁川|busan|seoul|jeju/i.test(`${activeTrip.destination} ${favoriteCountry} ${favoriteCity}`);
-        const countryFilter = isKorea ? "&countrycodes=kr" : "";
-        const busanBounds = /釜山|busan/i.test(`${activeTrip.destination} ${favoriteCity}`) ? "&viewbox=128.75,35.40,129.35,34.85&bounded=1" : "";
-        const query = encodeURIComponent(`${alias} ${favoriteCity || activeTrip.destination}`);
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&accept-language=zh-TW&q=${query}${countryFilter}${busanBounds}`, { headers: { "User-Agent": "DouyouTrip/1.0" } });
+        const context = `${favoriteCountry} ${favoriteCity}`;
+        const countryCode = /日本|japan/i.test(context) ? "jp" : /韓國|南韓|korea/i.test(context) ? "kr" : /台灣|taiwan/i.test(context) ? "tw" : "";
+        const countryFilter = countryCode ? `&countrycodes=${countryCode}` : "";
+        const query = encodeURIComponent(`${alias} ${favoriteCity} ${favoriteCountry}`.trim());
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&accept-language=zh-TW&q=${query}${countryFilter}`, { headers: { "User-Agent": "DouyouTrip/1.0" } });
         const rows = response.ok ? await response.json() : [];
         setFavoriteSuggestions(Array.isArray(rows) ? rows : []);
         setFavoriteSearchStatus(Array.isArray(rows) && rows.length ? "idle" : "empty");
       } catch { setFavoriteSuggestions([]); setFavoriteSearchStatus("empty"); }
     }, 450);
     return () => clearTimeout(timer);
-  }, [favoriteName, addingFavorite, activeTrip.destination, favoriteCity, favoriteCountry, favoriteLatitude]);
+  }, [favoriteName, addingFavorite, favoriteCity, favoriteCountry, favoriteLatitude]);
 
   useEffect(() => {
     const title = newStopTitle.trim();
@@ -1421,6 +1427,45 @@ export default function App() {
     persistFavorites(editingFavoriteId ? favorites.map((item) => item.id === editingFavoriteId ? saved : item) : [...favorites, saved]);
     resetFavoriteForm(); setAddingFavorite(false);
     showToast(wasEditing ? "收藏景點已更新" : "收藏景點已新增並自動分類");
+  };
+
+  const importFavoriteBatch = async () => {
+    const lines = batchFavoriteText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (!lines.length) { Alert.alert("請貼上景點清單"); return; }
+    setBatchFavoriteStatus(`正在查找 0 / ${lines.length}`);
+    const imported: FavoritePlace[] = [];
+    const failed: string[] = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      const parts = lines[index]!.split(/[｜|\t]/).map((part) => part.trim());
+      let country = batchFavoriteCountry.trim(); let city = batchFavoriteCity.trim(); let name = ""; let suppliedAddress = ""; let note = "";
+      if (parts.length >= 5) { country = parts[0] || country; city = parts[1] || city; name = parts[2] || ""; suppliedAddress = parts[3] || ""; note = parts[4] || ""; }
+      else if (parts.length >= 3) { name = parts[0] || ""; suppliedAddress = parts[1] || ""; note = parts[2] || ""; }
+      else name = parts[0] || "";
+      if (!name) continue;
+      setBatchFavoriteStatus(`正在查找 ${index + 1} / ${lines.length}：${name}`);
+      try {
+        const compact = name.replace(/\s+/g, "");
+        const alias = /伏見稻荷/.test(compact) ? "Fushimi Inari Taisha" : /白淺灘/.test(compact) ? "Huinnyeoul Culture Village" : name;
+        const context = `${country} ${city}`;
+        const code = /日本|japan/i.test(context) ? "jp" : /韓國|南韓|korea/i.test(context) ? "kr" : /台灣|taiwan/i.test(context) ? "tw" : "";
+        const query = encodeURIComponent(`${alias} ${suppliedAddress} ${city} ${country}`.trim());
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&accept-language=zh-TW&q=${query}${code ? `&countrycodes=${code}` : ""}`, { headers: { "User-Agent": "DouyouTrip/1.0" } });
+        const rows = response.ok ? await response.json() : [];
+        const row = rows[0];
+        if (!row) { failed.push(name); continue; }
+        const address = String(row.display_name || suppliedAddress);
+        const details = row.address || {};
+        const inferred = inferFavoriteRegion(name, address);
+        const resolvedCountry = country || (/日本|japan/i.test(String(details.country || address)) ? "日本" : /韓國|대한민국|korea/i.test(String(details.country || address)) ? "韓國" : inferred.country);
+        const resolvedCity = city || String(details.city || details.town || details.county || inferred.city).replace(/廣域市|特別市|府/g, "") || inferred.city;
+        if (!favorites.some((item) => item.name === name && item.address === address) && !imported.some((item) => item.name === name && item.address === address)) imported.push({ id: `favorite-${Date.now()}-${index}`, name, address, country: resolvedCountry, city: resolvedCity, latitude: Number(row.lat), longitude: Number(row.lon), note: note || favoriteFeatureText(name, address) });
+      } catch { failed.push(name); }
+      if (index < lines.length - 1) await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+    if (imported.length) persistFavorites([...favorites, ...imported]);
+    setBatchFavoriteStatus("");
+    if (!failed.length) { setBatchFavoriteVisible(false); setBatchFavoriteText(""); showToast(`已匯入 ${imported.length} 個收藏景點`); }
+    else Alert.alert(`已匯入 ${imported.length} 個`, `以下 ${failed.length} 個找不到，請補上國家或城市後再試：\n${failed.join("、")}`);
   };
 
   const toggleFavoriteSelection = (ids: string[]) => {
@@ -2538,6 +2583,10 @@ export default function App() {
       <StatusBar style="dark" />
       <View style={styles.app}>
         {!!toastMessage && <View style={styles.toast}><Text style={styles.toastText}>✓ {toastMessage}</Text></View>}
+        <View style={[styles.scopeBar, (tab === "home" || tab === "favorites") ? styles.personalScopeBar : styles.tripScopeBar]}>
+          <Text style={styles.scopeBarText}>{(tab === "home" || tab === "favorites") ? `👤 個人空間 · ${googleUser?.name || "我的帳號"}` : `✈ 本趟旅行 · ${activeTrip.title}`}</Text>
+          <Text style={styles.scopeBarSub}>{(tab === "home" || tab === "favorites") ? "跨旅行保存" : "資料只屬於這趟旅行"}</Text>
+        </View>
         {tab === "itinerary" && (
           <>
             <LinearGradient colors={["#F6EBDD", "#F7F3EC"]} style={styles.header}>
@@ -2682,7 +2731,7 @@ export default function App() {
 
         {tab === "favorites" && (
           <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
-            <View style={styles.favoriteHeader}><View><Text style={styles.eyebrow}>MY SAVED PLACES</Text><Text style={styles.pageTitle}>景點收藏</Text><Text style={styles.pageSubtitle}>個人收藏會依國家與城市自動整理。</Text></View><Pressable style={styles.addTripButton} onPress={() => openFavoriteEditor()}><Text style={styles.addTripPlus}>＋</Text></Pressable></View>
+            <View style={styles.favoriteHeader}><View><Text style={styles.eyebrow}>MY SAVED PLACES</Text><Text style={styles.pageTitle}>景點收藏</Text><Text style={styles.pageSubtitle}>個人收藏會依國家與城市自動整理。</Text></View><View style={styles.favoriteHeaderActions}><Pressable style={styles.favoriteBatchButton} onPress={() => setBatchFavoriteVisible(true)}><Text style={styles.favoriteBatchButtonText}>批次匯入</Text></Pressable><Pressable style={styles.addTripButton} onPress={() => openFavoriteEditor()}><Text style={styles.addTripPlus}>＋</Text></Pressable></View></View>
             <View style={styles.favoritePlanner}>
               <Text style={styles.favoritePlannerTitle}>✨ 已選 {selectedFavorites.length} 個景點</Text>
               <Text style={styles.favoritePlannerText}>收藏是你的跨國個人景點庫。勾選城市或景點後，可建立全新旅行，也能加入既有旅行。</Text>
@@ -2810,7 +2859,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.6</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.7</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -2903,10 +2952,11 @@ export default function App() {
 
         <View style={styles.bottomBar}>
           <TabButton icon="⌂" label="首頁" active={tab === "home"} onPress={() => setTab("home")} />
+          <TabButton icon="♡" label="收藏" active={tab === "favorites"} onPress={() => setTab("favorites")} />
+          <View style={styles.bottomGroupDivider} />
           <TabButton icon="≣" label="行程" active={tab === "itinerary"} onPress={() => setTab("itinerary")} />
           <TabButton icon="✦" label="工具箱" active={tab === "toolbox"} onPress={() => setTab("toolbox")} />
           <TabButton icon="🧾" label="記帳" active={tab === "expenses"} onPress={() => setTab("expenses")} />
-          <TabButton icon="♡" label="收藏" active={tab === "favorites"} onPress={() => setTab("favorites")} />
         </View>
 
         <Modal visible={cloudPanelVisible} animationType="fade" transparent onRequestClose={() => setCloudPanelVisible(false)}>
@@ -2967,14 +3017,26 @@ export default function App() {
 
         <Modal visible={addingFavorite} animationType="slide" transparent onRequestClose={() => { resetFavoriteForm(); setAddingFavorite(false); }}>
           <View style={styles.modalShade}><View style={styles.sheet}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>SAVE A PLACE</Text><Text style={styles.sheetTitle}>{editingFavoriteId ? "編輯收藏景點" : "新增收藏景點"}</Text>
+            <Text style={styles.favoriteSearchTip}>先填國家與城市，搜尋會更準確；例如「日本／京都／伏見稻荷」。</Text>
+            <View style={styles.formRow}><View style={styles.formHalf}><Text style={styles.fieldLabel}>國家</Text><TextInput value={favoriteCountry} onChangeText={(value) => { setFavoriteCountry(value); setFavoriteLatitude(undefined); }} style={styles.fieldInput} placeholder="例如：日本" placeholderTextColor="#A49C90" /></View><View style={styles.formHalf}><Text style={styles.fieldLabel}>城市</Text><TextInput value={favoriteCity} onChangeText={(value) => { setFavoriteCity(value); setFavoriteLatitude(undefined); }} style={styles.fieldInput} placeholder="例如：京都" placeholderTextColor="#A49C90" /></View></View>
             <Text style={styles.fieldLabel}>景點名稱 *</Text><TextInput value={favoriteName} onChangeText={(value) => { setFavoriteName(value); setFavoriteLatitude(undefined); setFavoriteLongitude(undefined); }} style={styles.fieldInput} placeholder="例如：西面樂天百貨" placeholderTextColor="#A49C90" />
             {favoriteSearchStatus === "loading" && <Text style={styles.placeSearchStatus}>正在搜尋附近的正確地點…</Text>}
             {favoriteSearchStatus === "empty" && <Text style={styles.placeSearchError}>找不到相符地點，請加上城市或完整名稱再試一次。</Text>}
             {!!favoriteSuggestions.length && <View style={styles.placeSuggestions}>{favoriteSuggestions.map((row, index) => <Pressable key={`${row.place_id || index}`} style={styles.placeSuggestion} onPress={() => selectFavoriteSuggestion(row)}><Text style={styles.placeSuggestionName}>{String(row.display_name || "").split(",")[0]}</Text><Text style={styles.placeSuggestionAddress}>{String(row.display_name || "")}</Text></Pressable>)}</View>}
             <Text style={styles.fieldLabel}>地址</Text><TextInput value={favoriteAddress} onChangeText={(value) => { setFavoriteAddress(value); setFavoriteLatitude(undefined); setFavoriteLongitude(undefined); }} style={styles.fieldInput} placeholder="請從上方搜尋結果選擇" placeholderTextColor="#A49C90" />
-            <View style={styles.formRow}><View style={styles.formHalf}><Text style={styles.fieldLabel}>國家</Text><TextInput value={favoriteCountry} onChangeText={setFavoriteCountry} style={styles.fieldInput} placeholder="自動判斷" placeholderTextColor="#A49C90" /></View><View style={styles.formHalf}><Text style={styles.fieldLabel}>城市</Text><TextInput value={favoriteCity} onChangeText={setFavoriteCity} style={styles.fieldInput} placeholder="自動判斷" placeholderTextColor="#A49C90" /></View></View>
             <Text style={styles.fieldLabel}>特色與備註（系統帶入後仍可修改）</Text><TextInput value={favoriteNote} onChangeText={setFavoriteNote} multiline style={styles.noteInput} placeholder="例如：看海、拍照、逛街或必做事項" placeholderTextColor="#A49C90" />
             <Pressable style={styles.primaryButton} onPress={saveFavorite}><Text style={styles.primaryButtonText}>{editingFavoriteId ? "更新收藏景點" : "儲存並自動分類"}</Text></Pressable><Pressable style={styles.cancelButton} onPress={() => { resetFavoriteForm(); setAddingFavorite(false); }}><Text style={styles.cancelText}>取消</Text></Pressable>
+          </View></View>
+        </Modal>
+
+        <Modal visible={batchFavoriteVisible} animationType="slide" transparent onRequestClose={() => !batchFavoriteStatus && setBatchFavoriteVisible(false)}>
+          <View style={styles.modalShade}><View style={styles.sheet}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>BATCH IMPORT</Text><Text style={styles.sheetTitle}>一次貼上收藏景點</Text>
+            <Text style={styles.favoriteSearchTip}>只有名稱時先填共同國家／城市；若每筆不同，也可以把國家與城市寫在每行。</Text>
+            <View style={styles.formRow}><View style={styles.formHalf}><Text style={styles.fieldLabel}>共同國家</Text><TextInput value={batchFavoriteCountry} onChangeText={setBatchFavoriteCountry} style={styles.fieldInput} placeholder="例如：日本" placeholderTextColor="#A49C90" /></View><View style={styles.formHalf}><Text style={styles.fieldLabel}>共同城市</Text><TextInput value={batchFavoriteCity} onChangeText={setBatchFavoriteCity} style={styles.fieldInput} placeholder="例如：京都" placeholderTextColor="#A49C90" /></View></View>
+            <Text style={styles.fieldLabel}>每行一個景點</Text><TextInput value={batchFavoriteText} onChangeText={setBatchFavoriteText} multiline style={[styles.noteInput, styles.favoriteBatchInput]} placeholder={'伏見稻荷\n清水寺\n\n或完整格式：\n日本｜大阪｜大阪城｜大阪府大阪市中央區大阪城1-1｜賞櫻、天守閣'} placeholderTextColor="#A49C90" />
+            {!!batchFavoriteStatus && <Text style={styles.placeSearchStatus}>{batchFavoriteStatus}</Text>}
+            <Pressable style={[styles.primaryButton, !!batchFavoriteStatus && styles.disabledButton]} disabled={!!batchFavoriteStatus} onPress={importFavoriteBatch}><Text style={styles.primaryButtonText}>{batchFavoriteStatus ? "正在查找地址…" : "查找並匯入收藏"}</Text></Pressable>
+            <Pressable style={styles.cancelButton} disabled={!!batchFavoriteStatus} onPress={() => setBatchFavoriteVisible(false)}><Text style={styles.cancelText}>取消</Text></Pressable>
           </View></View>
         </Modal>
 
@@ -3689,6 +3751,11 @@ const styles = StyleSheet.create({
   lineShareText: { color: "#06A944" },
   toast: { position: "absolute", top: 18, alignSelf: "center", zIndex: 9999, elevation: 40, backgroundColor: "#536783", borderRadius: 999, paddingHorizontal: 18, paddingVertical: 11, shadowColor: "#000", shadowOpacity: .18, shadowRadius: 12, shadowOffset: { width: 0, height: 5 } },
   toastText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
+  scopeBar: { minHeight: 34, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1 },
+  personalScopeBar: { backgroundColor: "#EEF2FA", borderBottomColor: "#D9E2F0" },
+  tripScopeBar: { backgroundColor: "#F7EEE7", borderBottomColor: "#E9DACC" },
+  scopeBarText: { color: "#425571", fontSize: 10, fontWeight: "900" },
+  scopeBarSub: { color: "#8A8179", fontSize: 9, fontWeight: "700" },
   expenseTripId: { color: "#9A9188", fontSize: 9, marginTop: 5 },
   refreshSyncButton: { alignSelf: "flex-start", backgroundColor: "#E9EDF5", borderRadius: 11, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12 },
   refreshSyncText: { color: "#536783", fontSize: 11, fontWeight: "900" },
@@ -3788,6 +3855,7 @@ const styles = StyleSheet.create({
   googleMapLink: { color: "#3974D8", fontSize: 11, fontWeight: "800" },
   naverMapLink: { color: "#03A94D", fontSize: 11, fontWeight: "800" },
   bottomBar: { position: "absolute", left: 12, right: 12, bottom: 10, height: 72, zIndex: 100, elevation: 20, backgroundColor: "rgba(255,255,255,.98)", borderRadius: 24, flexDirection: "row", shadowColor: "#281E16", shadowOpacity: .16, shadowRadius: 18, shadowOffset: { width: 0, height: 7 }, borderWidth: 1, borderColor: "#EEE9E2" },
+  bottomGroupDivider: { width: 1, height: 38, alignSelf: "center", backgroundColor: "#D8DDE7" },
   floatingUndoButton: { position: "absolute", right: 20, bottom: 92, zIndex: 120, elevation: 25, backgroundColor: "#9C613F", borderRadius: 999, paddingHorizontal: 17, height: 42, alignItems: "center", justifyContent: "center", shadowColor: "#3A2419", shadowOpacity: .22, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
   floatingUndoText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
   tabButton: { flex: 1, alignItems: "center", justifyContent: "center" },
@@ -4005,6 +4073,12 @@ const styles = StyleSheet.create({
   allDayTitle: { color: "#343D50", fontSize: 13, fontWeight: "900" },
   allDaySubtitle: { color: "#817970", fontSize: 10, lineHeight: 16, marginTop: 5 },
   favoriteHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  favoriteHeaderActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  favoriteBatchButton: { backgroundColor: "#E8EDF6", borderRadius: 13, paddingHorizontal: 12, paddingVertical: 11 },
+  favoriteBatchButtonText: { color: "#536783", fontSize: 10, fontWeight: "900" },
+  favoriteSearchTip: { color: "#718099", fontSize: 10, lineHeight: 16, marginBottom: 8 },
+  favoriteBatchInput: { minHeight: 180, textAlignVertical: "top" },
+  disabledButton: { opacity: .55 },
   favoritePlanner: { backgroundColor: "#EDF1F7", borderRadius: 18, padding: 15, marginBottom: 18, borderWidth: 1, borderColor: "#DDE3EE" },
   favoritePlannerTitle: { color: "#536783", fontSize: 15, fontWeight: "900" },
   favoritePlannerText: { color: "#718099", fontSize: 11, lineHeight: 17, marginTop: 5 },
