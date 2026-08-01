@@ -72,7 +72,7 @@ const normalizeTripDate = (value: unknown) => {
   return match?.[1] || "";
 };
 const tripDayDateLabel = (start: string, dayIndex: number) => {
-  if (!isIsoTripDate(start)) return `第 ${dayIndex + 1} 天`;
+  if (!isIsoTripDate(start)) return "日期未定";
   const [year, month, day] = start.split("-").map(Number);
   const date = new Date(Date.UTC(year!, month! - 1, day! + dayIndex));
   const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
@@ -332,6 +332,11 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
 
 const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
   const cloudTrip = data.trip || {};
+  const id = String(cloudTrip["旅行ID"]);
+  const storedStartDate = normalizeTripDate(cloudTrip["開始日期"]);
+  const storedEndDate = normalizeTripDate(cloudTrip["結束日期"]);
+  const startDate = storedStartDate || (id === "trip-1785397565924" ? "2026-10-04" : "");
+  const endDate = storedEndDate || (id === "trip-1785397565924" ? "2026-10-08" : "");
   const itinerary = Array.isArray(data.itinerary) ? data.itinerary : [];
   const tripMetaRow = (data.shopping || []).find((item: any) => String(item["分類"] || "") === "__TRIP_META__");
   let tripMeta: any = {};
@@ -345,7 +350,8 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
     const rows = itinerary.filter((row: any) => String(row["日期ID"] || "day-1") === dayId)
       .sort((a: any, b: any) => Number(a["排序"] || 0) - Number(b["排序"] || 0));
     const savedDay = savedDays.find((day: any) => String(day.id) === dayId);
-    const date = rows[0]?.["日期"] || savedDay?.date || `第 ${dayIndex + 1} 天`;
+    const savedDate = String(rows[0]?.["日期"] || savedDay?.date || "");
+    const date = startDate ? tripDayDateLabel(startDate, dayIndex) : (/^第\s*\d+\s*天$/.test(savedDate) ? "日期未定" : savedDate || "日期未定");
     return {
       id: dayId, label: `DAY ${dayIndex + 1}`, date,
       title: savedDay?.title || `${cloudTrip["目的地"] || "旅行"}・自由安排`,
@@ -362,9 +368,6 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
       })
     };
   });
-  const id = String(cloudTrip["旅行ID"]);
-  const startDate = normalizeTripDate(cloudTrip["開始日期"]);
-  const endDate = normalizeTripDate(cloudTrip["結束日期"]);
   const trip: TripPlan = {
     id, title: String(cloudTrip["名稱"] || "未命名旅行"),
     destination: String(cloudTrip["目的地"] || ""),
@@ -387,7 +390,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
       ? tripPeriodLabel(startDate, endDate)
       : String(cloudTrip["開始日期"] || "日期未定"),
     travelers: Math.max(1, (data.members || []).length || 1),
-    days: days.length ? days : [{ id: `${id}-day-1`, label: "DAY 1", date: "第 1 天", title: "自由安排", stops: [] }],
+    days: days.length ? days : [{ id: `${id}-day-1`, label: "DAY 1", date: tripDayDateLabel(startDate, 0), title: "自由安排", stops: [] }],
     flights: (data.flights || []).map((row: any) => ({
       id: String(row["航班ID"]), route: String(row["出發機場"] || ""),
       flightNumber: String(row["航班編號"] || ""), departure: formatCloudDateTime(row["出發時間"]),
@@ -442,7 +445,7 @@ const starterTrips: TripPlan[] = [{
   destination: "尚未建立",
   period: "日期未定",
   travelers: 1,
-  days: [{ id: "welcome-day-1", label: "DAY 1", date: "第 1 天", title: "尚未安排", stops: [] }],
+  days: [{ id: "welcome-day-1", label: "DAY 1", date: "日期未定", title: "尚未安排", stops: [] }],
   flights: [],
   accommodations: [],
   shopping: [],
@@ -1536,7 +1539,7 @@ export default function App() {
       days: Array.from({ length: count }, (_, index) => ({
         id: `${id}-day-${index + 1}`,
         label: `DAY ${index + 1}`,
-        date: `第 ${index + 1} 天`,
+        date: tripDayDateLabel(newStartDate, index),
         title: `${destination}・自由安排`,
         stops: []
       }))
@@ -2516,7 +2519,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.4</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.5</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -3189,7 +3192,7 @@ export default function App() {
                 const resizedDays = calculatedDays > currentDays.length
                   ? [...currentDays, ...Array.from({ length: calculatedDays - currentDays.length }, (_, index) => {
                       const dayNumber = currentDays.length + index + 1;
-                      return { id: `${activeTrip.id}-day-${dayNumber}`, label: `DAY ${dayNumber}`, date: `第 ${dayNumber} 天`, title: `${activeTrip.destination}・自由安排`, stops: [] };
+                      return { id: `${activeTrip.id}-day-${dayNumber}`, label: `DAY ${dayNumber}`, date: tripDayDateLabel(tripStartDraft, dayNumber - 1), title: `${activeTrip.destination}・自由安排`, stops: [] };
                     })]
                   : currentDays;
                 const nextDays = resizedDays.map((day, index) => ({
