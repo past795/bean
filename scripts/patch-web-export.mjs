@@ -16,6 +16,7 @@ html = html.replace(
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <link rel="icon" type="image/png" href="/bean/apple-touch-icon.png?v=20260731-1" />
     <link rel="shortcut icon" type="image/png" href="/bean/apple-touch-icon.png?v=20260731-1" />
     <link rel="apple-touch-icon" sizes="180x180" href="/bean/apple-touch-icon.png?v=20260731-1" />`
