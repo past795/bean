@@ -528,6 +528,11 @@ export default function App() {
   const [favoriteCity, setFavoriteCity] = useState("");
   const [favoriteNote, setFavoriteNote] = useState("");
   const [favoriteDayCount, setFavoriteDayCount] = useState("5");
+  const [editingFavoriteId, setEditingFavoriteId] = useState<string | null>(null);
+  const [favoriteSuggestions, setFavoriteSuggestions] = useState<any[]>([]);
+  const [favoriteSearchStatus, setFavoriteSearchStatus] = useState<"idle" | "loading" | "empty">("idle");
+  const [favoriteLatitude, setFavoriteLatitude] = useState<number | undefined>();
+  const [favoriteLongitude, setFavoriteLongitude] = useState<number | undefined>();
   const [editing, setEditing] = useState<Stop | null>(null);
   const [draftNote, setDraftNote] = useState("");
   const [draftOpeningHours, setDraftOpeningHours] = useState("");
@@ -685,7 +690,22 @@ export default function App() {
 
   useEffect(() => {
     AsyncStorage.getItem(FAVORITES_KEY).then((value) => {
-      if (value) setFavorites(JSON.parse(value));
+      if (!value) return;
+      const parsed = JSON.parse(value) as FavoritePlace[];
+      const repaired = parsed.map((place) => {
+        if (!/白淺灘|huinnyeoul/i.test(place.name) || (place.address && place.address !== "地址待補")) return place;
+        return {
+          ...place,
+          address: "釜山廣域市影島區瀛仙洞4街 1044-4",
+          country: "韓國",
+          city: "釜山",
+          latitude: 35.0787,
+          longitude: 129.0443,
+          note: place.note || "海景散步、拍照、欣賞海岸風景。",
+        };
+      });
+      setFavorites(repaired);
+      if (JSON.stringify(repaired) !== JSON.stringify(parsed)) AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(repaired)).catch(() => undefined);
     }).catch(() => undefined);
   }, []);
 
@@ -707,6 +727,42 @@ export default function App() {
   const days = activeTrip.days;
   const selectedDay = days.find((d) => d.id === selectedDayId) ?? days[0]!;
   const showingAllDays = selectedDayId === ALL_DAYS_ID;
+
+  const favoriteFeatureText = (name: string, address = "") => {
+    const text = `${name} ${address}`.toLowerCase();
+    if (/白淺灘|huinnyeoul|海|沙灘|海岸|港|beach|ocean/.test(text)) return "海景散步、拍照、欣賞海岸風景。";
+    if (/百貨|購物|商場|市場|mall|department|market/.test(text)) return "購物、美食與伴手禮，可安排較長停留時間。";
+    if (/咖啡|coffee|cafe|café/.test(text)) return "咖啡休息、甜點與特色空間拍照。";
+    if (/寺|廟|宮|神社|temple/.test(text)) return "歷史文化、建築參觀與散步。";
+    if (/博物館|美術館|museum|gallery/.test(text)) return "展覽、文化體驗，建議先確認休館日。";
+    if (/公園|森林|花園|步道|park|garden/.test(text)) return "散步、自然景觀與戶外拍照。";
+    if (/樂園|水族館|纜車|遊艇/.test(text)) return "體驗型景點，建議預留排隊與遊玩時間。";
+    return "熱門景點，適合散步、拍照並探索周邊。";
+  };
+
+  useEffect(() => {
+    const title = favoriteName.trim();
+    if (!addingFavorite || title.length < 2 || favoriteLatitude != null) { setFavoriteSuggestions([]); setFavoriteSearchStatus("idle"); return; }
+    setFavoriteSearchStatus("loading");
+    const timer = setTimeout(async () => {
+      try {
+        const compact = title.replace(/\s+/g, "");
+        const alias = /白淺灘/.test(compact) ? "Huinnyeoul Culture Village"
+          : /釜山車站|釜山站/.test(compact) ? "Busan Station"
+          : /樂天百貨/.test(compact) ? "Lotte Department Store Busan"
+          : /新世界百貨/.test(compact) ? "Shinsegae Department Store Centum City" : title;
+        const isKorea = /韓國|釜山|首爾|濟州|大邱|仁川|busan|seoul|jeju/i.test(`${activeTrip.destination} ${favoriteCountry} ${favoriteCity}`);
+        const countryFilter = isKorea ? "&countrycodes=kr" : "";
+        const busanBounds = /釜山|busan/i.test(`${activeTrip.destination} ${favoriteCity}`) ? "&viewbox=128.75,35.40,129.35,34.85&bounded=1" : "";
+        const query = encodeURIComponent(`${alias} ${favoriteCity || activeTrip.destination}`);
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&accept-language=zh-TW&q=${query}${countryFilter}${busanBounds}`, { headers: { "User-Agent": "DouyouTrip/1.0" } });
+        const rows = response.ok ? await response.json() : [];
+        setFavoriteSuggestions(Array.isArray(rows) ? rows : []);
+        setFavoriteSearchStatus(Array.isArray(rows) && rows.length ? "idle" : "empty");
+      } catch { setFavoriteSuggestions([]); setFavoriteSearchStatus("empty"); }
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [favoriteName, addingFavorite, activeTrip.destination, favoriteCity, favoriteCountry, favoriteLatitude]);
 
   useEffect(() => {
     const title = newStopTitle.trim();
@@ -1319,25 +1375,49 @@ export default function App() {
       return;
     }
     const region = inferFavoriteRegion(stop.title, stop.address);
-    persistFavorites([...favorites, { id: `favorite-${Date.now()}`, name: stop.title, address: stop.address, ...region, latitude: stop.latitude, longitude: stop.longitude, note: stop.note, openingHours: stop.openingHours }]);
+    persistFavorites([...favorites, { id: `favorite-${Date.now()}`, name: stop.title, address: stop.address, ...region, latitude: stop.latitude, longitude: stop.longitude, note: stop.note || favoriteFeatureText(stop.title, stop.address), openingHours: stop.openingHours }]);
     showToast("已加入個人收藏");
+  };
+
+  const resetFavoriteForm = () => {
+    setFavoriteName(""); setFavoriteAddress(""); setFavoriteCountry(""); setFavoriteCity(""); setFavoriteNote("");
+    setFavoriteLatitude(undefined); setFavoriteLongitude(undefined); setFavoriteSuggestions([]); setFavoriteSearchStatus("idle"); setEditingFavoriteId(null);
+  };
+
+  const openFavoriteEditor = (place?: FavoritePlace) => {
+    if (place) {
+      setEditingFavoriteId(place.id); setFavoriteName(place.name); setFavoriteAddress(place.address === "地址待補" ? "" : place.address);
+      setFavoriteCountry(place.country); setFavoriteCity(place.city); setFavoriteNote(place.note || favoriteFeatureText(place.name, place.address));
+      setFavoriteLatitude(place.latitude); setFavoriteLongitude(place.longitude);
+    } else resetFavoriteForm();
+    setAddingFavorite(true);
+  };
+
+  const selectFavoriteSuggestion = (row: any) => {
+    const address = String(row.display_name || "");
+    const details = row.address || {};
+    const inferred = inferFavoriteRegion(favoriteName, address);
+    setFavoriteAddress(address);
+    setFavoriteLatitude(Number(row.lat)); setFavoriteLongitude(Number(row.lon));
+    setFavoriteCountry(/韓國|대한민국|south korea/i.test(String(details.country || address)) ? "韓國" : /日本|japan/i.test(String(details.country || address)) ? "日本" : inferred.country);
+    setFavoriteCity(String(details.city || details.town || details.county || inferred.city).replace(/廣域市|特別市/g, "") || inferred.city);
+    if (!favoriteNote.trim()) setFavoriteNote(favoriteFeatureText(favoriteName, address));
+    setFavoriteSuggestions([]); setFavoriteSearchStatus("idle");
   };
 
   const saveFavorite = async () => {
     if (!favoriteName.trim()) { Alert.alert("請輸入景點名稱"); return; }
-    let latitude: number | undefined;
-    let longitude: number | undefined;
+    const wasEditing = !!editingFavoriteId;
     let address = favoriteAddress.trim();
-    try {
-      const query = encodeURIComponent(`${favoriteName.trim()} ${address} ${favoriteCity || activeTrip.destination}`);
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=zh-TW&q=${query}`, { headers: { "User-Agent": "DouyouTrip/1.0" } });
-      const rows = response.ok ? await response.json() : [];
-      if (rows[0]) { latitude = Number(rows[0].lat); longitude = Number(rows[0].lon); address ||= String(rows[0].display_name || ""); }
-    } catch {}
+    if (!address || favoriteLatitude == null || favoriteLongitude == null) {
+      if (favoriteSuggestions[0]) { selectFavoriteSuggestion(favoriteSuggestions[0]); Alert.alert("請確認地點", "已找到候選地點並帶入地址，確認正確後再按一次儲存。"); return; }
+      Alert.alert("尚未確認地址", "請從景點名稱下方的搜尋結果選擇正確地點，避免收藏到錯誤城市。"); return;
+    }
     const inferred = inferFavoriteRegion(favoriteName, address);
-    persistFavorites([...favorites, { id: `favorite-${Date.now()}`, name: favoriteName.trim(), address: address || "地址待補", country: favoriteCountry.trim() || inferred.country, city: favoriteCity.trim() || inferred.city, latitude, longitude, note: favoriteNote.trim() }]);
-    setFavoriteName(""); setFavoriteAddress(""); setFavoriteCountry(""); setFavoriteCity(""); setFavoriteNote(""); setAddingFavorite(false);
-    showToast("收藏景點已新增並自動分類");
+    const saved: FavoritePlace = { id: editingFavoriteId || `favorite-${Date.now()}`, name: favoriteName.trim(), address, country: favoriteCountry.trim() || inferred.country, city: favoriteCity.trim() || inferred.city, latitude: favoriteLatitude, longitude: favoriteLongitude, note: favoriteNote.trim() || favoriteFeatureText(favoriteName, address) };
+    persistFavorites(editingFavoriteId ? favorites.map((item) => item.id === editingFavoriteId ? saved : item) : [...favorites, saved]);
+    resetFavoriteForm(); setAddingFavorite(false);
+    showToast(wasEditing ? "收藏景點已更新" : "收藏景點已新增並自動分類");
   };
 
   const generateTripFromFavorites = () => {
@@ -2570,7 +2650,7 @@ export default function App() {
 
         {tab === "favorites" && (
           <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
-            <View style={styles.favoriteHeader}><View><Text style={styles.eyebrow}>MY SAVED PLACES</Text><Text style={styles.pageTitle}>景點收藏</Text><Text style={styles.pageSubtitle}>個人收藏會依國家與城市自動整理。</Text></View><Pressable style={styles.addTripButton} onPress={() => setAddingFavorite(true)}><Text style={styles.addTripPlus}>＋</Text></Pressable></View>
+            <View style={styles.favoriteHeader}><View><Text style={styles.eyebrow}>MY SAVED PLACES</Text><Text style={styles.pageTitle}>景點收藏</Text><Text style={styles.pageSubtitle}>個人收藏會依國家與城市自動整理。</Text></View><Pressable style={styles.addTripButton} onPress={() => openFavoriteEditor()}><Text style={styles.addTripPlus}>＋</Text></Pressable></View>
             <View style={styles.favoritePlanner}>
               <Text style={styles.favoritePlannerTitle}>✨ 用收藏一鍵產生行程</Text>
               <Text style={styles.favoritePlannerText}>會參考目前旅行的天數、班機、住宿、景點地區與座標，把相近景點排在同一天。</Text>
@@ -2578,7 +2658,7 @@ export default function App() {
             </View>
             {Object.entries(favorites.reduce((groups, place) => { const key = `${place.country}|||${place.city}`; (groups[key] ||= []).push(place); return groups; }, {} as Record<string, FavoritePlace[]>)).map(([key, places]) => {
               const [country, city] = key.split("|||");
-              return <View key={key} style={styles.favoriteGroup}><Text style={styles.favoriteCountry}>└ {country}</Text><Text style={styles.favoriteCity}>　└ {city}</Text>{places.map((place) => <View key={place.id} style={styles.favoriteCard}><View style={styles.favoriteCardText}><Text style={styles.favoriteName}>{place.name}</Text><Text style={styles.favoriteAddress}>{place.address}</Text></View><Pressable onPress={() => persistFavorites(favorites.filter((item) => item.id !== place.id))}><Text style={styles.favoriteDelete}>×</Text></Pressable></View>)}</View>;
+              return <View key={key} style={styles.favoriteGroup}><Text style={styles.favoriteCountry}>└ {country}</Text><Text style={styles.favoriteCity}>　└ {city}</Text>{places.map((place) => <View key={place.id} style={styles.favoriteCard}><Pressable style={styles.favoriteCardText} onPress={() => openFavoriteEditor(place)}><Text style={styles.favoriteName}>{place.name}</Text><Text style={styles.favoriteAddress}>{place.address}</Text><Text style={styles.favoriteFeature}>特色｜{place.note || favoriteFeatureText(place.name, place.address)}</Text><Text style={styles.favoriteEditHint}>點此編輯景點</Text></Pressable><Pressable onPress={() => persistFavorites(favorites.filter((item) => item.id !== place.id))}><Text style={styles.favoriteDelete}>×</Text></Pressable></View>)}</View>;
             })}
             {!favorites.length && <View style={styles.emptyItinerary}><Text style={styles.emptyItineraryIcon}>♡</Text><Text style={styles.emptyItineraryTitle}>還沒有收藏景點</Text><Text style={styles.emptyItineraryText}>可以按右上角新增，或從行程景點的編輯頁加入收藏。</Text></View>}
           </ScrollView>
@@ -2694,7 +2774,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.4</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.5</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -2849,13 +2929,16 @@ export default function App() {
           </View>
         </Modal>
 
-        <Modal visible={addingFavorite} animationType="slide" transparent onRequestClose={() => setAddingFavorite(false)}>
-          <View style={styles.modalShade}><View style={styles.sheet}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>SAVE A PLACE</Text><Text style={styles.sheetTitle}>新增收藏景點</Text>
-            <Text style={styles.fieldLabel}>景點名稱 *</Text><TextInput value={favoriteName} onChangeText={setFavoriteName} style={styles.fieldInput} placeholder="例如：西面樂天百貨" placeholderTextColor="#A49C90" />
-            <Text style={styles.fieldLabel}>地址</Text><TextInput value={favoriteAddress} onChangeText={setFavoriteAddress} style={styles.fieldInput} placeholder="可留白，儲存時自動搜尋" placeholderTextColor="#A49C90" />
+        <Modal visible={addingFavorite} animationType="slide" transparent onRequestClose={() => { resetFavoriteForm(); setAddingFavorite(false); }}>
+          <View style={styles.modalShade}><View style={styles.sheet}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>SAVE A PLACE</Text><Text style={styles.sheetTitle}>{editingFavoriteId ? "編輯收藏景點" : "新增收藏景點"}</Text>
+            <Text style={styles.fieldLabel}>景點名稱 *</Text><TextInput value={favoriteName} onChangeText={(value) => { setFavoriteName(value); setFavoriteLatitude(undefined); setFavoriteLongitude(undefined); }} style={styles.fieldInput} placeholder="例如：西面樂天百貨" placeholderTextColor="#A49C90" />
+            {favoriteSearchStatus === "loading" && <Text style={styles.placeSearchStatus}>正在搜尋附近的正確地點…</Text>}
+            {favoriteSearchStatus === "empty" && <Text style={styles.placeSearchError}>找不到相符地點，請加上城市或完整名稱再試一次。</Text>}
+            {!!favoriteSuggestions.length && <View style={styles.placeSuggestions}>{favoriteSuggestions.map((row, index) => <Pressable key={`${row.place_id || index}`} style={styles.placeSuggestion} onPress={() => selectFavoriteSuggestion(row)}><Text style={styles.placeSuggestionName}>{String(row.display_name || "").split(",")[0]}</Text><Text style={styles.placeSuggestionAddress}>{String(row.display_name || "")}</Text></Pressable>)}</View>}
+            <Text style={styles.fieldLabel}>地址</Text><TextInput value={favoriteAddress} onChangeText={(value) => { setFavoriteAddress(value); setFavoriteLatitude(undefined); setFavoriteLongitude(undefined); }} style={styles.fieldInput} placeholder="請從上方搜尋結果選擇" placeholderTextColor="#A49C90" />
             <View style={styles.formRow}><View style={styles.formHalf}><Text style={styles.fieldLabel}>國家</Text><TextInput value={favoriteCountry} onChangeText={setFavoriteCountry} style={styles.fieldInput} placeholder="自動判斷" placeholderTextColor="#A49C90" /></View><View style={styles.formHalf}><Text style={styles.fieldLabel}>城市</Text><TextInput value={favoriteCity} onChangeText={setFavoriteCity} style={styles.fieldInput} placeholder="自動判斷" placeholderTextColor="#A49C90" /></View></View>
-            <Text style={styles.fieldLabel}>備註</Text><TextInput value={favoriteNote} onChangeText={setFavoriteNote} multiline style={styles.noteInput} placeholder="想吃什麼、必逛樓層或其他提醒" placeholderTextColor="#A49C90" />
-            <Pressable style={styles.primaryButton} onPress={saveFavorite}><Text style={styles.primaryButtonText}>儲存並自動分類</Text></Pressable><Pressable style={styles.cancelButton} onPress={() => setAddingFavorite(false)}><Text style={styles.cancelText}>取消</Text></Pressable>
+            <Text style={styles.fieldLabel}>特色與備註（系統帶入後仍可修改）</Text><TextInput value={favoriteNote} onChangeText={setFavoriteNote} multiline style={styles.noteInput} placeholder="例如：看海、拍照、逛街或必做事項" placeholderTextColor="#A49C90" />
+            <Pressable style={styles.primaryButton} onPress={saveFavorite}><Text style={styles.primaryButtonText}>{editingFavoriteId ? "更新收藏景點" : "儲存並自動分類"}</Text></Pressable><Pressable style={styles.cancelButton} onPress={() => { resetFavoriteForm(); setAddingFavorite(false); }}><Text style={styles.cancelText}>取消</Text></Pressable>
           </View></View>
         </Modal>
 
@@ -3899,6 +3982,8 @@ const styles = StyleSheet.create({
   favoriteCardText: { flex: 1 },
   favoriteName: { color: "#2C2925", fontSize: 13, fontWeight: "900" },
   favoriteAddress: { color: "#887F76", fontSize: 10, lineHeight: 15, marginTop: 4 },
+  favoriteFeature: { color: "#65758E", fontSize: 10, lineHeight: 15, marginTop: 6 },
+  favoriteEditHint: { color: "#536783", fontSize: 9, fontWeight: "900", marginTop: 6 },
   favoriteDelete: { color: "#A95D4C", fontSize: 24, paddingHorizontal: 8 },
   formRow: { flexDirection: "row", gap: 10 },
   formHalf: { flex: 1 },
