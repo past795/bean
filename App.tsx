@@ -2694,7 +2694,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.2</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -3488,26 +3488,50 @@ function TabButton({ icon, label, active, onPress }: { icon: string; label: stri
 }
 
 function GoogleSignInButton({ onCredential }: { onCredential: (credential: string) => void }) {
+  const [buttonStatus, setButtonStatus] = useState<"loading" | "ready" | "error">("loading");
   useEffect(() => {
     if (Platform.OS !== "web") return;
+    let cancelled = false;
+    let attempts = 0;
     const render = () => {
       const google = (globalThis as any).google;
       const target = (globalThis as any).document?.getElementById("douyou-google-signin");
-      if (!google?.accounts?.id || !target) return;
+      if (!google?.accounts?.id || !target) return false;
       google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: (response: any) => onCredential(response.credential) });
       target.innerHTML = "";
       google.accounts.id.renderButton(target, { theme: "outline", size: "large", shape: "pill", text: "signin_with", locale: "zh-TW", width: 280 });
+      if (!cancelled) setButtonStatus(target.querySelector("iframe") ? "ready" : "loading");
+      return true;
+    };
+    const retry = () => {
+      if (cancelled || render()) return;
+      attempts += 1;
+      if (attempts < 20) setTimeout(retry, 250);
+      else if (!cancelled) setButtonStatus("error");
     };
     const document = (globalThis as any).document;
-    if ((globalThis as any).google?.accounts?.id) { render(); return; }
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.onload = render;
-    document.head.appendChild(script);
+    if ((globalThis as any).google?.accounts?.id) retry();
+    else {
+      const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+      if (existing) existing.addEventListener("load", retry, { once: true });
+      else {
+        const script = document.createElement("script");
+        script.src = "https://accounts.google.com/gsi/client";
+        script.async = true;
+        script.onload = retry;
+        script.onerror = () => !cancelled && setButtonStatus("error");
+        document.head.appendChild(script);
+      }
+      setTimeout(retry, 300);
+    }
+    return () => { cancelled = true; };
   }, []);
   if (Platform.OS !== "web") return <Text style={styles.accountHint}>請先使用網站版登入 Google。</Text>;
-  return <View nativeID="douyou-google-signin" style={styles.googleButtonHost} />;
+  return <View style={styles.googleSignInWrap}>
+    {buttonStatus === "loading" && <Text style={styles.googleLoadingText}>正在載入 Google 登入…</Text>}
+    <View nativeID="douyou-google-signin" style={[styles.googleButtonHost, buttonStatus !== "ready" && styles.googleButtonLoading]} />
+    {buttonStatus === "error" && <Pressable style={styles.googleRetryButton} onPress={() => (globalThis as any).location?.reload()}><Text style={styles.googleRetryText}>重新載入登入按鈕</Text></Pressable>}
+  </View>;
 }
 
 const styles = StyleSheet.create({
@@ -3665,7 +3689,12 @@ const styles = StyleSheet.create({
   accountCard: { backgroundColor: "#FFF", borderRadius: 18, padding: 14, marginTop: 14, marginBottom: 4, borderWidth: 1, borderColor: "#E9E2D9" },
   accountTitle: { color: "#343D50", fontSize: 14, fontWeight: "900" },
   accountHint: { color: "#887F76", fontSize: 10, lineHeight: 15, marginTop: 4 },
-  googleButtonHost: { minHeight: 44, marginTop: 10 },
+  googleSignInWrap: { width: 300, minHeight: 58, marginTop: 10, alignItems: "center", justifyContent: "center" },
+  googleButtonHost: { width: 300, minHeight: 44, alignItems: "center", justifyContent: "center" },
+  googleButtonLoading: { position: "absolute", opacity: 0 },
+  googleLoadingText: { color: "#65758E", fontSize: 12, fontWeight: "800", paddingVertical: 14 },
+  googleRetryButton: { width: 280, height: 44, borderRadius: 22, backgroundColor: "#536783", alignItems: "center", justifyContent: "center" },
+  googleRetryText: { color: "#FFF", fontSize: 13, fontWeight: "900" },
   accountIdentity: { flexDirection: "row", alignItems: "center", gap: 10 },
   accountAvatar: { width: 38, height: 38, borderRadius: 19 },
   accountAvatarFallback: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#E9EDF5", alignItems: "center", justifyContent: "center" },
