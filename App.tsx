@@ -68,6 +68,16 @@ const tripPeriodLabel = (start: string, end: string) =>
   start && end ? `${start.replaceAll("-", ".")} – ${end.replaceAll("-", ".")}` : start || end || "日期未定";
 const normalizeTripDate = (value: unknown) => {
   const text = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}T/.test(text)) {
+    const date = new Date(text);
+    if (!Number.isNaN(date.getTime())) {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit"
+      }).formatToParts(date);
+      const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
+      return `${get("year")}-${get("month")}-${get("day")}`;
+    }
+  }
   const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
   return match?.[1] || "";
 };
@@ -2519,7 +2529,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.5</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.6</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
