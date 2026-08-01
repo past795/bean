@@ -326,6 +326,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
       homeBaseAccommodationId: trip.homeBaseAccommodationId,
       homeBaseByDay: trip.homeBaseByDay || {},
       accommodationByNight: trip.accommodationByNight || {},
+      shoppingCatalogImported: !!trip.shoppingCatalogImported,
       days: trip.days.map((day) => ({ id: day.id, date: day.date, title: day.title }))
     }), "已購買": false
   }]).concat((trip.checklist || []).filter((item) => item.scope !== "personal").map((item) => ({
@@ -396,6 +397,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
       const row = (data.shopping || []).find((item: any) => String(item["分類"] || "") === "__TRIP_META__");
       try { return JSON.parse(String(row?.["備註"] || "{}")).accommodationByNight || {}; } catch { return {}; }
     })(),
+    shoppingCatalogImported: !!tripMeta.shoppingCatalogImported,
     period: startDate
       ? tripPeriodLabel(startDate, endDate)
       : String(cloudTrip["開始日期"] || "日期未定"),
@@ -525,7 +527,6 @@ export default function App() {
   const [placeSuggestionStatus, setPlaceSuggestionStatus] = useState<"idle" | "loading" | "empty">("idle");
   const suppressNextPlaceSearchRef = useRef(false);
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
-  const [shoppingSource, setShoppingSource] = useState<"Olive Young" | "韓國藥局">("Olive Young");
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
   const [addingExpense, setAddingExpense] = useState(false);
   const [expenseTitle, setExpenseTitle] = useState("");
@@ -1097,6 +1098,24 @@ export default function App() {
   };
 
   const isKoreaTrip = /韓國|釜山|首爾|濟州|仁川|大邱|大田|光州|慶州|江原|부산|서울|제주|인천/.test(activeTrip.destination);
+
+  useEffect(() => {
+    if (selectedTool !== "必買商品" || !isKoreaTrip || activeTrip.shoppingCatalogImported) return;
+    const existingNames = new Set(activeTrip.shopping.map((item) => item.name.trim().toLowerCase()));
+    const imported = shoppingItems.filter((item) => !existingNames.has(item.name.trim().toLowerCase())).map((item, index) => ({
+      id: `korea-shopping-${activeTrip.id}-${index}`,
+      name: item.name,
+      price: item.price.replace(/^₩\s*/, ""),
+      currency: "KRW",
+      category: item.category,
+      imageUrl: item.imageUrl,
+      purchased: false,
+      scope: "shared" as const,
+      owner: ""
+    }));
+    updateActiveTrip({ shopping: [...activeTrip.shopping, ...imported], shoppingCatalogImported: true });
+    showToast(`已把 ${imported.length} 項韓國商品放入待購買清單`);
+  }, [selectedTool, activeTrip.id, activeTrip.shoppingCatalogImported, isKoreaTrip]);
 
   const openDirections = (stop: Stop, provider: "google" | "naver") => {
     const query = encodeURIComponent(stop.address || stop.title);
@@ -2102,18 +2121,6 @@ export default function App() {
     if (item) showToast(item.purchased ? "已移回待購買清單" : "已移到已購買清單");
   };
 
-  const toggleCatalogPurchase = (catalogItem: (typeof shoppingItems)[number]) => {
-    const existing = activeTrip.shopping.find((item) => item.name === catalogItem.name);
-    if (existing) {
-      toggleShoppingItem(existing.id);
-      return;
-    }
-    updateActiveTrip({ shopping: [...activeTrip.shopping, {
-      id: `shopping-${Date.now()}`, name: catalogItem.name, price: catalogItem.price, currency: "KRW",
-      category: catalogItem.category, imageUrl: catalogItem.imageUrl, purchased: true, scope: "shared"
-    }] });
-  };
-
   const visibleShoppingItems = activeTrip.shopping.filter((item) =>
     shoppingView === "shared"
       ? (item.scope || "shared") === "shared"
@@ -2529,7 +2536,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.6</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.7</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -2965,28 +2972,6 @@ export default function App() {
                       </View>
                     ))}
                     {visibleShoppingItems.length === 0 && <Text style={styles.emptyListText}>這個清單目前沒有商品，點右上角 ＋ 新增。</Text>}
-                    {isKoreaTrip && <>
-                      <Text style={styles.catalogTitle}>韓國商品參考</Text>
-                      <View style={styles.sourceTabs}>
-                        {(["Olive Young", "韓國藥局"] as const).map((source) => (
-                          <Pressable key={source} onPress={() => setShoppingSource(source)} style={[styles.sourceTab, shoppingSource === source && styles.sourceTabActive]}>
-                            <Text style={[styles.sourceTabText, shoppingSource === source && styles.sourceTabTextActive]}>{source}</Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                      <View style={styles.shoppingList}>
-                        {shoppingItems.filter((item) => item.source === shoppingSource).map((item) => (
-                          <View key={`${item.source}-${item.name}`} style={styles.shoppingItem}>
-                            <Pressable accessibilityLabel="標記已購買" onPress={() => toggleCatalogPurchase(item)} style={[styles.shoppingCheck, activeTrip.shopping.find((saved) => saved.name === item.name)?.purchased && styles.shoppingCheckActive]}>
-                              <Text style={styles.shoppingCheckText}>{activeTrip.shopping.find((saved) => saved.name === item.name)?.purchased ? "✓" : ""}</Text>
-                            </Pressable>
-                            {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🧴</Text></View>}
-                            <View style={styles.shoppingInfo}><Text style={styles.shoppingName}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.category}</Text></View>
-                            <Text style={styles.shoppingPrice}>{item.price}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    </>}
                   </>}
                 </View>
               )}

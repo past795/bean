@@ -91,5 +91,6 @@ export type TripPlan = {
   flights: FlightInfo[];
   accommodations: AccommodationInfo[];
   shopping: TripShoppingItem[];
+  shoppingCatalogImported?: boolean;
   checklist: TripChecklistItem[];
 };
