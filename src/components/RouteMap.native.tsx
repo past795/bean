@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { Stop } from "../types";
 
-export function RouteMap({ stops, dayId }: { stops: Stop[]; dayId: string }) {
+export function RouteMap({ stops, dayId }: { stops: Stop[]; dayId: string; days?: { dayId: string; label: string; color: string; stops: Stop[] }[] }) {
   if (stops.length < 2) {
     return (
       <View style={styles.placeholder}>

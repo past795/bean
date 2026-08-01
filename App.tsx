@@ -26,12 +26,16 @@ import { initialTrip as busanInitialTrip } from "./src/data/trip";
 import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 
-type Tab = "home" | "itinerary" | "toolbox" | "expenses";
+type Tab = "home" | "itinerary" | "favorites" | "toolbox" | "expenses";
+type FavoritePlace = { id: string; name: string; address: string; country: string; city: string; latitude?: number; longitude?: number; note?: string; openingHours?: string };
 const STORE_KEY = "travel-companion-v2";
 const EXPENSE_KEY = "travel-expenses-v1";
 const CLOUD_LINK_KEY = "douyou-cloud-links-v1";
 const CLOUD_MEMBER_KEY = "douyou-cloud-members-v1";
 const AUTH_KEY = "douyou-google-auth-v1";
+const FAVORITES_KEY = "douyou-personal-favorites-v1";
+const ALL_DAYS_ID = "__all_days__";
+const DAY_ROUTE_COLORS = ["#E98268", "#5E7FA3", "#D3A54A", "#9A72B5", "#4F9A96", "#C96B8A", "#7F8D4E"];
 const SYNC_URL = "https://script.google.com/macros/s/AKfycbx59WE7iqgehx4nsE4xxxp_Q8-eQrd59VSfR4xSa3IlU7lIBtikr1gvG3EZgxWHEOwj/exec";
 const GOOGLE_CLIENT_ID = "280761518317-gdvrt4provk183vi87j6uoapmu5umn30.apps.googleusercontent.com";
 const buildInviteMessage = (tripId: string, inviteCode: string) => `一起編輯豆遊行程 ✈️
@@ -516,6 +520,14 @@ export default function App() {
   const [trips, setTrips] = useState<TripPlan[]>(starterTrips);
   const [activeTripId, setActiveTripId] = useState("busan-2026");
   const [selectedDayId, setSelectedDayId] = useState("day1");
+  const [favorites, setFavorites] = useState<FavoritePlace[]>([]);
+  const [addingFavorite, setAddingFavorite] = useState(false);
+  const [favoriteName, setFavoriteName] = useState("");
+  const [favoriteAddress, setFavoriteAddress] = useState("");
+  const [favoriteCountry, setFavoriteCountry] = useState("");
+  const [favoriteCity, setFavoriteCity] = useState("");
+  const [favoriteNote, setFavoriteNote] = useState("");
+  const [favoriteDayCount, setFavoriteDayCount] = useState("5");
   const [editing, setEditing] = useState<Stop | null>(null);
   const [draftNote, setDraftNote] = useState("");
   const [draftOpeningHours, setDraftOpeningHours] = useState("");
@@ -672,6 +684,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    AsyncStorage.getItem(FAVORITES_KEY).then((value) => {
+      if (value) setFavorites(JSON.parse(value));
+    }).catch(() => undefined);
+  }, []);
+
+  const persistFavorites = (next: FavoritePlace[]) => {
+    setFavorites(next);
+    AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(next)).catch(() => undefined);
+  };
+
+  useEffect(() => {
     AsyncStorage.getItem(CLOUD_LINK_KEY).then((value) => {
       if (!value) return;
       const links = JSON.parse(value) as CloudLinks;
@@ -683,6 +706,7 @@ export default function App() {
   const activeTrip = trips.find((trip) => trip.id === activeTripId) ?? trips[0]!;
   const days = activeTrip.days;
   const selectedDay = days.find((d) => d.id === selectedDayId) ?? days[0]!;
+  const showingAllDays = selectedDayId === ALL_DAYS_ID;
 
   useEffect(() => {
     const title = newStopTitle.trim();
@@ -1277,6 +1301,81 @@ export default function App() {
     if (!previousStops) return;
     updateStops(previousStops);
     setPreviousStops(null);
+  };
+
+  const inferFavoriteRegion = (name: string, address: string) => {
+    const text = `${name} ${address} ${activeTrip.destination}`;
+    const country = /韓國|南韓|釜山|首爾|濟州|부산|서울|대한민국|korea/i.test(text) ? "韓國"
+      : /日本|東京|大阪|京都|沖繩|北海道|福岡|japan/i.test(text) ? "日本" : "其他";
+    const city = /釜山|부산|busan/i.test(text) ? "釜山" : /首爾|서울|seoul/i.test(text) ? "首爾"
+      : /濟州|제주|jeju/i.test(text) ? "濟州" : /東京|tokyo/i.test(text) ? "東京"
+      : /大阪|osaka/i.test(text) ? "大阪" : /沖繩|okinawa/i.test(text) ? "沖繩" : activeTrip.destination || "未分類";
+    return { country, city };
+  };
+
+  const addStopToFavorites = (stop: Stop) => {
+    if (favorites.some((item) => item.name === stop.title && item.address === stop.address)) {
+      showToast("這個景點已在收藏中");
+      return;
+    }
+    const region = inferFavoriteRegion(stop.title, stop.address);
+    persistFavorites([...favorites, { id: `favorite-${Date.now()}`, name: stop.title, address: stop.address, ...region, latitude: stop.latitude, longitude: stop.longitude, note: stop.note, openingHours: stop.openingHours }]);
+    showToast("已加入個人收藏");
+  };
+
+  const saveFavorite = async () => {
+    if (!favoriteName.trim()) { Alert.alert("請輸入景點名稱"); return; }
+    let latitude: number | undefined;
+    let longitude: number | undefined;
+    let address = favoriteAddress.trim();
+    try {
+      const query = encodeURIComponent(`${favoriteName.trim()} ${address} ${favoriteCity || activeTrip.destination}`);
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=zh-TW&q=${query}`, { headers: { "User-Agent": "DouyouTrip/1.0" } });
+      const rows = response.ok ? await response.json() : [];
+      if (rows[0]) { latitude = Number(rows[0].lat); longitude = Number(rows[0].lon); address ||= String(rows[0].display_name || ""); }
+    } catch {}
+    const inferred = inferFavoriteRegion(favoriteName, address);
+    persistFavorites([...favorites, { id: `favorite-${Date.now()}`, name: favoriteName.trim(), address: address || "地址待補", country: favoriteCountry.trim() || inferred.country, city: favoriteCity.trim() || inferred.city, latitude, longitude, note: favoriteNote.trim() }]);
+    setFavoriteName(""); setFavoriteAddress(""); setFavoriteCountry(""); setFavoriteCity(""); setFavoriteNote(""); setAddingFavorite(false);
+    showToast("收藏景點已新增並自動分類");
+  };
+
+  const generateTripFromFavorites = () => {
+    const count = Math.max(1, Math.min(14, Number.parseInt(favoriteDayCount, 10) || activeTrip.days.length || 1));
+    if (!favorites.length) { Alert.alert("還沒有收藏景點", "請先新增想去的地方。"); return; }
+    Alert.alert("一鍵產生建議行程", `將依地區與距離，把 ${favorites.length} 個收藏景點安排成 ${count} 天。現有一般景點會被替換，但機場與住宿節點會保留。`, [
+      { text: "取消", style: "cancel" },
+      { text: "開始安排", onPress: () => {
+        const sorted = [...favorites].sort((a, b) => `${a.country}${a.city}`.localeCompare(`${b.country}${b.city}`));
+        const buckets = Array.from({ length: count }, () => [] as FavoritePlace[]);
+        sorted.forEach((place, index) => buckets[Math.min(count - 1, Math.floor(index * count / sorted.length))]!.push(place));
+        const nextDays: TripDay[] = buckets.map((bucket, dayIndex) => {
+          const existingDay = activeTrip.days[dayIndex];
+          const fixed = existingDay?.stops.filter((stop) => /機場|airport|飯店|酒店|旅館|hotel|inn|住宿|check.?in|check.?out/i.test(`${stop.title} ${stop.address}`)) || [];
+          const generated = bucket.map((place, index): Stop => ({
+            id: `generated-${Date.now()}-${dayIndex}-${index}`, time: `${String(10 + Math.floor(index * 2)).padStart(2, "0")}:00`, title: place.name,
+            address: place.address, transport: index === 0 ? "從住宿出發・大眾運輸" : "大眾運輸", transportMode: "地鐵", routeMode: "transit",
+            note: place.note || "由收藏景點自動排入", latitude: place.latitude, longitude: place.longitude, openingHours: place.openingHours, durationMinutes: 90
+          }));
+          const startFixed = fixed.filter((stop) => /機場|寄放|check.?out|出發/i.test(stop.title));
+          const endFixed = fixed.filter((stop) => !startFixed.includes(stop));
+          return existingDay ? { ...existingDay, label: `DAY ${dayIndex + 1}`, stops: [...startFixed, ...generated, ...endFixed] } : {
+            id: `${activeTrip.id}-day-${Date.now()}-${dayIndex}`, label: `DAY ${dayIndex + 1}`, date: tripDayDateLabel(activeTrip.startDate || "", dayIndex), title: `${activeTrip.destination}・建議行程`, stops: generated
+          };
+        });
+        updateActiveTrip({ days: nextDays });
+        setSelectedDayId(nextDays[0]?.id || ""); setTab("itinerary");
+        showToast(`已產生 ${count} 天建議行程`);
+      }}
+    ]);
+  };
+
+  const deleteEditingStop = () => {
+    if (!editing) return;
+    Alert.alert("刪除此景點？", editing.title, [{ text: "取消", style: "cancel" }, { text: "刪除", style: "destructive", onPress: () => {
+      updateStops(selectedDay.stops.filter((stop) => stop.id !== editing.id));
+      setEditing(null); showToast("景點已刪除");
+    }}]);
   };
 
   const selectTrip = (trip: TripPlan) => {
@@ -2354,11 +2453,15 @@ export default function App() {
               </View>
               <Text style={styles.subtitle}>所有行程、交通與預約，集中在一個地方。</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayTabs}>
+                <Pressable onPress={() => selectDay(ALL_DAYS_ID)} style={[styles.dayTab, showingAllDays && styles.dayTabActive]}>
+                  <Text style={[styles.dayLabel, showingAllDays && styles.dayLabelActive]}>ALL</Text>
+                  <Text style={[styles.dayDate, showingAllDays && styles.dayDateActive]}>總覽</Text>
+                </Pressable>
                 {days.map((day) => (
                   <Pressable key={day.id} onPress={() => selectDay(day.id)}
-                    style={[styles.dayTab, day.id === selectedDay.id && styles.dayTabActive]}>
-                    <Text style={[styles.dayLabel, day.id === selectedDay.id && styles.dayLabelActive]}>{day.label}</Text>
-                    <Text style={[styles.dayDate, day.id === selectedDay.id && styles.dayDateActive]}>{day.date.slice(0,5)}</Text>
+                    style={[styles.dayTab, !showingAllDays && day.id === selectedDay.id && styles.dayTabActive]}>
+                    <Text style={[styles.dayLabel, !showingAllDays && day.id === selectedDay.id && styles.dayLabelActive]}>{day.label}</Text>
+                    <Text style={[styles.dayDate, !showingAllDays && day.id === selectedDay.id && styles.dayDateActive]}>{day.date.slice(0,5)}</Text>
                   </Pressable>
                 ))}
                 <Pressable onPress={addTripDay} style={[styles.dayTab, styles.addDayTab]}>
@@ -2368,7 +2471,26 @@ export default function App() {
               </ScrollView>
             </LinearGradient>
 
-            <View style={styles.itineraryListHost}>
+            {showingAllDays ? (
+              <ScrollView style={styles.itineraryListHost} contentContainerStyle={styles.listContent}>
+                <View style={styles.dayHeading}>
+                  <View style={styles.dayHeadingText}><Text style={styles.dayHeadingDate}>ALL DAYS</Text><Text style={styles.dayHeadingTitle}>整趟旅行總覽</Text></View>
+                  <Text style={styles.dayCount}>{days.reduce((sum, day) => sum + day.stops.length, 0)} 個安排</Text>
+                </View>
+                <View style={styles.mapCard}>
+                  <RouteMap stops={days.flatMap((day) => day.stops)} dayId={ALL_DAYS_ID} days={days.map((day, index) => ({ dayId: day.id, label: day.label, color: DAY_ROUTE_COLORS[index % DAY_ROUTE_COLORS.length]!, stops: day.stops }))} />
+                  <View style={styles.mapFooter}>
+                    <Text style={styles.mapFooterTitle}>全部天數移動路線</Text>
+                    <Text style={styles.mapFooterText}>每一天使用不同顏色；點下方日期即可進入單日拖曳與編輯。</Text>
+                    <View style={styles.routeLegend}>{days.map((day, index) => <Pressable key={day.id} style={styles.routeLegendItem} onPress={() => selectDay(day.id)}><View style={[styles.routeLegendDot, { backgroundColor: DAY_ROUTE_COLORS[index % DAY_ROUTE_COLORS.length] }]} /><Text style={styles.routeLegendText}>{day.label}</Text></Pressable>)}</View>
+                  </View>
+                </View>
+                {days.map((day, dayIndex) => <Pressable key={day.id} style={styles.allDayCard} onPress={() => selectDay(day.id)}>
+                  <View style={[styles.allDayStripe, { backgroundColor: DAY_ROUTE_COLORS[dayIndex % DAY_ROUTE_COLORS.length] }]} />
+                  <View style={styles.allDayBody}><Text style={styles.allDayTitle}>{day.label}・{day.date}</Text><Text style={styles.allDaySubtitle}>{day.stops.length ? day.stops.map((stop) => stop.title).join(" → ") : "尚未安排"}</Text></View><Text style={styles.chevron}>›</Text>
+                </Pressable>)}
+              </ScrollView>
+            ) : <View style={styles.itineraryListHost}>
               <DraggableFlatList
                 ref={itineraryListRef}
                 style={styles.itineraryList}
@@ -2442,8 +2564,24 @@ export default function App() {
                 </>
                 }
               />
-            </View>
+            </View>}
           </>
+        )}
+
+        {tab === "favorites" && (
+          <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
+            <View style={styles.favoriteHeader}><View><Text style={styles.eyebrow}>MY SAVED PLACES</Text><Text style={styles.pageTitle}>景點收藏</Text><Text style={styles.pageSubtitle}>個人收藏會依國家與城市自動整理。</Text></View><Pressable style={styles.addTripButton} onPress={() => setAddingFavorite(true)}><Text style={styles.addTripPlus}>＋</Text></Pressable></View>
+            <View style={styles.favoritePlanner}>
+              <Text style={styles.favoritePlannerTitle}>✨ 用收藏一鍵產生行程</Text>
+              <Text style={styles.favoritePlannerText}>會參考目前旅行的天數、班機、住宿、景點地區與座標，把相近景點排在同一天。</Text>
+              <View style={styles.favoritePlannerRow}><TextInput value={favoriteDayCount} onChangeText={setFavoriteDayCount} keyboardType="number-pad" style={[styles.fieldInput, styles.favoriteDayInput]} placeholder="天數" /><Pressable style={styles.favoriteGenerateButton} onPress={generateTripFromFavorites}><Text style={styles.primaryButtonText}>產生建議行程</Text></Pressable></View>
+            </View>
+            {Object.entries(favorites.reduce((groups, place) => { const key = `${place.country}|||${place.city}`; (groups[key] ||= []).push(place); return groups; }, {} as Record<string, FavoritePlace[]>)).map(([key, places]) => {
+              const [country, city] = key.split("|||");
+              return <View key={key} style={styles.favoriteGroup}><Text style={styles.favoriteCountry}>└ {country}</Text><Text style={styles.favoriteCity}>　└ {city}</Text>{places.map((place) => <View key={place.id} style={styles.favoriteCard}><View style={styles.favoriteCardText}><Text style={styles.favoriteName}>{place.name}</Text><Text style={styles.favoriteAddress}>{place.address}</Text></View><Pressable onPress={() => persistFavorites(favorites.filter((item) => item.id !== place.id))}><Text style={styles.favoriteDelete}>×</Text></Pressable></View>)}</View>;
+            })}
+            {!favorites.length && <View style={styles.emptyItinerary}><Text style={styles.emptyItineraryIcon}>♡</Text><Text style={styles.emptyItineraryTitle}>還沒有收藏景點</Text><Text style={styles.emptyItineraryText}>可以按右上角新增，或從行程景點的編輯頁加入收藏。</Text></View>}
+          </ScrollView>
         )}
 
         {tab === "toolbox" && (
@@ -2556,7 +2694,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.01.9</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -2650,6 +2788,7 @@ export default function App() {
         <View style={styles.bottomBar}>
           <TabButton icon="⌂" label="首頁" active={tab === "home"} onPress={() => setTab("home")} />
           <TabButton icon="≣" label="行程" active={tab === "itinerary"} onPress={() => setTab("itinerary")} />
+          <TabButton icon="♡" label="收藏" active={tab === "favorites"} onPress={() => setTab("favorites")} />
           <TabButton icon="✦" label="工具箱" active={tab === "toolbox"} onPress={() => setTab("toolbox")} />
           <TabButton icon="🧾" label="記帳" active={tab === "expenses"} onPress={() => setTab("expenses")} />
         </View>
@@ -2708,6 +2847,16 @@ export default function App() {
               <Pressable style={styles.cancelButton} onPress={() => setCloudPanelVisible(false)}><Text style={styles.cancelText}>關閉</Text></Pressable>
             </View>
           </View>
+        </Modal>
+
+        <Modal visible={addingFavorite} animationType="slide" transparent onRequestClose={() => setAddingFavorite(false)}>
+          <View style={styles.modalShade}><View style={styles.sheet}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>SAVE A PLACE</Text><Text style={styles.sheetTitle}>新增收藏景點</Text>
+            <Text style={styles.fieldLabel}>景點名稱 *</Text><TextInput value={favoriteName} onChangeText={setFavoriteName} style={styles.fieldInput} placeholder="例如：西面樂天百貨" placeholderTextColor="#A49C90" />
+            <Text style={styles.fieldLabel}>地址</Text><TextInput value={favoriteAddress} onChangeText={setFavoriteAddress} style={styles.fieldInput} placeholder="可留白，儲存時自動搜尋" placeholderTextColor="#A49C90" />
+            <View style={styles.formRow}><View style={styles.formHalf}><Text style={styles.fieldLabel}>國家</Text><TextInput value={favoriteCountry} onChangeText={setFavoriteCountry} style={styles.fieldInput} placeholder="自動判斷" placeholderTextColor="#A49C90" /></View><View style={styles.formHalf}><Text style={styles.fieldLabel}>城市</Text><TextInput value={favoriteCity} onChangeText={setFavoriteCity} style={styles.fieldInput} placeholder="自動判斷" placeholderTextColor="#A49C90" /></View></View>
+            <Text style={styles.fieldLabel}>備註</Text><TextInput value={favoriteNote} onChangeText={setFavoriteNote} multiline style={styles.noteInput} placeholder="想吃什麼、必逛樓層或其他提醒" placeholderTextColor="#A49C90" />
+            <Pressable style={styles.primaryButton} onPress={saveFavorite}><Text style={styles.primaryButtonText}>儲存並自動分類</Text></Pressable><Pressable style={styles.cancelButton} onPress={() => setAddingFavorite(false)}><Text style={styles.cancelText}>取消</Text></Pressable>
+          </View></View>
         </Modal>
 
         <Modal visible={!!editing} animationType="slide" transparent onRequestClose={() => setEditing(null)}>
@@ -2770,7 +2919,9 @@ export default function App() {
                 placeholderTextColor="#A49C90"
                 style={styles.noteInput}
               />
+              <Pressable style={styles.favoriteFromStopButton} onPress={() => editing && addStopToFavorites(editing)}><Text style={styles.favoriteFromStopText}>♡ 加入個人收藏</Text></Pressable>
               <Pressable style={styles.primaryButton} onPress={saveNote}><Text style={styles.primaryButtonText}>儲存景點資料</Text></Pressable>
+              <Pressable style={styles.deleteStopButton} onPress={deleteEditingStop}><Text style={styles.deleteStopText}>刪除此景點</Text></Pressable>
               <Pressable style={styles.cancelButton} onPress={() => setEditing(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
             </View>
           </View>
@@ -3705,5 +3856,35 @@ const styles = StyleSheet.create({
   ,
   addressLookupButton: { alignSelf: "flex-start", backgroundColor: "#E9EDF5", borderRadius: 11, paddingHorizontal: 14, paddingVertical: 10, marginTop: 8 },
   addressLookupText: { color: "#536783", fontSize: 11, fontWeight: "900" },
-  addressFoundText: { color: "#718099", fontSize: 10, marginTop: 7 }
+  addressFoundText: { color: "#718099", fontSize: 10, marginTop: 7 },
+  routeLegend: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12 },
+  routeLegendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  routeLegendDot: { width: 10, height: 10, borderRadius: 5 },
+  routeLegendText: { color: "#5F5851", fontSize: 10, fontWeight: "800" },
+  allDayCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF", borderRadius: 16, borderWidth: 1, borderColor: "#E9E2DA", marginTop: 10, overflow: "hidden" },
+  allDayStripe: { width: 7, alignSelf: "stretch" },
+  allDayBody: { flex: 1, padding: 14 },
+  allDayTitle: { color: "#343D50", fontSize: 13, fontWeight: "900" },
+  allDaySubtitle: { color: "#817970", fontSize: 10, lineHeight: 16, marginTop: 5 },
+  favoriteHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  favoritePlanner: { backgroundColor: "#EDF1F7", borderRadius: 18, padding: 15, marginBottom: 18, borderWidth: 1, borderColor: "#DDE3EE" },
+  favoritePlannerTitle: { color: "#536783", fontSize: 15, fontWeight: "900" },
+  favoritePlannerText: { color: "#718099", fontSize: 11, lineHeight: 17, marginTop: 5 },
+  favoritePlannerRow: { flexDirection: "row", gap: 9, alignItems: "center", marginTop: 12 },
+  favoriteDayInput: { width: 78, marginTop: 0 },
+  favoriteGenerateButton: { flex: 1, height: 48, borderRadius: 14, backgroundColor: "#536783", alignItems: "center", justifyContent: "center" },
+  favoriteGroup: { marginBottom: 18 },
+  favoriteCountry: { color: "#343D50", fontSize: 15, fontWeight: "900", marginBottom: 4 },
+  favoriteCity: { color: "#65758E", fontSize: 13, fontWeight: "900", marginBottom: 8 },
+  favoriteCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF", borderRadius: 15, padding: 13, marginBottom: 8, borderWidth: 1, borderColor: "#E9E2DA" },
+  favoriteCardText: { flex: 1 },
+  favoriteName: { color: "#2C2925", fontSize: 13, fontWeight: "900" },
+  favoriteAddress: { color: "#887F76", fontSize: 10, lineHeight: 15, marginTop: 4 },
+  favoriteDelete: { color: "#A95D4C", fontSize: 24, paddingHorizontal: 8 },
+  formRow: { flexDirection: "row", gap: 10 },
+  formHalf: { flex: 1 },
+  favoriteFromStopButton: { marginTop: 12, backgroundColor: "#EDF1F7", borderRadius: 13, paddingVertical: 12, alignItems: "center" },
+  favoriteFromStopText: { color: "#536783", fontSize: 12, fontWeight: "900" },
+  deleteStopButton: { marginTop: 10, backgroundColor: "#FBECEA", borderRadius: 13, paddingVertical: 12, alignItems: "center" },
+  deleteStopText: { color: "#A5443C", fontSize: 12, fontWeight: "900" }
 });

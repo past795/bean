@@ -7,10 +7,13 @@ const MAP_HEIGHT = 300;
 const escapeForHtml = (value: unknown) =>
   JSON.stringify(value).replace(/</g, "\\u003c");
 
-export function RouteMap({ stops }: { stops: Stop[]; dayId: string }) {
+type RouteMapDay = { dayId: string; label: string; color: string; stops: Stop[] };
+
+export function RouteMap({ stops, days }: { stops: Stop[]; dayId: string; days?: RouteMapDay[] }) {
+  const sourceDays = days?.length ? days : [{ dayId: "single", label: "今日", color: "#E98268", stops }];
   const located = useMemo(
-    () => stops.filter((stop) => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude)),
-    [stops]
+    () => sourceDays.flatMap((day) => day.stops.filter((stop) => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude)).map((stop) => ({ ...stop, dayLabel: day.label, color: day.color }))),
+    [stops, days]
   );
 
   if (located.length === 0) {
@@ -27,7 +30,14 @@ export function RouteMap({ stops }: { stops: Stop[]; dayId: string }) {
     latitude: stop.latitude!,
     longitude: stop.longitude!,
     title: stop.title,
-    number: index + 1
+    number: index + 1,
+    dayLabel: stop.dayLabel,
+    color: stop.color
+  }));
+  const routeDays = sourceDays.map((day) => ({
+    label: day.label,
+    color: day.color,
+    points: day.stops.filter((stop) => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude)).map((stop) => [stop.latitude!, stop.longitude!])
   }));
 
   const html = `<!doctype html>
@@ -36,19 +46,21 @@ export function RouteMap({ stops }: { stops: Stop[]; dayId: string }) {
 <style>
 html,body,#map{height:100%;margin:0;background:#e7eeea}
 .leaflet-control-attribution{font-size:8px}
-.bean-pin{width:30px;height:30px;border-radius:50%;background:#183f39;color:white;border:3px solid white;display:flex;align-items:center;justify-content:center;font:900 12px Arial;box-shadow:0 3px 8px rgba(16,46,41,.3)}
+.bean-pin{width:30px;height:30px;border-radius:50%;color:white;border:3px solid white;display:flex;align-items:center;justify-content:center;font:900 12px Arial;box-shadow:0 3px 8px rgba(16,46,41,.3)}
 </style></head><body><div id="map"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const points=${escapeForHtml(points)};
+const routeDays=${escapeForHtml(routeDays)};
 const map=L.map('map',{zoomControl:true,scrollWheelZoom:true,touchZoom:true});
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
 const latlngs=points.map(p=>[p.latitude,p.longitude]);
 points.forEach(p=>{
-  const icon=L.divIcon({className:'',html:'<div class="bean-pin">'+p.number+'</div>',iconSize:[36,36],iconAnchor:[18,18]});
-  L.marker([p.latitude,p.longitude],{icon}).addTo(map).bindPopup('<b>'+String(p.title).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))+'</b>');
+  const icon=L.divIcon({className:'',html:'<div class="bean-pin" style="background:'+p.color+'">'+p.number+'</div>',iconSize:[36,36],iconAnchor:[18,18]});
+  L.marker([p.latitude,p.longitude],{icon}).addTo(map).bindPopup('<b>'+p.dayLabel+'・'+String(p.title).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))+'</b>');
 });
-if(latlngs.length>1){L.polyline(latlngs,{color:'#f06449',weight:5,opacity:.9}).addTo(map);map.fitBounds(latlngs,{padding:[35,35]});}
+routeDays.forEach(day=>{if(day.points.length>1)L.polyline(day.points,{color:day.color,weight:5,opacity:.9}).addTo(map);});
+if(latlngs.length>1){map.fitBounds(latlngs,{padding:[35,35]});}
 else{map.setView(latlngs[0],15);}
 </script></body></html>`;
 
