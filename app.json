@@ -2,7 +2,7 @@
   "expo": {
     "name": "豆遊",
     "slug": "travel-companion",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "orientation": "portrait",
     "icon": "./assets/douyou-icon.png",
     "userInterfaceStyle": "light",
@@ -10,7 +10,7 @@
       "icon": "./assets/douyou-icon.png",
       "supportsTablet": false,
       "bundleIdentifier": "com.personal.travelcompanion",
-      "buildNumber": "1"
+      "buildNumber": "2"
     },
     "web": {
       "favicon": "./assets/douyou-icon.png"
