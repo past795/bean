@@ -211,6 +211,12 @@ type CloudLinks = Record<string, CloudLink>;
 
 type RouteMode = "driving" | "walking" | "transit" | "taxi";
 type GoogleUser = { sub: string; name: string; email: string; picture?: string; idToken: string };
+const JY_EMAILS = new Set(["allison@taiwanbar.cc", "past795@gmail.com"]);
+const normalizeGoogleUser = (user: GoogleUser): GoogleUser =>
+  JY_EMAILS.has(user.email.trim().toLowerCase()) ? { ...user, name: "JY" } : user;
+const googleMemberId = (user: GoogleUser) =>
+  JY_EMAILS.has(user.email.trim().toLowerCase()) ? "person:jy" : `google:${user.sub}`;
+const WEB_APP_ICON = { uri: "/bean/apple-touch-icon.png?v=83630ed0dd00" };
 
 const formatCloudDateTime = (value: unknown) => {
   const text = String(value || "");
@@ -655,8 +661,11 @@ export default function App() {
   useEffect(() => {
     AsyncStorage.getItem(AUTH_KEY).then((value) => {
       if (!value) return;
-      const saved = JSON.parse(value) as GoogleUser;
-      if (isGoogleTokenFresh(saved.idToken)) setGoogleUser(saved);
+      const saved = normalizeGoogleUser(JSON.parse(value) as GoogleUser);
+      if (isGoogleTokenFresh(saved.idToken)) {
+        setGoogleUser(saved);
+        AsyncStorage.setItem(AUTH_KEY, JSON.stringify(saved)).catch(() => undefined);
+      }
       else AsyncStorage.removeItem(AUTH_KEY).catch(() => undefined);
     }).catch(() => undefined).finally(() => setAuthReady(true));
   }, []);
@@ -939,7 +948,7 @@ export default function App() {
         "主要幣別": tripExpenses[0]?.currency || "TWD"
       },
       member: {
-        "成員ID": link.memberId || (googleUser ? `google:${googleUser.sub}` : `owner-${Date.now()}`),
+        "成員ID": link.memberId || (googleUser ? googleMemberId(googleUser) : `owner-${Date.now()}`),
         "顯示名稱": link.memberName || googleUser?.name || "建立者",
         "角色": "owner"
       }
@@ -1144,7 +1153,7 @@ export default function App() {
           tripId: activeTrip.id,
           inviteCode: link.inviteCode,
           member: {
-            "成員ID": link.memberId || `google:${googleUser.sub}`,
+            "成員ID": link.memberId || googleMemberId(googleUser),
             "顯示名稱": link.memberName || googleUser.name,
             "角色": link.role || "member"
           }
@@ -1661,13 +1670,14 @@ export default function App() {
   const handleGoogleCredential = async (credential: string) => {
     try {
       const payload = JSON.parse(decodeURIComponent(Array.prototype.map.call(atob(credential.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")), (char: string) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`).join("")));
-      const user: GoogleUser = { sub: String(payload.sub), name: String(payload.name || payload.email || "Google 使用者"), email: String(payload.email || ""), picture: payload.picture, idToken: credential };
+      const user = normalizeGoogleUser({ sub: String(payload.sub), name: String(payload.name || payload.email || "Google 使用者"), email: String(payload.email || ""), picture: payload.picture, idToken: credential });
+      const memberId = googleMemberId(user);
       setGoogleUser(user);
       AsyncStorage.setItem(AUTH_KEY, JSON.stringify(user)).catch(() => undefined);
       const linkedTrips = Object.entries(cloudLinksRef.current);
       await Promise.all(linkedTrips.map(([tripId, link]) => postCloud({
         action: "joinTrip", tripId, inviteCode: link.inviteCode,
-        member: { "成員ID": `google:${user.sub}`, "顯示名稱": user.name, "角色": link.role || "member" }
+        member: { "成員ID": memberId, "顯示名稱": user.name, "角色": link.role || "member" }
       }).catch(() => undefined)));
       setCloudMembers((current) => {
         const next = { ...current };
@@ -1688,12 +1698,12 @@ export default function App() {
         const nextLinks: CloudLinks = {};
         restored.forEach(({ trip, cloud }: { trip: TripPlan; cloud: any }) => {
           const existing = cloudLinksRef.current[trip.id];
-          const myMember = (cloud.members || []).find((row: any) => String(row["成員ID"]) === `google:${user.sub}`);
+          const myMember = (cloud.members || []).find((row: any) => String(row["成員ID"]) === memberId);
           nextLinks[trip.id] = {
             ...existing,
             inviteCode: existing?.inviteCode || "",
             memberName: existing?.memberName || user.name,
-            memberId: `google:${user.sub}`,
+            memberId,
             role: myMember?.["角色"] === "owner" ? "owner" : "member"
           };
         });
@@ -1916,9 +1926,9 @@ export default function App() {
       await postCloud({
         action: "createTrip", inviteCode,
         trip: { "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination, "開始日期": trip.startDate || trip.period, "結束日期": trip.endDate || "", "封面圖片": trip.coverImage || "", "主要幣別": "TWD" },
-        member: { "成員ID": googleUser ? `google:${googleUser.sub}` : `member-${Date.now()}`, "顯示名稱": googleUser?.name || "我", "角色": "owner" }
+        member: { "成員ID": googleUser ? googleMemberId(googleUser) : `member-${Date.now()}`, "顯示名稱": googleUser?.name || "我", "角色": "owner" }
       });
-      saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: googleUser?.name || "我", memberId: googleUser ? `google:${googleUser.sub}` : undefined, role: "owner" } });
+      saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: googleUser?.name || "我", memberId: googleUser ? googleMemberId(googleUser) : undefined, role: "owner" } });
       await syncTripNow(trip, []);
       Alert.alert("旅行已建立並同步", `旅行 ID：${trip.id}\n邀請碼：${inviteCode}\n\n把這兩項傳給旅伴即可加入。`);
     } catch {
@@ -1947,9 +1957,9 @@ export default function App() {
     try {
       const data = await postCloud({
         action: "joinTrip", tripId, inviteCode,
-        member: { "成員ID": googleUser ? `google:${googleUser.sub}` : `member-${Date.now()}`, "顯示名稱": joinMemberName.trim(), "角色": "member" }
+        member: { "成員ID": googleUser ? googleMemberId(googleUser) : `member-${Date.now()}`, "顯示名稱": googleUser ? googleUser.name : joinMemberName.trim(), "角色": "member" }
       });
-      const myMemberId = googleUser ? `google:${googleUser.sub}` : undefined;
+      const myMemberId = googleUser ? googleMemberId(googleUser) : undefined;
       const myMember = (data.members || []).find((row: any) => myMemberId && String(row["成員ID"]) === myMemberId);
       const joinedRole: CloudLink["role"] = myMember?.["角色"] === "owner" ? "owner" : "member";
       saveCloudLinks({ ...cloudLinksRef.current, [tripId]: { inviteCode, memberName: joinMemberName.trim(), memberId: myMemberId, role: joinedRole } });
@@ -2617,7 +2627,7 @@ export default function App() {
     return (
       <SafeAreaView style={[styles.safe, styles.authGate]}>
         <View style={styles.authCard}>
-          <Image source={require("./assets/douyou-icon.png")} style={styles.authAppIcon} />
+          <Image source={Platform.OS === "web" ? WEB_APP_ICON : require("./assets/douyou-icon.png")} style={styles.authAppIcon} />
           <Text style={styles.authEyebrow}>DOUYOU TRIP</Text>
           <Text style={styles.authTitle}>登入豆遊</Text>
           <Text style={styles.authDescription}>請先登入 Google 帳號。登入後只會顯示這個帳號建立或已加入的旅行。</Text>
@@ -2911,7 +2921,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.10</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.11</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (

@@ -1,5 +1,7 @@
 const SPREADSHEET_ID = '1bN8oCtp39H1HFBhvUmjAdp_hVDP-dYJRWRa0HT5gmho';
 const GOOGLE_CLIENT_ID = '280761518317-gdvrt4provk183vi87j6uoapmu5umn30.apps.googleusercontent.com';
+const JY_EMAILS = ['allison@taiwanbar.cc', 'past795@gmail.com'];
+const JY_MEMBER_ID = 'person:jy';
 
 const TABLES = {
   trips: {
@@ -52,7 +54,8 @@ function doGet(e) {
     }
     if (action === 'myTrips') {
       const user = verifyGoogleToken_(required_(e.parameter.idToken, '請先登入 Google'));
-      const memberId = 'google:' + user.sub;
+      const identity = migrateIdentity_(user);
+      const memberId = identity.memberId;
       const tripIds = readObjects_(TABLES.members)
         .filter(row => String(row['成員ID']) === memberId)
         .map(row => String(row['旅行ID']));
@@ -60,7 +63,8 @@ function doGet(e) {
     }
     if (action === 'myArchivedTrips') {
       const user = verifyGoogleToken_(required_(e.parameter.idToken, '請先登入 Google'));
-      const memberId = 'google:' + user.sub;
+      const identity = migrateIdentity_(user);
+      const memberId = identity.memberId;
       const ownerTripIds = readObjects_(TABLES.members)
         .filter(row => String(row['成員ID']) === memberId && String(row['角色']) === 'owner')
         .map(row => String(row['旅行ID']));
@@ -80,9 +84,10 @@ function doPost(e) {
     if (body.action === 'createTrip') {
       if (body.idToken) {
         const user = verifyGoogleToken_(body.idToken);
+        const identity = migrateIdentity_(user);
         body.member = body.member || {};
-        body.member['成員ID'] = 'google:' + user.sub;
-        body.member['顯示名稱'] = body.member['顯示名稱'] || user.name || user.email;
+        body.member['成員ID'] = identity.memberId;
+        body.member['顯示名稱'] = identity.displayName;
       }
       return json_({ ok: true, data: createTrip_(body) });
     }
@@ -98,8 +103,9 @@ function doPost(e) {
       const user = body.idToken ? verifyGoogleToken_(body.idToken) : null;
       const member = body.member || {};
       if (user) {
-        member['成員ID'] = 'google:' + user.sub;
-        member['顯示名稱'] = member['顯示名稱'] || user.name || user.email;
+        const identity = migrateIdentity_(user);
+        member['成員ID'] = identity.memberId;
+        member['顯示名稱'] = identity.displayName;
       }
       upsertMember_(tripId, member);
       return json_({ ok: true, data: readTrip_(tripId) });
@@ -238,7 +244,7 @@ function verifyAccess_(tripId, inviteCode, idToken) {
   if (idToken) {
     try {
       const user = verifyGoogleToken_(idToken);
-      const memberId = 'google:' + user.sub;
+      const memberId = migrateIdentity_(user).memberId;
       const allowed = readObjects_(TABLES.members).some(row =>
         String(row['旅行ID']) === String(tripId) && String(row['成員ID']) === memberId
       );
@@ -253,10 +259,52 @@ function verifyAccess_(tripId, inviteCode, idToken) {
 
 function verifyOwner_(tripId, idToken) {
   const user = verifyGoogleToken_(idToken);
-  const memberId = 'google:' + user.sub;
+  const memberId = migrateIdentity_(user).memberId;
   const owner = readObjects_(TABLES.members).some(row => String(row['旅行ID']) === String(tripId) && String(row['成員ID']) === memberId && String(row['角色']) === 'owner');
   if (!owner) throw new Error('只有旅行建立者可以打包或復原旅行');
   return user;
+}
+
+function identityForUser_(user) {
+  const email = String(user.email || '').trim().toLowerCase();
+  if (JY_EMAILS.indexOf(email) >= 0) return { memberId: JY_MEMBER_ID, displayName: 'JY' };
+  return { memberId: 'google:' + user.sub, displayName: user.name || user.email || 'Google 使用者' };
+}
+
+function migrateIdentity_(user) {
+  const identity = identityForUser_(user);
+  if (identity.memberId !== JY_MEMBER_ID) return identity;
+  const rows = readObjects_(TABLES.members);
+  const currentGoogleId = 'google:' + user.sub;
+  const relevantTripIds = {};
+  rows.forEach(row => {
+    const memberId = String(row['成員ID'] || '');
+    if (memberId === currentGoogleId || memberId === JY_MEMBER_ID) relevantTripIds[String(row['旅行ID'])] = true;
+  });
+  if (!Object.keys(relevantTripIds).length) return identity;
+  const aliasNames = ['jy', 'allison zheng', 'allison', 'alle', 'zheng'];
+  const merged = [];
+  Object.keys(relevantTripIds).forEach(tripId => {
+    const candidates = rows.filter(row => {
+      if (String(row['旅行ID']) !== tripId) return false;
+      const id = String(row['成員ID'] || '');
+      const name = String(row['顯示名稱'] || '').trim().toLowerCase();
+      return id === currentGoogleId || id === JY_MEMBER_ID || aliasNames.indexOf(name) >= 0;
+    });
+    if (!candidates.length) return;
+    const owner = candidates.some(row => String(row['角色']) === 'owner');
+    const joinedAt = candidates.map(row => String(row['加入時間'] || '')).filter(Boolean).sort()[0] || new Date().toISOString();
+    merged.push({ '旅行ID': tripId, '成員ID': JY_MEMBER_ID, '顯示名稱': 'JY', '角色': owner ? 'owner' : 'member', '加入時間': joinedAt, '更新時間': new Date().toISOString() });
+  });
+  const kept = rows.filter(row => {
+    const tripId = String(row['旅行ID']);
+    if (!relevantTripIds[tripId]) return true;
+    const id = String(row['成員ID'] || '');
+    const name = String(row['顯示名稱'] || '').trim().toLowerCase();
+    return !(id === currentGoogleId || id === JY_MEMBER_ID || aliasNames.indexOf(name) >= 0);
+  });
+  replaceObjects_(TABLES.members, kept.concat(merged));
+  return identity;
 }
 
 function archiveTrip_(tripId, email) {
