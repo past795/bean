@@ -19,6 +19,19 @@ html = html.replace(
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="豆遊" />
+    <meta property="og:title" content="豆遊｜一起規劃旅行" />
+    <meta property="og:description" content="行程、住宿、工具箱與旅伴記帳，都放在同一個地方。" />
+    <meta property="og:url" content="https://past795.github.io/bean/" />
+    <meta property="og:image" content="https://past795.github.io/bean/apple-touch-icon.png?v=${iconVersion}" />
+    <meta property="og:image:secure_url" content="https://past795.github.io/bean/apple-touch-icon.png?v=${iconVersion}" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1254" />
+    <meta property="og:image:height" content="1254" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="豆遊｜一起規劃旅行" />
+    <meta name="twitter:image" content="https://past795.github.io/bean/apple-touch-icon.png?v=${iconVersion}" />
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <link rel="icon" type="image/png" href="/bean/apple-touch-icon.png?v=${iconVersion}" />
     <link rel="shortcut icon" type="image/png" href="/bean/apple-touch-icon.png?v=${iconVersion}" />

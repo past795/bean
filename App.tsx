@@ -38,6 +38,7 @@ const ALL_DAYS_ID = "__all_days__";
 const DAY_ROUTE_COLORS = ["#E98268", "#5E7FA3", "#D3A54A", "#9A72B5", "#4F9A96", "#C96B8A", "#7F8D4E"];
 const SYNC_URL = "https://script.google.com/macros/s/AKfycbx59WE7iqgehx4nsE4xxxp_Q8-eQrd59VSfR4xSa3IlU7lIBtikr1gvG3EZgxWHEOwj/exec";
 const GOOGLE_CLIENT_ID = "280761518317-gdvrt4provk183vi87j6uoapmu5umn30.apps.googleusercontent.com";
+const SHARE_URL = "https://past795.github.io/bean/?share=2026080212";
 const buildInviteMessage = (tripId: string, inviteCode: string) => `一起編輯豆遊行程 ✈️
 
 加入步驟：
@@ -48,7 +49,7 @@ const buildInviteMessage = (tripId: string, inviteCode: string) => `一起編輯
 
 旅行 ID：${tripId}
 邀請碼：${inviteCode}
-豆遊網站：https://past795.github.io/bean/
+豆遊網站：${SHARE_URL}
 
 加入成功後，行程與記帳會自動同步。`;
 const isGoogleTokenFresh = (token: string) => {
@@ -615,6 +616,9 @@ export default function App() {
   const [hotelFacilities, setHotelFacilities] = useState("");
   const [hotelFrontDesk, setHotelFrontDesk] = useState("");
   const [hotelNote, setHotelNote] = useState("");
+  const [hotelSuggestions, setHotelSuggestions] = useState<any[]>([]);
+  const [hotelSearchStatus, setHotelSearchStatus] = useState<"idle" | "loading" | "empty">("idle");
+  const suppressNextHotelSearchRef = useRef(false);
   const [weatherData, setWeatherData] = useState<any>(null);
   const [weatherPlace, setWeatherPlace] = useState("");
   const [weatherLoading, setWeatherLoading] = useState(false);
@@ -826,6 +830,38 @@ export default function App() {
     }, 450);
     return () => clearTimeout(timer);
   }, [newStopTitle, addingStop, activeTrip.destination]);
+
+  useEffect(() => {
+    const title = hotelName.trim();
+    if (suppressNextHotelSearchRef.current) {
+      suppressNextHotelSearchRef.current = false;
+      setHotelSuggestions([]);
+      setHotelSearchStatus("idle");
+      return;
+    }
+    if (!addingAccommodation || title.length < 2) {
+      setHotelSuggestions([]);
+      setHotelSearchStatus("idle");
+      return;
+    }
+    setHotelSearchStatus("loading");
+    const timer = setTimeout(async () => {
+      try {
+        const destination = activeTrip.destination;
+        const countryFilter = /韓國|釜山|首爾|濟州|busan|seoul|jeju/i.test(destination) ? "&countrycodes=kr"
+          : /日本|沖繩|東京|大阪|京都|japan|okinawa|tokyo|osaka|kyoto/i.test(destination) ? "&countrycodes=jp" : "";
+        const query = `${title} hotel ${destination}`.trim();
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&addressdetails=1&extratags=1&namedetails=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryFilter}`);
+        const rows = response.ok ? await response.json() : [];
+        setHotelSuggestions(Array.isArray(rows) ? rows : []);
+        setHotelSearchStatus(Array.isArray(rows) && rows.length ? "idle" : "empty");
+      } catch {
+        setHotelSuggestions([]);
+        setHotelSearchStatus("empty");
+      }
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [hotelName, addingAccommodation, activeTrip.destination]);
 
   const selectDay = (dayId: string) => {
     setSelectedDayId(dayId);
@@ -2004,7 +2040,7 @@ export default function App() {
       newStopRouteMode === "walking" ? "步行" :
       newStopRouteMode === "transit" ? (/公車/.test(transport) ? "公車" : "地鐵") :
       newStopRouteMode === "taxi" ? "計程車" : "其他";
-    updateStops([...selectedDay.stops, {
+    const nextStop: Stop = {
       id: `${selectedDay.id}-stop-${Date.now()}`,
       time: newStopTime.trim() || "彈性",
       title,
@@ -2018,8 +2054,10 @@ export default function App() {
       longitude: newStopLongitude,
       durationMinutes: Math.max(0, Number.parseInt(newStopDuration, 10) || 0),
       routeMode: newStopRouteMode
-    }]);
+    };
     setAddingStop(false);
+    setPlaceSuggestions([]);
+    setPlaceSuggestionStatus("idle");
     setNewStopTitle("");
     setNewStopTime("");
     setNewStopAddress("");
@@ -2031,6 +2069,8 @@ export default function App() {
     setNewStopLatitude(undefined);
     setNewStopLongitude(undefined);
     setAddressLookupStatus("idle");
+    updateStops([...selectedDay.stops, nextStop]);
+    showToast(`已把「${title}」加入 ${selectedDay.label}`);
   };
 
   const findStopAddress = async () => {
@@ -2282,6 +2322,7 @@ export default function App() {
       Alert.alert("請填寫住宿名稱與入住日期");
       return;
     }
+    const savedName = hotelName.trim();
     updateActiveTrip({ accommodations: [...activeTrip.accommodations, {
       id: `hotel-${Date.now()}`, name: hotelName.trim(), period: hotelPeriod.trim(),
       address: hotelAddress.trim(), checkIn: hotelCheckIn.trim(), checkOut: hotelCheckOut.trim(),
@@ -2290,6 +2331,37 @@ export default function App() {
     setAddingAccommodation(false);
     setHotelName(""); setHotelPeriod(""); setHotelAddress(""); setHotelCheckIn(""); setHotelCheckOut("");
     setHotelFacilities(""); setHotelFrontDesk(""); setHotelNote("");
+    setHotelSuggestions([]); setHotelSearchStatus("idle");
+    showToast(`已新增住宿「${savedName}」`);
+  };
+
+  const selectHotelSuggestion = (place: any) => {
+    suppressNextHotelSearchRef.current = true;
+    const details = place?.namedetails || {};
+    const name = String(details["name:zh-Hant"] || details["name:zh"] || details["name:en"] || place?.name || String(place?.display_name || "").split(",")[0]);
+    const address = String(place?.display_name || "");
+    const verified = starterTrips[0]?.accommodations.find((hotel) => {
+      const haystack = `${name} ${address}`.toLowerCase();
+      const parts = hotel.name.toLowerCase().split(" ").filter((part) => part.length > 2).slice(0, 2);
+      return haystack.includes(hotel.name.toLowerCase()) || (parts.length > 0 && parts.every((part) => haystack.includes(part)));
+    });
+    const tags = place?.extratags || {};
+    const facilities = [
+      tags.internet_access === "wlan" || tags.internet_access === "yes" ? "Wi-Fi" : "",
+      tags.wheelchair === "yes" ? "無障礙設施" : "",
+      tags.smoking === "no" ? "禁菸" : "",
+      tags.stars ? `${tags.stars} 星級` : ""
+    ].filter(Boolean).join("、");
+    const contact = [tags.phone ? `電話：${tags.phone}` : "", tags.website ? `官網：${tags.website}` : ""].filter(Boolean).join("；");
+    setHotelName(verified?.name || name);
+    setHotelAddress(verified?.address || address);
+    setHotelCheckIn(verified?.checkIn || "");
+    setHotelCheckOut(verified?.checkOut || "");
+    setHotelFacilities(verified?.facilities || facilities);
+    setHotelFrontDesk(verified?.frontDesk || "");
+    setHotelNote(verified?.note || [contact, "入住退房時間與完整設施請以住宿方最新公告為準。"].filter(Boolean).join("\n"));
+    setHotelSuggestions([]);
+    setHotelSearchStatus("idle");
   };
 
   const deleteAccommodation = (id: string) => {
@@ -2921,7 +2993,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.11</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.12</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -3239,7 +3311,10 @@ export default function App() {
                 <View style={styles.detailBlock}>
                   {addingAccommodation ? (
                     <>
-                      <Text style={styles.fieldLabel}>住宿名稱 *</Text><TextInput value={hotelName} onChangeText={setHotelName} placeholder="例如：Hotel Collective" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                      <Text style={styles.fieldLabel}>住宿名稱 *</Text><TextInput value={hotelName} onChangeText={setHotelName} placeholder="輸入飯店名稱，從候選結果選擇" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                      {hotelSearchStatus === "loading" && <Text style={styles.placeSearchStatus}>正在搜尋這趟旅行附近的住宿……</Text>}
+                      {hotelSearchStatus === "empty" && <Text style={styles.placeSearchError}>找不到住宿，請加上城市、區域或英文名稱。</Text>}
+                      {!!hotelSuggestions.length && <View style={styles.placeSuggestions}>{hotelSuggestions.map((place, index) => <Pressable key={`${place.place_id || index}`} style={styles.placeSuggestion} onPress={() => selectHotelSuggestion(place)}><Text style={styles.placeSuggestionName}>{localizedPlaceName(place)}</Text><Text style={styles.placeSuggestionAddress} numberOfLines={2}>{String(place.display_name || "")}</Text></Pressable>)}</View>}
                       <Text style={styles.fieldLabel}>住宿日期 *</Text><TextInput value={hotelPeriod} onChangeText={setHotelPeriod} placeholder="10/10–10/13" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                       <Text style={styles.fieldLabel}>地址</Text><TextInput value={hotelAddress} onChangeText={setHotelAddress} placeholder="完整地址" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                       <View style={styles.fieldRow}>
