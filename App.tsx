@@ -25,6 +25,9 @@ import { shoppingItems } from "./src/data/shopping";
 import { initialTrip as busanInitialTrip } from "./src/data/trip";
 import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
+import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signOut as firebaseSignOut } from "firebase/auth";
+import { firebaseAuth } from "./src/firebase";
+import { ensureFirestoreUser, firestorePersonId, listenFirestoreFavorites, listenFirestoreTrip, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
 
 type Tab = "home" | "itinerary" | "favorites" | "toolbox" | "expenses";
 type FavoritePlace = { id: string; name: string; address: string; country: string; city: string; latitude?: number; longitude?: number; note?: string; openingHours?: string };
@@ -212,7 +215,7 @@ type CloudLink = { inviteCode: string; memberName?: string; memberId?: string; r
 type CloudLinks = Record<string, CloudLink>;
 
 type RouteMode = "driving" | "walking" | "transit" | "taxi";
-type GoogleUser = { sub: string; name: string; email: string; picture?: string; idToken: string };
+type GoogleUser = { sub: string; name: string; email: string; picture?: string; idToken: string; firebaseUid?: string };
 const JY_EMAILS = new Set(["allison@taiwanbar.cc", "past795@gmail.com"]);
 const normalizeGoogleUser = (user: GoogleUser): GoogleUser =>
   JY_EMAILS.has(user.email.trim().toLowerCase()) ? { ...user, name: "JY" } : user;
@@ -558,6 +561,11 @@ export default function App() {
   const [batchFavoriteCity, setBatchFavoriteCity] = useState("");
   const [batchFavoriteStatus, setBatchFavoriteStatus] = useState("");
   const [favoriteBulkUpdating, setFavoriteBulkUpdating] = useState(false);
+  const [tripsLoaded, setTripsLoaded] = useState(false);
+  const [expensesLoaded, setExpensesLoaded] = useState(false);
+  const [favoritesLoaded, setFavoritesLoaded] = useState(false);
+  const [cloudLinksLoaded, setCloudLinksLoaded] = useState(false);
+  const [firestoreConnected, setFirestoreConnected] = useState(false);
   const [archivedTrips, setArchivedTrips] = useState<any[]>([]);
   const [archiveTripTarget, setArchiveTripTarget] = useState<TripPlan | null>(null);
   const [archiveEmail, setArchiveEmail] = useState("");
@@ -672,18 +680,43 @@ export default function App() {
   const cloudLinksRef = useRef<CloudLinks>({});
   const itineraryListRef = useRef<any>(null);
   const geocodedDaysRef = useRef<Set<string>>(new Set());
+  const firestoreStartedRef = useRef("");
+  const firestoreStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firestoreSeededTripsRef = useRef<Set<string>>(new Set());
 
-  useEffect(() => {
-    AsyncStorage.getItem(AUTH_KEY).then((value) => {
-      if (!value) return;
-      const saved = normalizeGoogleUser(JSON.parse(value) as GoogleUser);
-      if (isGoogleTokenFresh(saved.idToken)) {
-        setGoogleUser(saved);
-        AsyncStorage.setItem(AUTH_KEY, JSON.stringify(saved)).catch(() => undefined);
+  useEffect(() => onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
+    try {
+      const savedText = await AsyncStorage.getItem(AUTH_KEY);
+      const saved = savedText ? normalizeGoogleUser(JSON.parse(savedText) as GoogleUser) : null;
+      if (firebaseUser) {
+        const firebaseToken = await firebaseUser.getIdToken();
+        const user = normalizeGoogleUser({
+          sub: saved?.sub || firebaseUser.uid,
+          name: firebaseUser.displayName || saved?.name || firebaseUser.email || "Google 使用者",
+          email: firebaseUser.email || saved?.email || "",
+          picture: firebaseUser.photoURL || saved?.picture || undefined,
+          idToken: saved && isGoogleTokenFresh(saved.idToken) ? saved.idToken : firebaseToken,
+          firebaseUid: firebaseUser.uid
+        });
+        setGoogleUser(user);
+        await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(user));
+      } else if (saved && isGoogleTokenFresh(saved.idToken)) {
+        try {
+          await signInWithCredential(firebaseAuth, GoogleAuthProvider.credential(saved.idToken));
+          return;
+        } catch {
+          setGoogleUser(saved);
+        }
+      } else {
+        setGoogleUser(null);
+        await AsyncStorage.removeItem(AUTH_KEY);
       }
-      else AsyncStorage.removeItem(AUTH_KEY).catch(() => undefined);
-    }).catch(() => undefined).finally(() => setAuthReady(true));
-  }, []);
+    } catch {
+      setGoogleUser(null);
+    } finally {
+      setAuthReady(true);
+    }
+  }), []);
 
   useEffect(() => {
     AsyncStorage.getItem(CLOUD_MEMBER_KEY).then((value) => {
@@ -714,13 +747,13 @@ export default function App() {
           setSelectedDayId(savedTrips[0]!.days[0]?.id ?? "");
         }
       }
-    }).catch(() => undefined);
+    }).catch(() => undefined).finally(() => setTripsLoaded(true));
   }, []);
 
   useEffect(() => {
     AsyncStorage.getItem(EXPENSE_KEY).then((value) => {
       if (value) setExpenses(JSON.parse(value));
-    }).catch(() => undefined);
+    }).catch(() => undefined).finally(() => setExpensesLoaded(true));
   }, []);
 
   useEffect(() => {
@@ -741,12 +774,15 @@ export default function App() {
       });
       setFavorites(repaired);
       if (JSON.stringify(repaired) !== JSON.stringify(parsed)) AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(repaired)).catch(() => undefined);
-    }).catch(() => undefined);
+    }).catch(() => undefined).finally(() => setFavoritesLoaded(true));
   }, []);
 
   const persistFavorites = (next: FavoritePlace[]) => {
     setFavorites(next);
     AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(next)).catch(() => undefined);
+    if (firestoreConnected && googleUser?.firebaseUid) {
+      saveFirestoreFavorites(firestorePersonId(googleUser.email, googleUser.firebaseUid), next).catch(() => undefined);
+    }
   };
 
   useEffect(() => {
@@ -755,7 +791,7 @@ export default function App() {
       const links = JSON.parse(value) as CloudLinks;
       cloudLinksRef.current = links;
       setCloudLinks(links);
-    }).catch(() => undefined);
+    }).catch(() => undefined).finally(() => setCloudLinksLoaded(true));
   }, []);
 
   const activeTrip = trips.find((trip) => trip.id === activeTripId) ?? trips[0]!;
@@ -770,6 +806,57 @@ export default function App() {
     (countries[country]![city] ||= []).push(place);
     return countries;
   }, {} as Record<string, Record<string, FavoritePlace[]>>), [favorites]);
+
+  useEffect(() => {
+    if (!googleUser?.firebaseUid || !tripsLoaded || !expensesLoaded || !favoritesLoaded || !cloudLinksLoaded) return;
+    const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
+    const migrationKey = `${personId}:${trips.map((trip) => trip.id).join(",")}`;
+    if (firestoreStartedRef.current === migrationKey) return;
+    firestoreStartedRef.current = migrationKey;
+    let cancelled = false;
+    let stopFavorites: (() => void) | undefined;
+    (async () => {
+      try {
+        await ensureFirestoreUser(personId, { name: googleUser.name, email: googleUser.email, picture: googleUser.picture });
+        await seedFirestoreFavorites(personId, favorites);
+        for (const trip of trips) {
+          const role = cloudLinksRef.current[trip.id]?.role || "owner";
+          await saveFirestoreTrip(personId, role, trip, expenses[trip.id] || []);
+          firestoreSeededTripsRef.current.add(trip.id);
+        }
+        if (cancelled) return;
+        stopFavorites = listenFirestoreFavorites(personId, (incoming) => {
+          setFavorites(incoming as FavoritePlace[]);
+          AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(incoming)).catch(() => undefined);
+        });
+        setFirestoreConnected(true);
+      } catch (error: any) {
+        firestoreStartedRef.current = "";
+        setFirestoreConnected(false);
+        setSyncErrorMessage(`Firebase 尚未連線：${error?.message || "請確認 Firestore 規則"}`);
+      }
+    })();
+    return () => { cancelled = true; stopFavorites?.(); };
+  }, [googleUser?.firebaseUid, tripsLoaded, expensesLoaded, favoritesLoaded, cloudLinksLoaded]);
+
+  useEffect(() => {
+    if (!firestoreConnected || !activeTrip?.id) return;
+    return listenFirestoreTrip(activeTrip.id, (incomingTrip, incomingExpenses) => {
+      if (Date.now() - localMutationAtRef.current < 1800) return;
+      setTrips((current) => {
+        const next = current.some((trip) => trip.id === incomingTrip.id)
+          ? current.map((trip) => trip.id === incomingTrip.id ? incomingTrip as TripPlan : trip)
+          : [...current, incomingTrip as TripPlan];
+        AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
+        return next;
+      });
+      setExpenses((current) => {
+        const next = { ...current, [incomingTrip.id]: incomingExpenses as Expense[] };
+        AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
+        return next;
+      });
+    });
+  }, [firestoreConnected, activeTrip?.id]);
   useEffect(() => {
     const count = inclusiveDayCount(favoriteArrivalDate.replaceAll("/", "-"), favoriteDepartureDate.replaceAll("/", "-"));
     if (count) setFavoriteDayCount(String(Math.min(14, count)));
@@ -1051,7 +1138,26 @@ export default function App() {
     });
   };
 
+  const queueFirestoreState = (trip: TripPlan, tripExpenses: Expense[]) => {
+    if (!firestoreConnected || !googleUser?.firebaseUid) return;
+    if (firestoreStateTimerRef.current) clearTimeout(firestoreStateTimerRef.current);
+    firestoreStateTimerRef.current = setTimeout(() => {
+      firestoreStateTimerRef.current = null;
+      const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid!);
+      updateFirestoreTripState(personId, trip, tripExpenses).catch((error: any) => {
+        setSyncErrorMessage(`Firebase 同步失敗：${error?.message || "請稍後重試"}`);
+      });
+    }, 350);
+  };
+
   const syncTripNow = async (trip: TripPlan, tripExpenses: Expense[]) => {
+    queueFirestoreState(trip, tripExpenses);
+    if (firestoreConnected) {
+      tripDirtyRef.current = false;
+      setSyncStatus("synced");
+      setSyncErrorMessage("");
+      return;
+    }
     if (uploadingRef.current) {
       if (syncTimer.current) clearTimeout(syncTimer.current);
       syncTimer.current = setTimeout(() => { syncTimer.current = null; syncTripNow(trip, tripExpenses); }, 1200);
@@ -1097,6 +1203,12 @@ export default function App() {
   };
 
   const syncExpensesNow = async (trip: TripPlan, tripExpenses: Expense[]) => {
+    queueFirestoreState(trip, tripExpenses);
+    if (firestoreConnected) {
+      setSyncStatus("synced");
+      setSyncErrorMessage("");
+      return;
+    }
     if (uploadingRef.current) {
       if (syncTimer.current) clearTimeout(syncTimer.current);
       syncTimer.current = setTimeout(() => { syncTimer.current = null; syncExpensesNow(trip, tripExpenses); }, 1200);
@@ -1143,6 +1255,7 @@ export default function App() {
   };
 
   const queueCloudSync = (trip: TripPlan, tripExpenses: Expense[]) => {
+    if (firestoreConnected) { queueFirestoreState(trip, tripExpenses); return; }
     if (!cloudLinksRef.current[trip.id]) return;
     if (syncTimer.current) clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => {
@@ -1235,7 +1348,7 @@ export default function App() {
 
   useEffect(() => {
     const link = cloudLinks[activeTrip.id];
-    if (!googleUser || !link) return;
+    if (!googleUser || !link || firestoreConnected) return;
     let cancelled = false;
     const restoreMyMembership = async () => {
       try {
@@ -1262,7 +1375,7 @@ export default function App() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [activeTrip.id, selectedDayId, googleUser?.sub, cloudLinks[activeTrip.id]?.inviteCode]);
+  }, [activeTrip.id, selectedDayId, googleUser?.sub, cloudLinks[activeTrip.id]?.inviteCode, firestoreConnected]);
 
   const persistTrips = (next: TripPlan[]) => {
     localMutationAtRef.current = Date.now();
@@ -1270,7 +1383,10 @@ export default function App() {
     setTrips(next);
     AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
     const changed = next.find((trip) => trip.id === activeTripId);
-    if (changed) queueCloudSync(changed, expenses[changed.id] ?? []);
+    if (changed) {
+      queueFirestoreState(changed, expenses[changed.id] ?? []);
+      queueCloudSync(changed, expenses[changed.id] ?? []);
+    }
   };
 
   const updateStops = (stops: Stop[]) => {
@@ -1791,6 +1907,13 @@ export default function App() {
   };
 
   const selectTrip = (trip: TripPlan) => {
+    if (firestoreConnected && googleUser?.firebaseUid && !firestoreSeededTripsRef.current.has(trip.id)) {
+      const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
+      const role = cloudLinksRef.current[trip.id]?.role || "owner";
+      saveFirestoreTrip(personId, role, trip, expenses[trip.id] || []).then(() => {
+        firestoreSeededTripsRef.current.add(trip.id);
+      }).catch((error: any) => setSyncErrorMessage(`Firebase 建立旅行失敗：${error?.message || "請稍後重試"}`));
+    }
     setActiveTripId(trip.id);
     setSelectedDayId(trip.days[0]?.id ?? "");
     setTab("itinerary");
@@ -1867,7 +1990,8 @@ export default function App() {
   const handleGoogleCredential = async (credential: string) => {
     try {
       const payload = JSON.parse(decodeURIComponent(Array.prototype.map.call(atob(credential.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")), (char: string) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`).join("")));
-      const user = normalizeGoogleUser({ sub: String(payload.sub), name: String(payload.name || payload.email || "Google 使用者"), email: String(payload.email || ""), picture: payload.picture, idToken: credential });
+      const firebaseResult = await signInWithCredential(firebaseAuth, GoogleAuthProvider.credential(credential));
+      const user = normalizeGoogleUser({ sub: String(payload.sub), name: String(payload.name || payload.email || "Google 使用者"), email: String(payload.email || ""), picture: payload.picture, idToken: credential, firebaseUid: firebaseResult.user.uid });
       const memberId = googleMemberId(user);
       setGoogleUser(user);
       AsyncStorage.setItem(AUTH_KEY, JSON.stringify(user)).catch(() => undefined);
@@ -1912,6 +2036,7 @@ export default function App() {
   };
 
   const signOutGoogle = () => {
+    firebaseSignOut(firebaseAuth).catch(() => undefined);
     setGoogleUser(null);
     setTrips(starterTrips);
     setActiveTripId(starterTrips[0]!.id);
@@ -3177,7 +3302,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.14</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.15</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -3193,7 +3318,7 @@ export default function App() {
             </View>
             {cloudLinks[activeTrip.id] && (
               cloudLinks[activeTrip.id]!.inviteCode
-                ? <View style={styles.refreshSyncButton}><Text style={styles.refreshSyncText}>{syncStatus === "syncing" ? "☁ 正在自動同步……" : "● 自動同步已開啟・每 3 秒更新"}</Text></View>
+                ? <View style={styles.refreshSyncButton}><Text style={styles.refreshSyncText}>{firestoreConnected ? "● Firebase 即時同步已開啟" : syncStatus === "syncing" ? "☁ 正在自動同步……" : "● 舊版同步暫時保留"}</Text></View>
                 : <Pressable
                     style={styles.refreshSyncButton}
                     onPress={() => {
