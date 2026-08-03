@@ -1736,8 +1736,20 @@ export default function App() {
     note: place.note || "由收藏景點自動排入", latitude: place.latitude, longitude: place.longitude, openingHours: place.openingHours, durationMinutes: 90
   });
 
+  const coordinateMatchesFavoriteRegion = (place: FavoritePlace, latitude: number, longitude: number) => {
+    const context = `${place.country} ${place.city} ${place.address}`.toLowerCase();
+    if (/大分県|大分縣|oita/.test(context)) return latitude >= 32.65 && latitude <= 33.85 && longitude >= 130.75 && longitude <= 132.25;
+    if (/釜山|busan/.test(context)) return latitude >= 34.75 && latitude <= 35.55 && longitude >= 128.65 && longitude <= 129.55;
+    if (/京都|kyoto/.test(context)) return latitude >= 34.75 && latitude <= 35.35 && longitude >= 135.45 && longitude <= 136.05;
+    if (/大阪|osaka/.test(context)) return latitude >= 34.35 && latitude <= 35.05 && longitude >= 135.05 && longitude <= 135.85;
+    if (/日本|japan/.test(context)) return latitude >= 24 && latitude <= 46.5 && longitude >= 122 && longitude <= 146.5;
+    if (/韓國|南韓|korea/.test(context)) return latitude >= 33 && latitude <= 39.5 && longitude >= 124 && longitude <= 132;
+    return Number.isFinite(latitude) && Number.isFinite(longitude);
+  };
+
   const locateFavoritePlace = async (place: FavoritePlace): Promise<FavoritePlace> => {
-    if (place.latitude != null && place.longitude != null) return place;
+    if (place.latitude != null && place.longitude != null && coordinateMatchesFavoriteRegion(place, place.latitude, place.longitude)) return place;
+    const unlocatedPlace = { ...place, latitude: undefined, longitude: undefined };
     const query = place.address && place.address !== "地址待補"
       ? place.address
       : `${place.name} ${place.city} ${place.country}`;
@@ -1748,7 +1760,8 @@ export default function App() {
         const feature = response.ok ? (await response.json())?.[0] : null;
         const coordinates = feature?.geometry?.coordinates;
         if (Array.isArray(coordinates) && Number.isFinite(Number(coordinates[0])) && Number.isFinite(Number(coordinates[1]))) {
-          return { ...place, longitude: Number(coordinates[0]), latitude: Number(coordinates[1]) };
+          const longitude = Number(coordinates[0]); const latitude = Number(coordinates[1]);
+          if (coordinateMatchesFavoriteRegion(place, latitude, longitude)) return { ...place, longitude, latitude };
         }
       } catch { /* fall back to worldwide place search */ }
     }
@@ -1757,14 +1770,16 @@ export default function App() {
       const feature = response.ok ? (await response.json())?.features?.[0] : null;
       const coordinates = feature?.geometry?.coordinates;
       if (Array.isArray(coordinates) && Number.isFinite(Number(coordinates[0])) && Number.isFinite(Number(coordinates[1]))) {
-        return { ...place, longitude: Number(coordinates[0]), latitude: Number(coordinates[1]) };
+        const longitude = Number(coordinates[0]); const latitude = Number(coordinates[1]);
+        if (coordinateMatchesFavoriteRegion(place, latitude, longitude)) return { ...place, longitude, latitude };
       }
     } catch { /* selected-day enrichment will retry */ }
-    return place;
+    return unlocatedPlace;
   };
 
   const locateFavoriteWithNominatim = async (place: FavoritePlace): Promise<FavoritePlace> => {
-    if (place.latitude != null && place.longitude != null) return place;
+    if (place.latitude != null && place.longitude != null && coordinateMatchesFavoriteRegion(place, place.latitude, place.longitude)) return place;
+    const unlocatedPlace = { ...place, latitude: undefined, longitude: undefined };
     const countryCode = /日本|japan/i.test(place.country) ? "&countrycodes=jp" : /韓國|korea/i.test(place.country) ? "&countrycodes=kr" : "";
     const address = place.address && place.address !== "地址待補" ? place.address.replace(/\s+\d+F\b.*$/i, "").trim() : "";
     const queries = [address, `${place.name} ${place.city} ${place.country}`].filter(Boolean);
@@ -1773,12 +1788,13 @@ export default function App() {
         const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryCode}`);
         const match = response.ok ? (await response.json())?.[0] : null;
         if (match && Number.isFinite(Number(match.lat)) && Number.isFinite(Number(match.lon))) {
-          return { ...place, latitude: Number(match.lat), longitude: Number(match.lon) };
+          const latitude = Number(match.lat); const longitude = Number(match.lon);
+          if (coordinateMatchesFavoriteRegion(place, latitude, longitude)) return { ...place, latitude, longitude };
         }
       } catch { /* try the next query */ }
       await new Promise((resolve) => setTimeout(resolve, 1050));
     }
-    return place;
+    return unlocatedPlace;
   };
 
   const locateFavoritesInBatches = async (places: FavoritePlace[]) => {
@@ -1797,10 +1813,10 @@ export default function App() {
 
   const updateAllFavoriteCoordinates = async () => {
     if (favoriteBulkUpdating) return;
-    const missing = favorites.filter((place) => place.latitude == null || place.longitude == null);
-    if (!missing.length) { showToast("所有收藏景點都已有座標"); return; }
+    const missing = favorites;
+    if (!missing.length) { showToast("目前沒有收藏景點"); return; }
     setFavoriteBulkUpdating(true);
-    showToast(`正在更新 ${missing.length} 個收藏景點…`);
+    showToast(`正在重新驗證 ${missing.length} 個收藏座標…`);
     try {
       const located = await locateFavoritesInBatches(missing);
       const locatedById = new Map(located.map((place) => [place.id, place]));
@@ -1827,7 +1843,21 @@ export default function App() {
         const locatedById = new Map(locatedSelections.map((place) => [place.id, place]));
         persistFavorites(favorites.map((place) => locatedById.get(place.id) || place));
         const id = `trip-${Date.now()}`;
-        const sorted = [...locatedSelections].sort((a, b) => `${a.country}${a.city}`.localeCompare(`${b.country}${b.city}`));
+        const uniqueSelections = locatedSelections.filter((place, index, rows) => {
+          const key = `${place.name.replace(/（.*?）|\(.*?\)/g, "").trim().toLowerCase()}|${place.address.replace(/\s+/g, "").toLowerCase()}`;
+          return rows.findIndex((candidate) => `${candidate.name.replace(/（.*?）|\(.*?\)/g, "").trim().toLowerCase()}|${candidate.address.replace(/\s+/g, "").toLowerCase()}` === key) === index;
+        });
+        const isFoodPlace = (place: FavoritePlace) => /餐廳|食堂|定食|咖啡|coffee|cafe|café|烏龍|燒肉|釜飯|甜甜圈|銅鑼燒|蛋糕|餅店|可樂餅|糖果店|料理|拉麵|壽司|居酒屋|trattoria|restaurant/i.test(`${place.name} ${place.note || ""}`);
+        const isStrenuousOutdoor = (place: FavoritePlace) => /九重山|登山|山峰|健行|步道|吊橋|溪谷|耶馬溪|一目八景|岡城跡|富貴寺/i.test(`${place.name} ${place.note || ""}`);
+        const attractionScore = (place: FavoritePlace) => {
+          const text = `${place.name} ${place.note || ""}`;
+          if (/金鱗湖|海地獄|夢.*吊橋|長者原|別府塔|OPAM|地獄蒸|豆田町|岡城跡|護國神社/i.test(text)) return 9;
+          if (/地獄|美術館|神社|寺|湖|塔|步道|商店街/i.test(text)) return 7;
+          if (/niko and|商場|百貨|mall|plaza/i.test(text)) return 3;
+          return 5;
+        };
+        const scenicSelections = uniqueSelections.filter((place) => !isFoodPlace(place));
+        const foodSelections = uniqueSelections.filter(isFoodPlace);
         const arrivalLocation = favoriteArrivalPlace.trim() ? await locateFavoritePlace({ id: `${id}-arrival-location`, name: favoriteArrivalPlace.trim(), address: favoriteArrivalPlace.trim(), country: countries[0] || "", city: cities[0] || "" }) : undefined;
         const departureLocation = favoriteDeparturePlace.trim() ? await locateFavoritePlace({ id: `${id}-departure-location`, name: favoriteDeparturePlace.trim(), address: favoriteDeparturePlace.trim(), country: countries[0] || "", city: cities[0] || "" }) : undefined;
         const parseMinutes = (value: string, fallback: number) => { const match = value.match(/^(\d{1,2}):(\d{2})$/); return match ? Number(match[1]) * 60 + Number(match[2]) : fallback; };
@@ -1838,25 +1868,64 @@ export default function App() {
           const end = dayIndex === count - 1 && favoriteDepartureTime ? Math.max(600, departureMinutes - 180) : 1200;
           return { start, end, weight: Math.max(0, end - start) };
         });
-        const totalWeight = windows.reduce((sum, window) => sum + window.weight, 0) || count;
         const buckets = Array.from({ length: count }, () => [] as FavoritePlace[]);
-        let cursor = 0;
+        const capacities = windows.map((window, dayIndex) => {
+          if (dayIndex === 0 && favoriteArrivalTime) return window.start >= 1020 ? 1 : 2;
+          if (dayIndex === count - 1 && favoriteDepartureTime) return window.end <= 840 ? 1 : 2;
+          return 4;
+        });
+        const grouped = scenicSelections.reduce((map, place) => {
+          const key = place.city || "未分類";
+          (map[key] ||= []).push(place);
+          return map;
+        }, {} as Record<string, FavoritePlace[]>);
+        Object.values(grouped).forEach((places) => places.sort((a, b) => attractionScore(b) - attractionScore(a)));
+        const groupKeys = Object.keys(grouped).sort((a, b) => {
+          const score = (key: string) => grouped[key]!.slice(0, 5).reduce((sum, place) => sum + attractionScore(place), 0);
+          return score(b) - score(a);
+        });
+        const arrivalCity = cities.find((city) => favoriteArrivalPlace.includes(city)) || (grouped["大分"] ? "大分" : groupKeys[0]);
+        const departureCity = cities.find((city) => favoriteDeparturePlace.includes(city)) || arrivalCity;
+        const preferredKeys = [...new Set([arrivalCity, ...groupKeys.filter((key) => key !== arrivalCity && key !== departureCity), departureCity].filter(Boolean) as string[])];
+        const usedPlaceIds = new Set<string>();
         windows.forEach((window, dayIndex) => {
-          const remaining = Math.max(0, sorted.length - cursor);
-          const target = dayIndex === count - 1 ? remaining : Math.min(remaining, Math.round(sorted.length * window.weight / totalWeight));
-          buckets[dayIndex]!.push(...sorted.slice(cursor, cursor + target));
-          cursor += target;
+          const isArrivalDay = dayIndex === 0 && !!favoriteArrivalTime;
+          const isDepartureDay = dayIndex === count - 1 && !!favoriteDepartureTime;
+          const preferred = isArrivalDay ? arrivalCity : isDepartureDay ? departureCity : preferredKeys.find((key) => !buckets.some((bucket) => bucket.some((place) => place.city === key)));
+          let candidates = preferred ? [...(grouped[preferred] || [])].filter((place) => !usedPlaceIds.has(place.id)) : [];
+          if (isArrivalDay || isDepartureDay) candidates = candidates.filter((place) => !isStrenuousOutdoor(place));
+          if (isArrivalDay && window.start >= 960) candidates.sort((a, b) => Number(/百貨|商場|plaza|mall|美術館/i.test(`${b.name} ${b.note || ""}`)) - Number(/百貨|商場|plaza|mall|美術館/i.test(`${a.name} ${a.note || ""}`)) || attractionScore(b) - attractionScore(a));
+          const chosen = candidates.slice(0, capacities[dayIndex]);
+          chosen.forEach((place) => usedPlaceIds.add(place.id));
+          buckets[dayIndex]!.push(...chosen);
         });
         const nextDays: TripDay[] = buckets.map((bucket, dayIndex) => {
           const window = windows[dayIndex]!;
-          const interval = bucket.length > 1 ? Math.max(60, Math.floor((window.end - window.start) / bucket.length)) : 120;
+          const hasLunch = window.start <= 780 && window.end >= 720;
+          const hasDinner = window.start <= 1140 && window.end >= 1050;
+          const dayCity = bucket[0]?.city || "";
+          const mealCandidates = foodSelections.filter((place) => !dayCity || place.city === dayCity);
+          const mealStops: Stop[] = [];
+          const addMeal = (label: string, time: string, offset: number) => {
+            const candidates = mealCandidates.slice(offset, offset + 3);
+            if (!candidates.length) return;
+            const [primary, ...alternatives] = candidates;
+            mealStops.push({ ...generatedStop(primary!, dayIndex, 90 + offset), time, title: `${label}首選｜${primary!.name}`, note: alternatives.length ? `${primary!.note || "用餐建議"}\n${alternatives.map((item, index) => `備案 ${index + 1}｜${item.name}`).join("\n")}` : primary!.note || "用餐建議", durationMinutes: 75 });
+          };
+          if (hasLunch) addMeal("午餐", "12:30", 0);
+          if (hasDinner) addMeal("晚餐", "18:30", 3);
+          const availableMinutes = Math.max(120, window.end - window.start - mealStops.length * 90);
+          const interval = bucket.length > 1 ? Math.max(90, Math.floor(availableMinutes / bucket.length)) : 120;
           const date = normalizedArrivalDate ? tripDayDateLabel(normalizedArrivalDate, dayIndex) : "日期未定";
           const title = !bucket.length && dayIndex === 0 && favoriteArrivalTime ? `抵達 ${destination}` : !bucket.length && dayIndex === count - 1 && favoriteDepartureTime ? "整理行李・前往機場" : `${bucket[0]?.city || destination}・建議行程`;
           const scenicStops = bucket.map((place, index) => generatedStop(place, dayIndex, index, window.start, interval));
           const arrivalStop: Stop[] = dayIndex === 0 && arrivalLocation ? [{ id: `${id}-arrival`, time: favoriteArrivalTime || "抵達", title: `抵達 ${favoriteArrivalPlace.trim()}`, address: favoriteArrivalPlace.trim(), latitude: arrivalLocation.latitude, longitude: arrivalLocation.longitude, transport: "抵達後前往住宿或第一站", transportMode: "飛機", routeMode: "transit", note: "航班抵達地點；已預留入境、領行李與移動時間。", durationMinutes: 120 }] : [];
           const departureStop: Stop[] = dayIndex === count - 1 && departureLocation ? [{ id: `${id}-departure`, time: favoriteDepartureTime || "起飛", title: `由 ${favoriteDeparturePlace.trim()} 回程`, address: favoriteDeparturePlace.trim(), latitude: departureLocation.latitude, longitude: departureLocation.longitude, transport: "提前前往機場／車站", transportMode: "飛機", routeMode: "transit", note: "回程出發地點；前方行程已預留至少 3 小時。", durationMinutes: 0 }] : [];
-          return { id: `${id}-day-${dayIndex + 1}`, label: `DAY ${dayIndex + 1}`, date, title, stops: [...arrivalStop, ...scenicStops, ...departureStop] };
+          const scheduledStops = [...scenicStops, ...mealStops].sort((a, b) => a.time.localeCompare(b.time));
+          return { id: `${id}-day-${dayIndex + 1}`, label: `DAY ${dayIndex + 1}`, date, title, stops: [...arrivalStop, ...scheduledStops, ...departureStop] };
         });
+        const plannedCount = buckets.reduce((sum, bucket) => sum + bucket.length, 0);
+        const omittedCount = Math.max(0, scenicSelections.length - plannedCount);
         const flights: FlightInfo[] = [];
         if (normalizedArrivalDate || favoriteArrivalTime || favoriteArrivalPlace) flights.push({ id: `flight-arrival-${Date.now()}`, route: `抵達 ${favoriteArrivalPlace.trim() || destination}`, flightNumber: "航班號碼待補", departure: "出發時間待補", arrival: `${normalizedArrivalDate} ${favoriteArrivalTime}`.trim(), terminal: favoriteArrivalPlace.trim(), note: "建立推薦行程時使用的抵達時間與地點" });
         if (normalizedDepartureDate || favoriteDepartureTime || favoriteDeparturePlace) flights.push({ id: `flight-departure-${Date.now()}`, route: `由 ${favoriteDeparturePlace.trim() || destination} 回程`, flightNumber: "航班號碼待補", departure: `${normalizedDepartureDate} ${favoriteDepartureTime}`.trim(), arrival: "抵達時間待補", terminal: favoriteDeparturePlace.trim(), note: "建立推薦行程時使用的回程時間與地點" });
@@ -1868,9 +1937,9 @@ export default function App() {
           await postCloud({ action: "createTrip", inviteCode, idToken: googleUser?.idToken, trip: { "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination, "開始日期": trip.startDate || trip.period, "結束日期": trip.endDate || "", "主要幣別": "TWD" }, member: { "成員ID": googleUser ? googleMemberId(googleUser) : `member-${Date.now()}`, "顯示名稱": googleUser?.name || "我", "角色": "owner" } });
           saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: googleUser?.name || "我", memberId: googleUser ? googleMemberId(googleUser) : undefined, role: "owner" } });
           await syncTripNow(trip, []);
-          showToast(`已建立並同步 ${count} 天新旅行`);
+          showToast(`已建立 ${count} 天建議行程${omittedCount ? `；另保留 ${omittedCount} 個收藏未硬塞` : ""}`);
         } catch {
-          showToast(`已建立 ${count} 天旅行；雲端同步稍後重試`);
+          showToast(`已建立 ${count} 天建議行程${omittedCount ? `；${omittedCount} 個收藏未硬塞` : ""}；同步稍後重試`);
         }
   };
 
@@ -3179,7 +3248,7 @@ export default function App() {
             <Pressable disabled={favoriteBulkUpdating} style={[styles.favoriteBulkUpdateButton, favoriteBulkUpdating && styles.buttonDisabled]} onPress={updateAllFavoriteCoordinates}><Text style={styles.favoriteBulkUpdateText}>{favoriteBulkUpdating ? "正在更新全部收藏座標…" : "⌖ 更新全部收藏座標"}</Text></Pressable>
             <View style={styles.favoritePlanner}>
               <Text style={styles.favoritePlannerTitle}>✨ 已選 {selectedFavorites.length} 個景點</Text>
-              <Text style={styles.favoritePlannerText}>收藏是你的跨國個人景點庫。勾選城市或景點後，可建立全新旅行，也能加入既有旅行。</Text>
+              <Text style={styles.favoritePlannerText}>收藏是你的候選資料庫，不會全部硬塞進行程。系統會依航班可用時間、地區、活動強度與每日合理數量挑選；餐廳會列首選與備案。</Text>
               <Text style={styles.favoriteTargetLabel}>航班時間（用來限制第一天與最後一天的安排）</Text>
               <Text style={styles.fieldLabel}>抵達地點／機場／車站</Text><TextInput value={favoriteArrivalPlace} onChangeText={setFavoriteArrivalPlace} style={styles.fieldInput} placeholder="例如：大分機場" placeholderTextColor="#A49C90" />
               <View style={styles.formRow}><View style={styles.formHalf}><Text style={styles.fieldLabel}>抵達日期</Text><TextInput value={favoriteArrivalDate} onChangeText={setFavoriteArrivalDate} style={styles.fieldInput} placeholder="YYYY-MM-DD" placeholderTextColor="#A49C90" /></View><View style={styles.formHalf}><Text style={styles.fieldLabel}>抵達時間</Text><TextInput value={favoriteArrivalTime} onChangeText={setFavoriteArrivalTime} style={styles.fieldInput} placeholder="例如 19:30" placeholderTextColor="#A49C90" /></View></View>
