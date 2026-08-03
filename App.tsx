@@ -1596,7 +1596,7 @@ export default function App() {
     note: place.note || "由收藏景點自動排入", latitude: place.latitude, longitude: place.longitude, openingHours: place.openingHours, durationMinutes: 90
   });
 
-  const generateTripFromFavorites = () => {
+  const generateTripFromFavorites = async () => {
     const count = Math.max(1, Math.min(14, Number.parseInt(favoriteDayCount, 10) || 1));
     if (!selectedFavorites.length) { Alert.alert("尚未勾選景點", "請先勾選城市或個別收藏景點。"); return; }
     const cities = [...new Set(selectedFavorites.map((place) => place.city).filter(Boolean))];
@@ -1639,7 +1639,15 @@ export default function App() {
         const period = normalizedArrivalDate && normalizedDepartureDate ? tripPeriodLabel(normalizedArrivalDate, normalizedDepartureDate) : "日期未定";
         const trip: TripPlan = { id, title: `${destination} ${count}日收藏旅行`, destination, period, startDate: normalizedArrivalDate || undefined, endDate: normalizedDepartureDate || undefined, travelers: 1, days: nextDays, flights, accommodations: [], shopping: [], checklist: defaultPrepChecklist() };
         persistTrips([...trips, trip]); setSelectedFavoriteIds([]); selectTrip(trip);
-        showToast(`已建立 ${count} 天新旅行`);
+        const inviteCode = String(Math.floor(100000 + Math.random() * 900000));
+        try {
+          await postCloud({ action: "createTrip", inviteCode, idToken: googleUser?.idToken, trip: { "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination, "開始日期": trip.startDate || trip.period, "結束日期": trip.endDate || "", "主要幣別": "TWD" }, member: { "成員ID": googleUser ? googleMemberId(googleUser) : `member-${Date.now()}`, "顯示名稱": googleUser?.name || "我", "角色": "owner" } });
+          saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: googleUser?.name || "我", memberId: googleUser ? googleMemberId(googleUser) : undefined, role: "owner" } });
+          await syncTripNow(trip, []);
+          showToast(`已建立並同步 ${count} 天新旅行`);
+        } catch {
+          showToast(`已建立 ${count} 天旅行；雲端同步稍後重試`);
+        }
   };
 
   const addFavoritesToExistingTrip = () => {
@@ -3063,7 +3071,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.8</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.9</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
