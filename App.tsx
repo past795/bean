@@ -1269,28 +1269,30 @@ export default function App() {
     geocodedDaysRef.current.add(`${activeTrip.id}:${selectedDay.id}`);
     let cancelled = false;
     (async () => {
-      const resolved = await Promise.all(selectedDay.stops.map(async (stop) => {
+      const resolved: Stop[] = [];
+      for (const stop of selectedDay.stops) {
         const verifiedHours = VERIFIED_OPENING_HOURS[stop.id];
         const enriched = verifiedHours && !stop.openingHours
           ? { ...stop, openingHours: verifiedHours.hours, openingHoursSource: verifiedHours.source }
           : stop;
-        if (enriched.latitude != null && enriched.longitude != null) return enriched;
+        if (enriched.latitude != null && enriched.longitude != null) { resolved.push(enriched); continue; }
         const known = KNOWN_COORDINATES[stop.id];
-        if (known) return { ...enriched, latitude: known[0], longitude: known[1] };
+        if (known) { resolved.push({ ...enriched, latitude: known[0], longitude: known[1] }); continue; }
         const cleanTitle = enriched.title.replace(/^[^A-Za-z0-9\u3400-\u9fff\uac00-\ud7af]+/, "");
         try {
-          const query = `${cleanTitle} ${enriched.address} ${activeTrip.destination}`;
-          const response = await fetch(`https://photon.komoot.io/api/?limit=1&q=${encodeURIComponent(query)}`);
-          const data = await response.json();
-          const coordinates = data.features?.[0]?.geometry?.coordinates;
-          return coordinates?.length >= 2
-            ? { ...enriched, longitude: Number(coordinates[0]), latitude: Number(coordinates[1]) }
-            : enriched;
+          const query = enriched.address && enriched.address !== "地址待補" ? enriched.address : `${cleanTitle} ${activeTrip.destination}`;
+          const countryCode = /日本|大分|別府|由布|日田|九重|宇佐|國東|中津|竹田/.test(`${activeTrip.destination} ${query}`) ? "&countrycodes=jp" : /韓國|釜山|首爾|濟州/.test(`${activeTrip.destination} ${query}`) ? "&countrycodes=kr" : "";
+          const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryCode}`);
+          const data = response.ok ? await response.json() : [];
+          const match = data?.[0];
+          resolved.push(match ? { ...enriched, latitude: Number(match.lat), longitude: Number(match.lon), address: enriched.address === "地址待補" ? String(match.display_name || enriched.address) : enriched.address } : enriched);
         } catch {
-          return enriched;
+          resolved.push(enriched);
         }
-      }));
+        await new Promise((resolve) => setTimeout(resolve, 180));
+      }
       if (!cancelled && resolved.some((stop, index) => stop !== selectedDay.stops[index])) updateStops(resolved);
+      if (resolved.some((stop) => stop.latitude == null || stop.longitude == null)) geocodedDaysRef.current.delete(`${activeTrip.id}:${selectedDay.id}`);
     })();
     return () => { cancelled = true; };
   }, [activeTrip.id, selectedDay?.id]);
@@ -3017,8 +3019,8 @@ export default function App() {
                   </View>
                 </LinearGradient>
                 <View style={styles.tripCardBottom}>
-                  <View>
-                    <Text style={styles.tripCardName}>{trip.title}</Text>
+                  <View style={styles.tripCardInfo}>
+                    <Text style={styles.tripCardName} numberOfLines={2}>{trip.title}</Text>
                     <Text style={styles.tripCardStatus}>{cloudLinks[trip.id] ? "☁ 已連接旅伴同步" : trip.id === activeTrip.id ? "目前開啟中" : "點擊查看行程"}</Text>
                   </View>
                   <View style={styles.tripCardActions}>
@@ -3061,7 +3063,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.7</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.8</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -4140,8 +4142,9 @@ const styles = StyleSheet.create({
   tripCardMeta: { flexDirection: "row", marginTop: 14, alignItems: "center", gap: 7 },
   tripCardMetaText: { color: "#FFF", fontSize: 11, fontWeight: "800" },
   tripCardMetaDot: { color: "rgba(255,255,255,.5)" },
-  tripCardBottom: { padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  tripCardActions: { flexDirection: "row", alignItems: "center", gap: 9 },
+  tripCardBottom: { padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
+  tripCardInfo: { flex: 1, minWidth: 0 },
+  tripCardActions: { flexDirection: "row", alignItems: "center", gap: 7, flexShrink: 0 },
   deleteTripButton: { backgroundColor: "#F5EAE5", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   deleteTripText: { color: "#A95D4C", fontSize: 10, fontWeight: "900" },
   archiveTripButton: { backgroundColor: "#E8EDF6", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
@@ -4162,7 +4165,7 @@ const styles = StyleSheet.create({
   editTripButton: { backgroundColor: "#E9EDF5", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   editTripText: { color: "#536783", fontSize: 10, fontWeight: "900" },
   versionLabel: { color: "#AAA198", fontSize: 9, textAlign: "center", marginTop: 16 },
-  tripCardName: { color: "#292622", fontSize: 16, fontWeight: "900" },
+  tripCardName: { color: "#292622", fontSize: 16, fontWeight: "900", flexShrink: 1 },
   tripCardStatus: { color: "#938A80", fontSize: 11, marginTop: 4 },
   newTripCard: { borderWidth: 1.5, borderStyle: "dashed", borderColor: "#CFC5BA", borderRadius: 22, padding: 24, alignItems: "center", backgroundColor: "#F8F5EF" },
   newTripIcon: { color: "#536783", fontSize: 28 },
