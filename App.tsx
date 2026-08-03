@@ -537,8 +537,10 @@ export default function App() {
   const [favoriteDayCount, setFavoriteDayCount] = useState("5");
   const [favoriteArrivalDate, setFavoriteArrivalDate] = useState("");
   const [favoriteArrivalTime, setFavoriteArrivalTime] = useState("");
+  const [favoriteArrivalPlace, setFavoriteArrivalPlace] = useState("");
   const [favoriteDepartureDate, setFavoriteDepartureDate] = useState("");
   const [favoriteDepartureTime, setFavoriteDepartureTime] = useState("");
+  const [favoriteDeparturePlace, setFavoriteDeparturePlace] = useState("");
   const [selectedFavoriteIds, setSelectedFavoriteIds] = useState<string[]>([]);
   const [collapsedFavoriteCountries, setCollapsedFavoriteCountries] = useState<string[]>([]);
   const [collapsedFavoriteCities, setCollapsedFavoriteCities] = useState<string[]>([]);
@@ -1583,8 +1585,8 @@ export default function App() {
     const cities = [...new Set(selectedFavorites.map((place) => place.city).filter(Boolean))];
     const countries = [...new Set(selectedFavorites.map((place) => place.country).filter(Boolean))];
     const destination = cities.join("・") || countries.join("・") || "收藏景點";
-    const flightSummary = favoriteArrivalDate || favoriteArrivalTime || favoriteDepartureDate || favoriteDepartureTime
-      ? `\n抵達：${favoriteArrivalDate || "日期待補"} ${favoriteArrivalTime || "時間待補"}\n回程：${favoriteDepartureDate || "日期待補"} ${favoriteDepartureTime || "時間待補"}` : "";
+    const flightSummary = favoriteArrivalDate || favoriteArrivalTime || favoriteArrivalPlace || favoriteDepartureDate || favoriteDepartureTime || favoriteDeparturePlace
+      ? `\n抵達：${favoriteArrivalDate || "日期待補"} ${favoriteArrivalTime || "時間待補"}・${favoriteArrivalPlace || "地點待補"}\n回程：${favoriteDepartureDate || "日期待補"} ${favoriteDepartureTime || "時間待補"}・${favoriteDeparturePlace || "地點待補"}` : "";
     Alert.alert("建立全新旅行？", `會用已勾選的 ${selectedFavorites.length} 個景點，建立「${destination}」${count} 天新旅行，不會修改目前旅行。${flightSummary}`, [
       { text: "取消", style: "cancel" },
       { text: "開始安排", onPress: () => {
@@ -1612,11 +1614,14 @@ export default function App() {
           const interval = bucket.length > 1 ? Math.max(60, Math.floor((window.end - window.start) / bucket.length)) : 120;
           const date = favoriteArrivalDate ? tripDayDateLabel(favoriteArrivalDate, dayIndex) : "日期未定";
           const title = !bucket.length && dayIndex === 0 && favoriteArrivalTime ? `抵達 ${destination}` : !bucket.length && dayIndex === count - 1 && favoriteDepartureTime ? "整理行李・前往機場" : `${bucket[0]?.city || destination}・建議行程`;
-          return { id: `${id}-day-${dayIndex + 1}`, label: `DAY ${dayIndex + 1}`, date, title, stops: bucket.map((place, index) => generatedStop(place, dayIndex, index, window.start, interval)) };
+          const scenicStops = bucket.map((place, index) => generatedStop(place, dayIndex, index, window.start, interval));
+          const arrivalStop: Stop[] = dayIndex === 0 && favoriteArrivalPlace.trim() ? [{ id: `${id}-arrival`, time: favoriteArrivalTime || "抵達", title: `抵達 ${favoriteArrivalPlace.trim()}`, address: favoriteArrivalPlace.trim(), transport: "抵達後前往住宿或第一站", transportMode: "飛機", routeMode: "transit", note: "航班抵達地點；已預留入境、領行李與移動時間。", durationMinutes: 120 }] : [];
+          const departureStop: Stop[] = dayIndex === count - 1 && favoriteDeparturePlace.trim() ? [{ id: `${id}-departure`, time: favoriteDepartureTime || "起飛", title: `由 ${favoriteDeparturePlace.trim()} 回程`, address: favoriteDeparturePlace.trim(), transport: "提前前往機場／車站", transportMode: "飛機", routeMode: "transit", note: "回程出發地點；前方行程已預留至少 3 小時。", durationMinutes: 0 }] : [];
+          return { id: `${id}-day-${dayIndex + 1}`, label: `DAY ${dayIndex + 1}`, date, title, stops: [...arrivalStop, ...scenicStops, ...departureStop] };
         });
         const flights: FlightInfo[] = [];
-        if (favoriteArrivalDate || favoriteArrivalTime) flights.push({ id: `flight-arrival-${Date.now()}`, route: `抵達 ${destination}`, flightNumber: "航班號碼待補", departure: "出發時間待補", arrival: `${favoriteArrivalDate} ${favoriteArrivalTime}`.trim(), note: "建立推薦行程時使用的抵達時間" });
-        if (favoriteDepartureDate || favoriteDepartureTime) flights.push({ id: `flight-departure-${Date.now()}`, route: `${destination} 回程`, flightNumber: "航班號碼待補", departure: `${favoriteDepartureDate} ${favoriteDepartureTime}`.trim(), arrival: "抵達時間待補", note: "建立推薦行程時使用的回程時間" });
+        if (favoriteArrivalDate || favoriteArrivalTime || favoriteArrivalPlace) flights.push({ id: `flight-arrival-${Date.now()}`, route: `抵達 ${favoriteArrivalPlace.trim() || destination}`, flightNumber: "航班號碼待補", departure: "出發時間待補", arrival: `${favoriteArrivalDate} ${favoriteArrivalTime}`.trim(), terminal: favoriteArrivalPlace.trim(), note: "建立推薦行程時使用的抵達時間與地點" });
+        if (favoriteDepartureDate || favoriteDepartureTime || favoriteDeparturePlace) flights.push({ id: `flight-departure-${Date.now()}`, route: `由 ${favoriteDeparturePlace.trim() || destination} 回程`, flightNumber: "航班號碼待補", departure: `${favoriteDepartureDate} ${favoriteDepartureTime}`.trim(), arrival: "抵達時間待補", terminal: favoriteDeparturePlace.trim(), note: "建立推薦行程時使用的回程時間與地點" });
         const period = favoriteArrivalDate && favoriteDepartureDate ? tripPeriodLabel(favoriteArrivalDate, favoriteDepartureDate) : "日期未定";
         const trip: TripPlan = { id, title: `${destination} ${count}日收藏旅行`, destination, period, startDate: favoriteArrivalDate || undefined, endDate: favoriteDepartureDate || undefined, travelers: 1, days: nextDays, flights, accommodations: [], shopping: [], checklist: defaultPrepChecklist() };
         persistTrips([...trips, trip]); setSelectedFavoriteIds([]); selectTrip(trip);
@@ -2898,7 +2903,9 @@ export default function App() {
               <Text style={styles.favoritePlannerTitle}>✨ 已選 {selectedFavorites.length} 個景點</Text>
               <Text style={styles.favoritePlannerText}>收藏是你的跨國個人景點庫。勾選城市或景點後，可建立全新旅行，也能加入既有旅行。</Text>
               <Text style={styles.favoriteTargetLabel}>航班時間（用來限制第一天與最後一天的安排）</Text>
+              <Text style={styles.fieldLabel}>抵達地點／機場／車站</Text><TextInput value={favoriteArrivalPlace} onChangeText={setFavoriteArrivalPlace} style={styles.fieldInput} placeholder="例如：大分機場" placeholderTextColor="#A49C90" />
               <View style={styles.formRow}><View style={styles.formHalf}><Text style={styles.fieldLabel}>抵達日期</Text><TextInput value={favoriteArrivalDate} onChangeText={setFavoriteArrivalDate} style={styles.fieldInput} placeholder="YYYY-MM-DD" placeholderTextColor="#A49C90" /></View><View style={styles.formHalf}><Text style={styles.fieldLabel}>抵達時間</Text><TextInput value={favoriteArrivalTime} onChangeText={setFavoriteArrivalTime} style={styles.fieldInput} placeholder="例如 19:30" placeholderTextColor="#A49C90" /></View></View>
+              <Text style={styles.fieldLabel}>回程出發地點（可與抵達地點不同）</Text><TextInput value={favoriteDeparturePlace} onChangeText={setFavoriteDeparturePlace} style={styles.fieldInput} placeholder="例如：福岡機場或別府港" placeholderTextColor="#A49C90" />
               <View style={styles.formRow}><View style={styles.formHalf}><Text style={styles.fieldLabel}>回程日期</Text><TextInput value={favoriteDepartureDate} onChangeText={setFavoriteDepartureDate} style={styles.fieldInput} placeholder="YYYY-MM-DD" placeholderTextColor="#A49C90" /></View><View style={styles.formHalf}><Text style={styles.fieldLabel}>回程起飛</Text><TextInput value={favoriteDepartureTime} onChangeText={setFavoriteDepartureTime} style={styles.fieldInput} placeholder="例如 16:40" placeholderTextColor="#A49C90" /></View></View>
               <View style={styles.favoritePlannerRow}><TextInput value={favoriteDayCount} onChangeText={setFavoriteDayCount} keyboardType="number-pad" style={[styles.fieldInput, styles.favoriteDayInput]} placeholder="天數" /><Pressable style={styles.favoriteGenerateButton} onPress={generateTripFromFavorites}><Text style={styles.primaryButtonText}>建立新旅行</Text></Pressable></View>
               <Text style={styles.favoriteTargetLabel}>或加入既有旅行</Text>
@@ -3044,7 +3051,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.5</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.6</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
