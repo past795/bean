@@ -1602,6 +1602,17 @@ export default function App() {
     const query = place.address && place.address !== "地址待補"
       ? place.address
       : `${place.name} ${place.city} ${place.country}`;
+    if (/日本|japan/i.test(place.country) && place.address && place.address !== "地址待補") {
+      try {
+        const japaneseAddress = place.address.replace(/\s+\d+F\b.*$/i, "").replace(/\s*\/.*$/, "").trim();
+        const response = await fetch(`https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(japaneseAddress)}`);
+        const feature = response.ok ? (await response.json())?.[0] : null;
+        const coordinates = feature?.geometry?.coordinates;
+        if (Array.isArray(coordinates) && Number.isFinite(Number(coordinates[0])) && Number.isFinite(Number(coordinates[1]))) {
+          return { ...place, longitude: Number(coordinates[0]), latitude: Number(coordinates[1]) };
+        }
+      } catch { /* fall back to worldwide place search */ }
+    }
     try {
       const response = await fetch(`https://photon.komoot.io/api/?limit=1&lang=en&q=${encodeURIComponent(query)}`);
       const feature = response.ok ? (await response.json())?.features?.[0] : null;
@@ -1613,11 +1624,34 @@ export default function App() {
     return place;
   };
 
+  const locateFavoriteWithNominatim = async (place: FavoritePlace): Promise<FavoritePlace> => {
+    if (place.latitude != null && place.longitude != null) return place;
+    const countryCode = /日本|japan/i.test(place.country) ? "&countrycodes=jp" : /韓國|korea/i.test(place.country) ? "&countrycodes=kr" : "";
+    const address = place.address && place.address !== "地址待補" ? place.address.replace(/\s+\d+F\b.*$/i, "").trim() : "";
+    const queries = [address, `${place.name} ${place.city} ${place.country}`].filter(Boolean);
+    for (const query of queries) {
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryCode}`);
+        const match = response.ok ? (await response.json())?.[0] : null;
+        if (match && Number.isFinite(Number(match.lat)) && Number.isFinite(Number(match.lon))) {
+          return { ...place, latitude: Number(match.lat), longitude: Number(match.lon) };
+        }
+      } catch { /* try the next query */ }
+      await new Promise((resolve) => setTimeout(resolve, 1050));
+    }
+    return place;
+  };
+
   const locateFavoritesInBatches = async (places: FavoritePlace[]) => {
-    const located: FavoritePlace[] = [];
+    const fastLocated: FavoritePlace[] = [];
     for (let index = 0; index < places.length; index += 6) {
-      located.push(...await Promise.all(places.slice(index, index + 6).map(locateFavoritePlace)));
+      fastLocated.push(...await Promise.all(places.slice(index, index + 6).map(locateFavoritePlace)));
       if (index + 6 < places.length) await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    const located: FavoritePlace[] = [];
+    for (const place of fastLocated) {
+      located.push(await locateFavoriteWithNominatim(place));
+      if (place.latitude == null || place.longitude == null) await new Promise((resolve) => setTimeout(resolve, 1050));
     }
     return located;
   };
@@ -3122,7 +3156,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.12</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.13</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
