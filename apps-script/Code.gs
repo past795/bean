@@ -79,7 +79,7 @@ function doGet(e) {
 function doPost(e) {
   const lock = LockService.getScriptLock();
   try {
-    lock.waitLock(20000);
+    if (!lock.tryLock(8000)) throw new Error('同步服務忙碌中，請稍後重試');
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     if (body.action === 'createTrip') {
       if (body.idToken) {

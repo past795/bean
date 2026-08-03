@@ -948,14 +948,25 @@ export default function App() {
   };
 
   const postCloud = async (payload: any) => {
-    const response = await fetch(SYNC_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
-    });
-    const result = await response.json();
-    if (!result.ok) throw new Error(result.error || "同步失敗");
-    return result.data;
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const response = await fetch(SYNC_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!result.ok) throw new Error(result.error || "同步失敗");
+        return result.data;
+      } catch (error: any) {
+        lastError = error instanceof Error ? error : new Error(String(error || "同步失敗"));
+        const lockBusy = /鎖定|lock|另一個處理程序|其他處理程序/i.test(lastError.message);
+        if (!lockBusy || attempt === 2) throw lastError;
+        await new Promise((resolve) => setTimeout(resolve, 900 * (attempt + 1) + Math.floor(Math.random() * 500)));
+      }
+    }
+    throw lastError || new Error("同步失敗");
   };
 
   const loadArchivedTrips = async (user = googleUser) => {
@@ -1041,6 +1052,11 @@ export default function App() {
   };
 
   const syncTripNow = async (trip: TripPlan, tripExpenses: Expense[]) => {
+    if (uploadingRef.current) {
+      if (syncTimer.current) clearTimeout(syncTimer.current);
+      syncTimer.current = setTimeout(() => { syncTimer.current = null; syncTripNow(trip, tripExpenses); }, 1200);
+      return;
+    }
     const link = cloudLinksRef.current[trip.id];
     if (!link?.inviteCode) {
       setSyncStatus("error");
@@ -1081,6 +1097,11 @@ export default function App() {
   };
 
   const syncExpensesNow = async (trip: TripPlan, tripExpenses: Expense[]) => {
+    if (uploadingRef.current) {
+      if (syncTimer.current) clearTimeout(syncTimer.current);
+      syncTimer.current = setTimeout(() => { syncTimer.current = null; syncExpensesNow(trip, tripExpenses); }, 1200);
+      return;
+    }
     const link = cloudLinksRef.current[trip.id];
     if (!link?.inviteCode) {
       setSyncStatus("error");
@@ -3156,7 +3177,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.13</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.14</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
