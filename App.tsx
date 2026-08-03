@@ -25,8 +25,8 @@ import { shoppingItems } from "./src/data/shopping";
 import { initialTrip as busanInitialTrip } from "./src/data/trip";
 import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
-import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signOut as firebaseSignOut } from "firebase/auth";
-import { firebaseAuth } from "./src/firebase";
+import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
+import { firebaseAuth, googleAuthProvider } from "./src/firebase";
 import { ensureFirestoreUser, firestorePersonId, listenFirestoreFavorites, listenFirestoreTrip, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
 
 type Tab = "home" | "itinerary" | "favorites" | "toolbox" | "expenses";
@@ -528,6 +528,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("home");
   const [googleUser, setGoogleUser] = useState<GoogleUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState("");
   const [trips, setTrips] = useState<TripPlan[]>(starterTrips);
   const [activeTripId, setActiveTripId] = useState("busan-2026");
   const [selectedDayId, setSelectedDayId] = useState("day1");
@@ -2035,6 +2037,29 @@ export default function App() {
     }
   };
 
+  const signInGoogleWithFirebase = async () => {
+    if (Platform.OS !== "web" || loginBusy) return;
+    setLoginBusy(true);
+    setLoginError("");
+    try {
+      await signInWithPopup(firebaseAuth, googleAuthProvider);
+    } catch (error: any) {
+      const code = String(error?.code || "");
+      const message = code === "auth/unauthorized-domain"
+        ? "Firebase 尚未允許 past795.github.io。請到 Firebase Authentication 的已授權網域加入 past795.github.io。"
+        : code === "auth/operation-not-allowed"
+          ? "Firebase 尚未啟用 Google 登入。請到 Authentication → 登入方式 → Google 啟用。"
+          : code === "auth/popup-blocked"
+            ? "瀏覽器阻擋了登入視窗，請允許這個網站開啟彈出式視窗後再試一次。"
+            : code === "auth/popup-closed-by-user"
+              ? "登入視窗已關閉，請再按一次登入。"
+              : `Google 登入失敗${code ? `（${code}）` : ""}，請再試一次。`;
+      setLoginError(message);
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
   const signOutGoogle = () => {
     firebaseSignOut(firebaseAuth).catch(() => undefined);
     setGoogleUser(null);
@@ -2989,7 +3014,8 @@ export default function App() {
           <Text style={styles.authEyebrow}>DOUYOU TRIP</Text>
           <Text style={styles.authTitle}>登入豆遊</Text>
           <Text style={styles.authDescription}>請先登入 Google 帳號。登入後只會顯示這個帳號建立或已加入的旅行。</Text>
-          <GoogleSignInButton onCredential={handleGoogleCredential} />
+          <FirebaseGoogleSignInButton onPress={signInGoogleWithFirebase} loading={loginBusy} />
+          {!!loginError && <Text style={styles.loginErrorText}>{loginError}</Text>}
           <Text style={styles.authPrivacy}>旅行資料不會在登入前顯示。</Text>
         </View>
       </SafeAreaView>
@@ -3237,7 +3263,8 @@ export default function App() {
                 <>
                   <Text style={styles.accountTitle}>使用 Google 帳號登入</Text>
                   <Text style={styles.accountHint}>跨裝置辨識同一人，並保留旅行成員身分。</Text>
-                  <GoogleSignInButton onCredential={handleGoogleCredential} />
+                  <FirebaseGoogleSignInButton onPress={signInGoogleWithFirebase} loading={loginBusy} />
+                  {!!loginError && <Text style={styles.loginErrorText}>{loginError}</Text>}
                 </>
               )}
             </View>
@@ -4137,46 +4164,14 @@ function TabButton({ icon, label, active, onPress }: { icon: NavIconName; label:
   return <Pressable style={styles.tabButton} onPress={onPress}><View style={styles.tabIconFrame}><Image source={{ uri: navIconUri(icon, color) }} style={styles.tabIconImage} resizeMode="contain" /></View><Text style={[styles.tabText, active && styles.tabActive]}>{label}</Text></Pressable>;
 }
 
-function GoogleSignInButton({ onCredential }: { onCredential: (credential: string) => void }) {
-  useEffect(() => {
-    if (Platform.OS !== "web") return;
-    let cancelled = false;
-    let attempts = 0;
-    let rendered = false;
-    const render = () => {
-      if (rendered) return true;
-      const google = (globalThis as any).google;
-      const target = (globalThis as any).document?.getElementById("douyou-google-signin");
-      if (!google?.accounts?.id || !target) return false;
-      rendered = true;
-      google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: (response: any) => onCredential(response.credential) });
-      target.innerHTML = "";
-      google.accounts.id.renderButton(target, { theme: "outline", size: "large", shape: "pill", text: "signin_with", locale: "zh-TW", width: 280 });
-      return true;
-    };
-    const retry = () => {
-      if (cancelled || render()) return;
-      attempts += 1;
-      if (attempts < 20) setTimeout(retry, 250);
-    };
-    const document = (globalThis as any).document;
-    if ((globalThis as any).google?.accounts?.id) retry();
-    else {
-      const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
-      if (existing) existing.addEventListener("load", retry, { once: true });
-      else {
-        const script = document.createElement("script");
-        script.src = "https://accounts.google.com/gsi/client";
-        script.async = true;
-        script.onload = retry;
-        document.head.appendChild(script);
-      }
-      setTimeout(retry, 300);
-    }
-    return () => { cancelled = true; };
-  }, []);
+function FirebaseGoogleSignInButton({ onPress, loading }: { onPress: () => void; loading: boolean }) {
   if (Platform.OS !== "web") return <Text style={styles.accountHint}>請先使用網站版登入 Google。</Text>;
-  return <View nativeID="douyou-google-signin" style={styles.googleButtonHost} />;
+  return (
+    <Pressable style={[styles.firebaseGoogleButton, loading && styles.firebaseGoogleButtonDisabled]} onPress={onPress} disabled={loading}>
+      <Text style={styles.firebaseGoogleMark}>G</Text>
+      <Text style={styles.firebaseGoogleButtonText}>{loading ? "正在開啟 Google 登入……" : "使用 Google 帳戶登入"}</Text>
+    </Pressable>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -4190,6 +4185,11 @@ const styles = StyleSheet.create({
   authTitle: { color: "#333C4C", fontSize: 32, fontWeight: "900", marginTop: 8 },
   authDescription: { color: "#7E756D", fontSize: 14, lineHeight: 22, textAlign: "center", marginTop: 12, marginBottom: 24 },
   authPrivacy: { color: "#A0978F", fontSize: 10, marginTop: 18 },
+  firebaseGoogleButton: { width: 280, minHeight: 48, borderRadius: 24, borderWidth: 1, borderColor: "#D8D4CE", backgroundColor: "#FFF", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 18 },
+  firebaseGoogleButtonDisabled: { opacity: 0.58 },
+  firebaseGoogleMark: { color: "#4285F4", fontSize: 20, fontWeight: "900" },
+  firebaseGoogleButtonText: { color: "#3C4043", fontSize: 14, fontWeight: "700" },
+  loginErrorText: { color: "#A5443C", backgroundColor: "#FBECEA", borderRadius: 12, paddingHorizontal: 13, paddingVertical: 10, fontSize: 11, fontWeight: "700", lineHeight: 17, marginTop: 12, maxWidth: 360, textAlign: "center" },
   joinErrorText: { color: "#A5443C", backgroundColor: "#FBECEA", borderRadius: 12, paddingHorizontal: 13, paddingVertical: 10, fontSize: 11, fontWeight: "800", marginTop: 10 },
   webViewport: { height: "100dvh" as never, maxHeight: "100dvh" as never, minHeight: 0, overflow: "hidden" },
   app: { flex: 1, minHeight: 0, overflow: "hidden", position: "relative", backgroundColor: "#FBFAF7", maxWidth: 520, width: "100%", alignSelf: "center" },
