@@ -1843,7 +1843,16 @@ export default function App() {
         const locatedById = new Map(locatedSelections.map((place) => [place.id, place]));
         persistFavorites(favorites.map((place) => locatedById.get(place.id) || place));
         const id = `trip-${Date.now()}`;
-        const uniqueSelections = locatedSelections.filter((place, index, rows) => {
+        const verifiedFavoriteHours = (place: FavoritePlace) => {
+          if (place.openingHours) return place.openingHours;
+          if (/九重.*夢.*吊橋|Kokonoe Yume Otsuribashi/i.test(place.name)) return "08:30-17:00（11–12 月；最終售票 16:30）";
+          if (/大分縣立美術館|OPAM/i.test(place.name)) return "10:00-19:00（最終入館 18:30）";
+          if (/大分市美術館/i.test(place.name)) return "10:00-18:00（最終入館 17:30；週一原則休館）";
+          if (/海地獄|鬼石坊主地獄|灶地獄|かまど地獄|鬼山地獄|白池地獄|血池地獄|龍卷地獄|龍巻地獄/i.test(place.name)) return "08:00-17:00（到訪前仍請確認臨時異動）";
+          return undefined;
+        };
+        const enrichedSelections = locatedSelections.map((place) => ({ ...place, openingHours: verifiedFavoriteHours(place) }));
+        const uniqueSelections = enrichedSelections.filter((place, index, rows) => {
           const key = `${place.name.replace(/（.*?）|\(.*?\)/g, "").trim().toLowerCase()}|${place.address.replace(/\s+/g, "").toLowerCase()}`;
           return rows.findIndex((candidate) => `${candidate.name.replace(/（.*?）|\(.*?\)/g, "").trim().toLowerCase()}|${candidate.address.replace(/\s+/g, "").toLowerCase()}` === key) === index;
         });
@@ -1888,11 +1897,17 @@ export default function App() {
         const departureCity = cities.find((city) => favoriteDeparturePlace.includes(city)) || arrivalCity;
         const preferredKeys = [...new Set([arrivalCity, ...groupKeys.filter((key) => key !== arrivalCity && key !== departureCity), departureCity].filter(Boolean) as string[])];
         const usedPlaceIds = new Set<string>();
+        const isOpenWithinWindow = (place: FavoritePlace, start: number) => {
+          if (!place.openingHours) return true;
+          const times = [...place.openingHours.matchAll(/([01]?\d|2[0-3]):([0-5]\d)/g)].map((match) => Number(match[1]) * 60 + Number(match[2]));
+          const close = times.length >= 2 ? times[1]! : undefined;
+          return close == null || close > start + 30;
+        };
         windows.forEach((window, dayIndex) => {
           const isArrivalDay = dayIndex === 0 && !!favoriteArrivalTime;
           const isDepartureDay = dayIndex === count - 1 && !!favoriteDepartureTime;
           const preferred = isArrivalDay ? arrivalCity : isDepartureDay ? departureCity : preferredKeys.find((key) => !buckets.some((bucket) => bucket.some((place) => place.city === key)));
-          let candidates = preferred ? [...(grouped[preferred] || [])].filter((place) => !usedPlaceIds.has(place.id)) : [];
+          let candidates = preferred ? [...(grouped[preferred] || [])].filter((place) => !usedPlaceIds.has(place.id) && isOpenWithinWindow(place, window.start)) : [];
           if (isArrivalDay || isDepartureDay) candidates = candidates.filter((place) => !isStrenuousOutdoor(place));
           if (isArrivalDay && window.start >= 960) candidates.sort((a, b) => Number(/百貨|商場|plaza|mall|美術館/i.test(`${b.name} ${b.note || ""}`)) - Number(/百貨|商場|plaza|mall|美術館/i.test(`${a.name} ${a.note || ""}`)) || attractionScore(b) - attractionScore(a));
           const chosen = candidates.slice(0, capacities[dayIndex]);
