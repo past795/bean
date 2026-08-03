@@ -951,8 +951,7 @@ export default function App() {
 
   const archiveTripAndEmail = async () => {
     if (!archiveTripTarget || !archiveEmail.trim()) { Alert.alert("請輸入收件信箱"); return; }
-    const link = cloudLinksRef.current[archiveTripTarget.id];
-    if (!googleUser?.idToken || !link || link.role !== "owner") { Alert.alert("只有建立者可以打包旅行", "請確認已登入建立這趟旅行的 Google 帳號，且旅行已開啟雲端同步。"); return; }
+    if (!googleUser?.idToken) { Alert.alert("請先登入 Google 帳號"); return; }
     setArchiveBusy(true);
     try {
       const data = await postCloud({ action: "archiveTrip", tripId: archiveTripTarget.id, email: archiveEmail.trim(), idToken: googleUser.idToken });
@@ -3022,7 +3021,7 @@ export default function App() {
                     >
                       <Text style={styles.editTripText}>編輯旅行</Text>
                     </Pressable>
-                    {!!cloudLinks[trip.id] && <Pressable style={styles.archiveTripButton} onPress={(event) => { event.stopPropagation?.(); setArchiveTripTarget(trip); setArchiveEmail(googleUser?.email || ""); }}><Text style={styles.archiveTripText}>打包</Text></Pressable>}
+                    <Pressable style={styles.archiveTripButton} onPress={(event) => { event.stopPropagation?.(); setArchiveTripTarget(trip); setArchiveEmail(googleUser?.email || ""); }}><Text style={styles.archiveTripText}>打包</Text></Pressable>
                     <Pressable
                       accessibilityLabel={`刪除 ${trip.title}`}
                       style={styles.deleteTripButton}
@@ -3045,7 +3044,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.4</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.5</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
