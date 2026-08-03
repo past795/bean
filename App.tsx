@@ -4446,7 +4446,7 @@ const styles = StyleSheet.create({
   toolSheetBodyContent: { paddingBottom: 28 },
   toolSheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", backgroundColor: "#FBFAF7", zIndex: 3, paddingBottom: 8 },
   sheetCloseButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#ECE7E0", alignItems: "center", justifyContent: "center", marginTop: -4, padding: 0 },
-  closeGlyph: { width: 18, height: 18, alignItems: "center", justifyContent: "center", position: "relative" },
+  closeGlyph: { width: 18, height: 18, alignItems: "center", justifyContent: "center", position: "relative", transform: [{ translateY: -2.5 }] },
   closeGlyphLine: { position: "absolute", width: 17, height: 2.2, borderRadius: 2, backgroundColor: "#625A53", left: 0.5, top: 7.9 },
   closeGlyphLineForward: { transform: [{ rotate: "45deg" }] },
   closeGlyphLineBackward: { transform: [{ rotate: "-45deg" }] },
