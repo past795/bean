@@ -3602,7 +3602,10 @@ export default function App() {
                   style={styles.sheetCloseButton}
                   onPress={() => { setAddingFlight(false); setAddingAccommodation(false); setAddingShoppingItem(false); setSelectedTool(null); }}
                 >
-                  <Text style={styles.sheetCloseText}>×</Text>
+                  <View style={styles.closeGlyph} pointerEvents="none">
+                    <View style={[styles.closeGlyphLine, styles.closeGlyphLineForward]} />
+                    <View style={[styles.closeGlyphLine, styles.closeGlyphLineBackward]} />
+                  </View>
                 </Pressable>
               </View>
               <ScrollView style={styles.toolSheetBody} contentContainerStyle={styles.toolSheetBodyContent} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
@@ -4442,8 +4445,11 @@ const styles = StyleSheet.create({
   toolSheetBody: { flex: 1, marginTop: 4 },
   toolSheetBodyContent: { paddingBottom: 28 },
   toolSheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", backgroundColor: "#FBFAF7", zIndex: 3, paddingBottom: 8 },
-  sheetCloseButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#ECE7E0", alignItems: "center", justifyContent: "center", marginTop: -4 },
-  sheetCloseText: { color: "#625A53", fontSize: 27, lineHeight: 29, fontWeight: "500" },
+  sheetCloseButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#ECE7E0", alignItems: "center", justifyContent: "center", marginTop: -4, padding: 0 },
+  closeGlyph: { width: 18, height: 18, alignItems: "center", justifyContent: "center", position: "relative" },
+  closeGlyphLine: { position: "absolute", width: 17, height: 2.2, borderRadius: 2, backgroundColor: "#625A53", left: 0.5, top: 7.9 },
+  closeGlyphLineForward: { transform: [{ rotate: "45deg" }] },
+  closeGlyphLineBackward: { transform: [{ rotate: "-45deg" }] },
   detailBlock: { marginTop: 12 },
   detailTitle: { color: "#536783", fontSize: 14, fontWeight: "900", marginTop: 13 },
   detailText: { color: "#756D65", fontSize: 13, lineHeight: 20, marginTop: 4 },
