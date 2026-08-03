@@ -535,6 +535,10 @@ export default function App() {
   const [favoriteCity, setFavoriteCity] = useState("");
   const [favoriteNote, setFavoriteNote] = useState("");
   const [favoriteDayCount, setFavoriteDayCount] = useState("5");
+  const [favoriteArrivalDate, setFavoriteArrivalDate] = useState("");
+  const [favoriteArrivalTime, setFavoriteArrivalTime] = useState("");
+  const [favoriteDepartureDate, setFavoriteDepartureDate] = useState("");
+  const [favoriteDepartureTime, setFavoriteDepartureTime] = useState("");
   const [selectedFavoriteIds, setSelectedFavoriteIds] = useState<string[]>([]);
   const [collapsedFavoriteCountries, setCollapsedFavoriteCountries] = useState<string[]>([]);
   const [collapsedFavoriteCities, setCollapsedFavoriteCities] = useState<string[]>([]);
@@ -761,6 +765,10 @@ export default function App() {
     (countries[country]![city] ||= []).push(place);
     return countries;
   }, {} as Record<string, Record<string, FavoritePlace[]>>), [favorites]);
+  useEffect(() => {
+    const count = inclusiveDayCount(favoriteArrivalDate, favoriteDepartureDate);
+    if (count) setFavoriteDayCount(String(Math.min(14, count)));
+  }, [favoriteArrivalDate, favoriteDepartureDate]);
 
   const favoriteFeatureText = (name: string, address = "") => {
     const text = `${name} ${address}`.toLowerCase();
@@ -1564,8 +1572,8 @@ export default function App() {
     setSelectedFavoriteIds((current) => ids.every((id) => current.includes(id)) ? current.filter((id) => !ids.includes(id)) : [...new Set([...current, ...ids])]);
   };
 
-  const generatedStop = (place: FavoritePlace, dayIndex: number, index: number): Stop => ({
-    id: `generated-${Date.now()}-${dayIndex}-${index}-${place.id}`, time: `${String(10 + Math.floor(index * 2)).padStart(2, "0")}:00`, title: place.name,
+  const generatedStop = (place: FavoritePlace, dayIndex: number, index: number, startMinutes = 600, intervalMinutes = 120): Stop => ({
+    id: `generated-${Date.now()}-${dayIndex}-${index}-${place.id}`, time: `${String(Math.floor((startMinutes + index * intervalMinutes) / 60)).padStart(2, "0")}:${String((startMinutes + index * intervalMinutes) % 60).padStart(2, "0")}`, title: place.name,
     address: place.address, transport: index === 0 ? "從住宿出發・大眾運輸" : "大眾運輸", transportMode: "地鐵", routeMode: "transit",
     note: place.note || "由收藏景點自動排入", latitude: place.latitude, longitude: place.longitude, openingHours: place.openingHours, durationMinutes: 90
   });
@@ -1576,17 +1584,42 @@ export default function App() {
     const cities = [...new Set(selectedFavorites.map((place) => place.city).filter(Boolean))];
     const countries = [...new Set(selectedFavorites.map((place) => place.country).filter(Boolean))];
     const destination = cities.join("・") || countries.join("・") || "收藏景點";
-    Alert.alert("建立全新旅行？", `會用已勾選的 ${selectedFavorites.length} 個景點，建立「${destination}」${count} 天新旅行，不會修改目前旅行。`, [
+    const flightSummary = favoriteArrivalDate || favoriteArrivalTime || favoriteDepartureDate || favoriteDepartureTime
+      ? `\n抵達：${favoriteArrivalDate || "日期待補"} ${favoriteArrivalTime || "時間待補"}\n回程：${favoriteDepartureDate || "日期待補"} ${favoriteDepartureTime || "時間待補"}` : "";
+    Alert.alert("建立全新旅行？", `會用已勾選的 ${selectedFavorites.length} 個景點，建立「${destination}」${count} 天新旅行，不會修改目前旅行。${flightSummary}`, [
       { text: "取消", style: "cancel" },
       { text: "開始安排", onPress: () => {
         const id = `trip-${Date.now()}`;
         const sorted = [...selectedFavorites].sort((a, b) => `${a.country}${a.city}`.localeCompare(`${b.country}${b.city}`));
-        const buckets = Array.from({ length: count }, () => [] as FavoritePlace[]);
-        sorted.forEach((place, index) => buckets[Math.min(count - 1, Math.floor(index * count / sorted.length))]!.push(place));
-        const nextDays: TripDay[] = buckets.map((bucket, dayIndex) => {
-          return { id: `${id}-day-${dayIndex + 1}`, label: `DAY ${dayIndex + 1}`, date: "日期未定", title: `${bucket[0]?.city || destination}・建議行程`, stops: bucket.map((place, index) => generatedStop(place, dayIndex, index)) };
+        const parseMinutes = (value: string, fallback: number) => { const match = value.match(/^(\d{1,2}):(\d{2})$/); return match ? Number(match[1]) * 60 + Number(match[2]) : fallback; };
+        const arrivalMinutes = parseMinutes(favoriteArrivalTime, 480);
+        const departureMinutes = parseMinutes(favoriteDepartureTime, 1380);
+        const windows = Array.from({ length: count }, (_, dayIndex) => {
+          const start = dayIndex === 0 && favoriteArrivalTime ? Math.min(1320, arrivalMinutes + 120) : 600;
+          const end = dayIndex === count - 1 && favoriteDepartureTime ? Math.max(600, departureMinutes - 180) : 1200;
+          return { start, end, weight: Math.max(0, end - start) };
         });
-        const trip: TripPlan = { id, title: `${destination} ${count}日收藏旅行`, destination, period: "日期未定", travelers: 1, days: nextDays, flights: [], accommodations: [], shopping: [], checklist: defaultPrepChecklist() };
+        const totalWeight = windows.reduce((sum, window) => sum + window.weight, 0) || count;
+        const buckets = Array.from({ length: count }, () => [] as FavoritePlace[]);
+        let cursor = 0;
+        windows.forEach((window, dayIndex) => {
+          const remaining = Math.max(0, sorted.length - cursor);
+          const target = dayIndex === count - 1 ? remaining : Math.min(remaining, Math.round(sorted.length * window.weight / totalWeight));
+          buckets[dayIndex]!.push(...sorted.slice(cursor, cursor + target));
+          cursor += target;
+        });
+        const nextDays: TripDay[] = buckets.map((bucket, dayIndex) => {
+          const window = windows[dayIndex]!;
+          const interval = bucket.length > 1 ? Math.max(60, Math.floor((window.end - window.start) / bucket.length)) : 120;
+          const date = favoriteArrivalDate ? tripDayDateLabel(favoriteArrivalDate, dayIndex) : "日期未定";
+          const title = !bucket.length && dayIndex === 0 && favoriteArrivalTime ? `抵達 ${destination}` : !bucket.length && dayIndex === count - 1 && favoriteDepartureTime ? "整理行李・前往機場" : `${bucket[0]?.city || destination}・建議行程`;
+          return { id: `${id}-day-${dayIndex + 1}`, label: `DAY ${dayIndex + 1}`, date, title, stops: bucket.map((place, index) => generatedStop(place, dayIndex, index, window.start, interval)) };
+        });
+        const flights: FlightInfo[] = [];
+        if (favoriteArrivalDate || favoriteArrivalTime) flights.push({ id: `flight-arrival-${Date.now()}`, route: `抵達 ${destination}`, flightNumber: "航班號碼待補", departure: "出發時間待補", arrival: `${favoriteArrivalDate} ${favoriteArrivalTime}`.trim(), note: "建立推薦行程時使用的抵達時間" });
+        if (favoriteDepartureDate || favoriteDepartureTime) flights.push({ id: `flight-departure-${Date.now()}`, route: `${destination} 回程`, flightNumber: "航班號碼待補", departure: `${favoriteDepartureDate} ${favoriteDepartureTime}`.trim(), arrival: "抵達時間待補", note: "建立推薦行程時使用的回程時間" });
+        const period = favoriteArrivalDate && favoriteDepartureDate ? tripPeriodLabel(favoriteArrivalDate, favoriteDepartureDate) : "日期未定";
+        const trip: TripPlan = { id, title: `${destination} ${count}日收藏旅行`, destination, period, startDate: favoriteArrivalDate || undefined, endDate: favoriteDepartureDate || undefined, travelers: 1, days: nextDays, flights, accommodations: [], shopping: [], checklist: defaultPrepChecklist() };
         persistTrips([...trips, trip]); setSelectedFavoriteIds([]); selectTrip(trip);
         showToast(`已建立 ${count} 天新旅行`);
       }}
@@ -2865,6 +2898,9 @@ export default function App() {
             <View style={styles.favoritePlanner}>
               <Text style={styles.favoritePlannerTitle}>✨ 已選 {selectedFavorites.length} 個景點</Text>
               <Text style={styles.favoritePlannerText}>收藏是你的跨國個人景點庫。勾選城市或景點後，可建立全新旅行，也能加入既有旅行。</Text>
+              <Text style={styles.favoriteTargetLabel}>航班時間（用來限制第一天與最後一天的安排）</Text>
+              <View style={styles.formRow}><View style={styles.formHalf}><Text style={styles.fieldLabel}>抵達日期</Text><TextInput value={favoriteArrivalDate} onChangeText={setFavoriteArrivalDate} style={styles.fieldInput} placeholder="YYYY-MM-DD" placeholderTextColor="#A49C90" /></View><View style={styles.formHalf}><Text style={styles.fieldLabel}>抵達時間</Text><TextInput value={favoriteArrivalTime} onChangeText={setFavoriteArrivalTime} style={styles.fieldInput} placeholder="例如 19:30" placeholderTextColor="#A49C90" /></View></View>
+              <View style={styles.formRow}><View style={styles.formHalf}><Text style={styles.fieldLabel}>回程日期</Text><TextInput value={favoriteDepartureDate} onChangeText={setFavoriteDepartureDate} style={styles.fieldInput} placeholder="YYYY-MM-DD" placeholderTextColor="#A49C90" /></View><View style={styles.formHalf}><Text style={styles.fieldLabel}>回程起飛</Text><TextInput value={favoriteDepartureTime} onChangeText={setFavoriteDepartureTime} style={styles.fieldInput} placeholder="例如 16:40" placeholderTextColor="#A49C90" /></View></View>
               <View style={styles.favoritePlannerRow}><TextInput value={favoriteDayCount} onChangeText={setFavoriteDayCount} keyboardType="number-pad" style={[styles.fieldInput, styles.favoriteDayInput]} placeholder="天數" /><Pressable style={styles.favoriteGenerateButton} onPress={generateTripFromFavorites}><Text style={styles.primaryButtonText}>建立新旅行</Text></Pressable></View>
               <Text style={styles.favoriteTargetLabel}>或加入既有旅行</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.favoriteTripChips}>{trips.map((trip) => <Pressable key={trip.id} style={[styles.favoriteTripChip, (favoriteTargetTripId || activeTrip.id) === trip.id && styles.favoriteTripChipActive]} onPress={() => setFavoriteTargetTripId(trip.id)}><Text style={[(favoriteTargetTripId || activeTrip.id) === trip.id && styles.favoriteTripChipTextActive]}>{trip.title}</Text></Pressable>)}</ScrollView>
@@ -2986,7 +3022,7 @@ export default function App() {
                     >
                       <Text style={styles.editTripText}>編輯旅行</Text>
                     </Pressable>
-                    {cloudLinks[trip.id]?.role === "owner" && <Pressable style={styles.archiveTripButton} onPress={(event) => { event.stopPropagation?.(); setArchiveTripTarget(trip); setArchiveEmail(googleUser?.email || ""); }}><Text style={styles.archiveTripText}>打包</Text></Pressable>}
+                    {!!cloudLinks[trip.id] && <Pressable style={styles.archiveTripButton} onPress={(event) => { event.stopPropagation?.(); setArchiveTripTarget(trip); setArchiveEmail(googleUser?.email || ""); }}><Text style={styles.archiveTripText}>打包</Text></Pressable>}
                     <Pressable
                       accessibilityLabel={`刪除 ${trip.title}`}
                       style={styles.deleteTripButton}
@@ -3009,7 +3045,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.3</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.4</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
