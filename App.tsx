@@ -1523,43 +1523,32 @@ export default function App() {
     showToast(wasEditing ? "收藏景點已更新" : "收藏景點已新增並自動分類");
   };
 
-  const importFavoriteBatch = async () => {
+  const importFavoriteBatch = () => {
     const lines = batchFavoriteText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     if (!lines.length) { Alert.alert("請貼上景點清單"); return; }
-    setBatchFavoriteStatus(`正在查找 0 / ${lines.length}`);
-    const imported: FavoritePlace[] = [];
-    const failed: string[] = [];
-    for (let index = 0; index < lines.length; index += 1) {
-      const parts = lines[index]!.split(/[｜|\t]/).map((part) => part.trim());
-      let country = batchFavoriteCountry.trim(); let city = batchFavoriteCity.trim(); let name = ""; let suppliedAddress = ""; let note = "";
-      if (parts.length >= 5) { country = parts[0] || country; city = parts[1] || city; name = parts[2] || ""; suppliedAddress = parts[3] || ""; note = parts[4] || ""; }
-      else if (parts.length >= 3) { name = parts[0] || ""; suppliedAddress = parts[1] || ""; note = parts[2] || ""; }
+    const parsed = lines.map((line, index) => {
+      const parts = line.split(/[｜|\t]/).map((part) => part.trim());
+      let country = batchFavoriteCountry.trim(); let city = batchFavoriteCity.trim(); let name = ""; let address = ""; let note = "";
+      if (parts.length >= 5) { country = parts[0] || country; city = parts[1] || city; name = parts[2] || ""; address = parts[3] || ""; note = parts.slice(4).join("｜"); }
+      else if (parts.length === 4) { city = parts[0] || city; name = parts[1] || ""; address = parts[2] || ""; note = parts[3] || ""; }
+      else if (parts.length === 3) { name = parts[0] || ""; address = parts[1] || ""; note = parts[2] || ""; }
+      else if (parts.length === 2) { name = parts[0] || ""; address = parts[1] || ""; }
       else name = parts[0] || "";
-      if (!name) continue;
-      setBatchFavoriteStatus(`正在查找 ${index + 1} / ${lines.length}：${name}`);
-      try {
-        const compact = name.replace(/\s+/g, "");
-        const alias = /伏見稻荷/.test(compact) ? "Fushimi Inari Taisha" : /白淺灘/.test(compact) ? "Huinnyeoul Culture Village" : name;
-        const context = `${country} ${city}`;
-        const code = /日本|japan/i.test(context) ? "jp" : /韓國|南韓|korea/i.test(context) ? "kr" : /台灣|taiwan/i.test(context) ? "tw" : "";
-        const query = encodeURIComponent(`${alias} ${suppliedAddress} ${city} ${country}`.trim());
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&accept-language=zh-TW&q=${query}${code ? `&countrycodes=${code}` : ""}`, { headers: { "User-Agent": "DouyouTrip/1.0" } });
-        const rows = response.ok ? await response.json() : [];
-        const row = rows[0];
-        if (!row) { failed.push(name); continue; }
-        const address = String(row.display_name || suppliedAddress);
-        const details = row.address || {};
-        const inferred = inferFavoriteRegion(name, address);
-        const resolvedCountry = country || (/日本|japan/i.test(String(details.country || address)) ? "日本" : /韓國|대한민국|korea/i.test(String(details.country || address)) ? "韓國" : inferred.country);
-        const resolvedCity = city || String(details.city || details.town || details.county || inferred.city).replace(/廣域市|特別市|府/g, "") || inferred.city;
-        if (!favorites.some((item) => item.name === name && item.address === address) && !imported.some((item) => item.name === name && item.address === address)) imported.push({ id: `favorite-${Date.now()}-${index}`, name, address, country: resolvedCountry, city: resolvedCity, latitude: Number(row.lat), longitude: Number(row.lon), note: note || favoriteFeatureText(name, address) });
-      } catch { failed.push(name); }
-      if (index < lines.length - 1) await new Promise((resolve) => setTimeout(resolve, 700));
-    }
-    if (imported.length) persistFavorites([...favorites, ...imported]);
+      const inferred = inferFavoriteRegion(name, address);
+      return { index, country: country || inferred.country, city: city || inferred.city, name, address: address || "地址待補", note: note || favoriteFeatureText(name, address) };
+    }).filter((item) => item.name);
+    const withoutLegacyBrokenRows = favorites.filter((favorite) => !parsed.some((item) => favorite.name === item.city && favorite.note === item.address));
+    const imported: FavoritePlace[] = [];
+    parsed.forEach((item) => {
+      const duplicate = withoutLegacyBrokenRows.some((favorite) => favorite.name === item.name && favorite.address === item.address)
+        || imported.some((favorite) => favorite.name === item.name && favorite.address === item.address);
+      if (!duplicate) imported.push({ id: `favorite-${Date.now()}-${item.index}`, name: item.name, address: item.address, country: item.country, city: item.city, note: item.note });
+    });
+    persistFavorites([...withoutLegacyBrokenRows, ...imported]);
     setBatchFavoriteStatus("");
-    if (!failed.length) { setBatchFavoriteVisible(false); setBatchFavoriteText(""); showToast(`已匯入 ${imported.length} 個收藏景點`); }
-    else Alert.alert(`已匯入 ${imported.length} 個`, `以下 ${failed.length} 個找不到，請補上國家或城市後再試：\n${failed.join("、")}`);
+    setBatchFavoriteVisible(false);
+    setBatchFavoriteText("");
+    showToast(`已匯入 ${imported.length} 個收藏景點`);
   };
 
   const toggleFavoriteSelection = (ids: string[]) => {
@@ -2993,7 +2982,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.02.12</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -3169,7 +3158,7 @@ export default function App() {
             <View style={styles.formRow}><View style={styles.formHalf}><Text style={styles.fieldLabel}>共同國家</Text><TextInput value={batchFavoriteCountry} onChangeText={setBatchFavoriteCountry} style={styles.fieldInput} placeholder="例如：日本" placeholderTextColor="#A49C90" /></View><View style={styles.formHalf}><Text style={styles.fieldLabel}>共同城市</Text><TextInput value={batchFavoriteCity} onChangeText={setBatchFavoriteCity} style={styles.fieldInput} placeholder="例如：京都" placeholderTextColor="#A49C90" /></View></View>
             <Text style={styles.fieldLabel}>每行一個景點</Text><TextInput value={batchFavoriteText} onChangeText={setBatchFavoriteText} multiline style={[styles.noteInput, styles.favoriteBatchInput]} placeholder={'伏見稻荷\n清水寺\n\n或完整格式：\n日本｜大阪｜大阪城｜大阪府大阪市中央區大阪城1-1｜賞櫻、天守閣'} placeholderTextColor="#A49C90" />
             {!!batchFavoriteStatus && <Text style={styles.placeSearchStatus}>{batchFavoriteStatus}</Text>}
-            <Pressable style={[styles.primaryButton, !!batchFavoriteStatus && styles.disabledButton]} disabled={!!batchFavoriteStatus} onPress={importFavoriteBatch}><Text style={styles.primaryButtonText}>{batchFavoriteStatus ? "正在查找地址…" : "查找並匯入收藏"}</Text></Pressable>
+            <Pressable style={[styles.primaryButton, !!batchFavoriteStatus && styles.disabledButton]} disabled={!!batchFavoriteStatus} onPress={importFavoriteBatch}><Text style={styles.primaryButtonText}>{batchFavoriteStatus ? "正在匯入…" : "匯入全部收藏"}</Text></Pressable>
             <Pressable style={styles.cancelButton} disabled={!!batchFavoriteStatus} onPress={() => setBatchFavoriteVisible(false)}><Text style={styles.cancelText}>取消</Text></Pressable>
           </View></View>
         </Modal>
