@@ -2874,7 +2874,7 @@ export default function App() {
               const countryCollapsed = collapsedFavoriteCountries.includes(country);
               return <View key={country} style={styles.favoriteCountryGroup}>
                 <Pressable style={styles.favoriteCountryToggle} onPress={() => setCollapsedFavoriteCountries((current) => current.includes(country) ? current.filter((item) => item !== country) : [...current, country])}>
-                  <Text style={styles.favoriteTreeArrow}>{countryCollapsed ? "▸" : "▾"}</Text><Text style={styles.favoriteCountry}>└ {country}</Text>
+                  <Text style={styles.favoriteTreeArrow}>{countryCollapsed ? "▸" : "▾"}</Text><Text style={styles.favoriteCountry}>{country}</Text>
                 </Pressable>
                 {!countryCollapsed && Object.entries(cities).map(([city, places]) => {
                   const cityKey = `${country}|||${city}`;
@@ -2885,7 +2885,7 @@ export default function App() {
                     <View style={styles.favoriteCitySelect}>
                       <Pressable style={[styles.favoriteCheckbox, citySelected && styles.favoriteCheckboxActive]} onPress={() => toggleFavoriteSelection(ids)}><Text style={styles.favoriteCheckboxMark}>{citySelected ? "✓" : ""}</Text></Pressable>
                       <Pressable style={styles.favoriteCityToggle} onPress={() => setCollapsedFavoriteCities((current) => current.includes(cityKey) ? current.filter((item) => item !== cityKey) : [...current, cityKey])}>
-                        <Text style={styles.favoriteTreeArrow}>{cityCollapsed ? "▸" : "▾"}</Text><Text style={styles.favoriteCity}>└ {city}（全選）</Text>
+                        <Text style={styles.favoriteTreeArrow}>{cityCollapsed ? "▸" : "▾"}</Text><Text style={styles.favoriteCity}>{city}</Text>
                       </Pressable>
                     </View>
                     {!cityCollapsed && places.map((place) => { const selected = selectedFavoriteIds.includes(place.id); return <View key={place.id} style={[styles.favoriteCard, selected && styles.favoriteCardSelected]}><Pressable style={[styles.favoriteCheckbox, selected && styles.favoriteCheckboxActive]} onPress={() => toggleFavoriteSelection([place.id])}><Text style={styles.favoriteCheckboxMark}>{selected ? "✓" : ""}</Text></Pressable><Pressable style={styles.favoriteCardText} onPress={() => openFavoriteEditor(place)}><Text style={styles.favoriteName}>{place.name}</Text><Text style={styles.favoriteAddress}>{place.address}</Text><Text style={styles.favoriteFeature}>特色｜{place.note || favoriteFeatureText(place.name, place.address)}</Text><Text style={styles.favoriteEditHint}>點此編輯景點</Text></Pressable><Pressable onPress={() => { persistFavorites(favorites.filter((item) => item.id !== place.id)); setSelectedFavoriteIds((current) => current.filter((id) => id !== place.id)); }}><Text style={styles.favoriteDelete}>×</Text></Pressable></View>; })}
@@ -3009,7 +3009,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.2</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.3</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
