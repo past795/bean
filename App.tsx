@@ -3018,7 +3018,6 @@ export default function App() {
                   {!!trip.coverImage && <Image source={{ uri: trip.coverImage }} style={styles.tripCoverPhoto} resizeMode="cover" />}
                   {!!trip.coverImage && <View style={styles.tripCoverShade} />}
                   <Text style={styles.tripCardIndex}>TRIP {String(index + 1).padStart(2, "0")}</Text>
-                  <Text style={styles.tripCardDestination}>{trip.destination}</Text>
                   <Text style={styles.tripCardPeriod}>{trip.period}</Text>
                   <View style={styles.tripCardMeta}>
                     <Text style={styles.tripCardMetaText}>{trip.days.length} 天</Text>
@@ -3071,7 +3070,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.9</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.10</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -4122,7 +4121,7 @@ const styles = StyleSheet.create({
   joinTripButtonText: { color: "#536783", fontSize: 11, fontWeight: "900" },
   addTripPlus: { color: "#FFF", fontSize: 25, fontWeight: "500", marginTop: -2 },
   tripCard: { backgroundColor: "#FFF", borderRadius: 24, marginBottom: 18, overflow: "hidden", borderWidth: 1, borderColor: "#EDE7DF", shadowColor: "#34261F", shadowOpacity: .08, shadowRadius: 14, shadowOffset: { width: 0, height: 7 } },
-  tripCardCover: { minHeight: 168, padding: 20, justifyContent: "flex-end" },
+  tripCardCover: { minHeight: 132, padding: 20, justifyContent: "flex-end" },
   tripCoverPhoto: { ...StyleSheet.absoluteFillObject, width: "auto", height: "auto" },
   tripCoverShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(18,35,31,.46)" },
   coverUploadPreview: { width: "100%", height: 150, borderRadius: 16, backgroundColor: "#EEEAE4", marginBottom: 9 },
@@ -4145,7 +4144,6 @@ const styles = StyleSheet.create({
   hotelDayChoiceText: { color: "#766E65", fontSize: 10, fontWeight: "900" },
   hotelDayChoiceTextActive: { color: "#FFF" },
   tripCardIndex: { position: "absolute", left: 20, top: 18, color: "rgba(255,255,255,.7)", letterSpacing: 1.5, fontWeight: "800", fontSize: 10 },
-  tripCardDestination: { color: "#FFF", fontSize: 33, fontWeight: "900", letterSpacing: -1 },
   tripCardPeriod: { color: "rgba(255,255,255,.82)", fontSize: 12, fontWeight: "700", marginTop: 4 },
   tripCardMeta: { flexDirection: "row", marginTop: 14, alignItems: "center", gap: 7 },
   tripCardMetaText: { color: "#FFF", fontSize: 11, fontWeight: "800" },
