@@ -557,6 +557,7 @@ export default function App() {
   const [batchFavoriteCountry, setBatchFavoriteCountry] = useState("");
   const [batchFavoriteCity, setBatchFavoriteCity] = useState("");
   const [batchFavoriteStatus, setBatchFavoriteStatus] = useState("");
+  const [favoriteBulkUpdating, setFavoriteBulkUpdating] = useState(false);
   const [archivedTrips, setArchivedTrips] = useState<any[]>([]);
   const [archiveTripTarget, setArchiveTripTarget] = useState<TripPlan | null>(null);
   const [archiveEmail, setArchiveEmail] = useState("");
@@ -1619,6 +1620,25 @@ export default function App() {
       if (index + 6 < places.length) await new Promise((resolve) => setTimeout(resolve, 150));
     }
     return located;
+  };
+
+  const updateAllFavoriteCoordinates = async () => {
+    if (favoriteBulkUpdating) return;
+    const missing = favorites.filter((place) => place.latitude == null || place.longitude == null);
+    if (!missing.length) { showToast("所有收藏景點都已有座標"); return; }
+    setFavoriteBulkUpdating(true);
+    showToast(`正在更新 ${missing.length} 個收藏景點…`);
+    try {
+      const located = await locateFavoritesInBatches(missing);
+      const locatedById = new Map(located.map((place) => [place.id, place]));
+      const next = favorites.map((place) => locatedById.get(place.id) || place);
+      persistFavorites(next);
+      const updatedCount = located.filter((place) => place.latitude != null && place.longitude != null).length;
+      const missingCount = missing.length - updatedCount;
+      showToast(missingCount ? `已更新 ${updatedCount} 個，${missingCount} 個仍找不到座標` : `已更新全部 ${updatedCount} 個收藏景點`);
+    } finally {
+      setFavoriteBulkUpdating(false);
+    }
   };
 
   const generateTripFromFavorites = async () => {
@@ -2950,6 +2970,7 @@ export default function App() {
         {tab === "favorites" && (
           <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
             <View style={styles.favoriteHeader}><View><Text style={styles.eyebrow}>MY SAVED PLACES</Text><Text style={styles.pageTitle}>景點收藏</Text><Text style={styles.pageSubtitle}>個人收藏會依國家與城市自動整理。</Text></View><View style={styles.favoriteHeaderActions}><Pressable style={styles.favoriteBatchButton} onPress={() => setBatchFavoriteVisible(true)}><Text style={styles.favoriteBatchButtonText}>批次匯入</Text></Pressable><Pressable style={styles.addTripButton} onPress={() => openFavoriteEditor()}><Text style={styles.addTripPlus}>＋</Text></Pressable></View></View>
+            <Pressable disabled={favoriteBulkUpdating} style={[styles.favoriteBulkUpdateButton, favoriteBulkUpdating && styles.buttonDisabled]} onPress={updateAllFavoriteCoordinates}><Text style={styles.favoriteBulkUpdateText}>{favoriteBulkUpdating ? "正在更新全部收藏座標…" : "⌖ 更新全部收藏座標"}</Text></Pressable>
             <View style={styles.favoritePlanner}>
               <Text style={styles.favoritePlannerTitle}>✨ 已選 {selectedFavorites.length} 個景點</Text>
               <Text style={styles.favoritePlannerText}>收藏是你的跨國個人景點庫。勾選城市或景點後，可建立全新旅行，也能加入既有旅行。</Text>
@@ -3101,7 +3122,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.11</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.12</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -4360,6 +4381,9 @@ const styles = StyleSheet.create({
   favoriteHeaderActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   favoriteBatchButton: { backgroundColor: "#E8EDF6", borderRadius: 13, paddingHorizontal: 12, paddingVertical: 11 },
   favoriteBatchButtonText: { color: "#536783", fontSize: 10, fontWeight: "900" },
+  favoriteBulkUpdateButton: { backgroundColor: "#F0F3F9", borderWidth: 1, borderColor: "#D6DEEB", borderRadius: 14, paddingVertical: 12, alignItems: "center", marginTop: -10, marginBottom: 14 },
+  favoriteBulkUpdateText: { color: "#536783", fontSize: 12, fontWeight: "900" },
+  buttonDisabled: { opacity: 0.55 },
   favoriteSearchTip: { color: "#718099", fontSize: 10, lineHeight: 16, marginBottom: 8 },
   favoriteBatchInput: { minHeight: 180, textAlignVertical: "top" },
   disabledButton: { opacity: .55 },
