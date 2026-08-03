@@ -1596,6 +1596,31 @@ export default function App() {
     note: place.note || "由收藏景點自動排入", latitude: place.latitude, longitude: place.longitude, openingHours: place.openingHours, durationMinutes: 90
   });
 
+  const locateFavoritePlace = async (place: FavoritePlace): Promise<FavoritePlace> => {
+    if (place.latitude != null && place.longitude != null) return place;
+    const query = place.address && place.address !== "地址待補"
+      ? place.address
+      : `${place.name} ${place.city} ${place.country}`;
+    try {
+      const response = await fetch(`https://photon.komoot.io/api/?limit=1&lang=en&q=${encodeURIComponent(query)}`);
+      const feature = response.ok ? (await response.json())?.features?.[0] : null;
+      const coordinates = feature?.geometry?.coordinates;
+      if (Array.isArray(coordinates) && Number.isFinite(Number(coordinates[0])) && Number.isFinite(Number(coordinates[1]))) {
+        return { ...place, longitude: Number(coordinates[0]), latitude: Number(coordinates[1]) };
+      }
+    } catch { /* selected-day enrichment will retry */ }
+    return place;
+  };
+
+  const locateFavoritesInBatches = async (places: FavoritePlace[]) => {
+    const located: FavoritePlace[] = [];
+    for (let index = 0; index < places.length; index += 6) {
+      located.push(...await Promise.all(places.slice(index, index + 6).map(locateFavoritePlace)));
+      if (index + 6 < places.length) await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    return located;
+  };
+
   const generateTripFromFavorites = async () => {
     const count = Math.max(1, Math.min(14, Number.parseInt(favoriteDayCount, 10) || 1));
     if (!selectedFavorites.length) { Alert.alert("尚未勾選景點", "請先勾選城市或個別收藏景點。"); return; }
@@ -1604,8 +1629,14 @@ export default function App() {
     const destination = cities.join("・") || countries.join("・") || "收藏景點";
     const normalizedArrivalDate = favoriteArrivalDate.trim().replaceAll("/", "-");
     const normalizedDepartureDate = favoriteDepartureDate.trim().replaceAll("/", "-");
+        showToast("正在取得景點座標並建立旅行…");
+        const locatedSelections = await locateFavoritesInBatches(selectedFavorites);
+        const locatedById = new Map(locatedSelections.map((place) => [place.id, place]));
+        persistFavorites(favorites.map((place) => locatedById.get(place.id) || place));
         const id = `trip-${Date.now()}`;
-        const sorted = [...selectedFavorites].sort((a, b) => `${a.country}${a.city}`.localeCompare(`${b.country}${b.city}`));
+        const sorted = [...locatedSelections].sort((a, b) => `${a.country}${a.city}`.localeCompare(`${b.country}${b.city}`));
+        const arrivalLocation = favoriteArrivalPlace.trim() ? await locateFavoritePlace({ id: `${id}-arrival-location`, name: favoriteArrivalPlace.trim(), address: favoriteArrivalPlace.trim(), country: countries[0] || "", city: cities[0] || "" }) : undefined;
+        const departureLocation = favoriteDeparturePlace.trim() ? await locateFavoritePlace({ id: `${id}-departure-location`, name: favoriteDeparturePlace.trim(), address: favoriteDeparturePlace.trim(), country: countries[0] || "", city: cities[0] || "" }) : undefined;
         const parseMinutes = (value: string, fallback: number) => { const match = value.match(/^(\d{1,2}):(\d{2})$/); return match ? Number(match[1]) * 60 + Number(match[2]) : fallback; };
         const arrivalMinutes = parseMinutes(favoriteArrivalTime, 480);
         const departureMinutes = parseMinutes(favoriteDepartureTime, 1380);
@@ -1629,8 +1660,8 @@ export default function App() {
           const date = normalizedArrivalDate ? tripDayDateLabel(normalizedArrivalDate, dayIndex) : "日期未定";
           const title = !bucket.length && dayIndex === 0 && favoriteArrivalTime ? `抵達 ${destination}` : !bucket.length && dayIndex === count - 1 && favoriteDepartureTime ? "整理行李・前往機場" : `${bucket[0]?.city || destination}・建議行程`;
           const scenicStops = bucket.map((place, index) => generatedStop(place, dayIndex, index, window.start, interval));
-          const arrivalStop: Stop[] = dayIndex === 0 && favoriteArrivalPlace.trim() ? [{ id: `${id}-arrival`, time: favoriteArrivalTime || "抵達", title: `抵達 ${favoriteArrivalPlace.trim()}`, address: favoriteArrivalPlace.trim(), transport: "抵達後前往住宿或第一站", transportMode: "飛機", routeMode: "transit", note: "航班抵達地點；已預留入境、領行李與移動時間。", durationMinutes: 120 }] : [];
-          const departureStop: Stop[] = dayIndex === count - 1 && favoriteDeparturePlace.trim() ? [{ id: `${id}-departure`, time: favoriteDepartureTime || "起飛", title: `由 ${favoriteDeparturePlace.trim()} 回程`, address: favoriteDeparturePlace.trim(), transport: "提前前往機場／車站", transportMode: "飛機", routeMode: "transit", note: "回程出發地點；前方行程已預留至少 3 小時。", durationMinutes: 0 }] : [];
+          const arrivalStop: Stop[] = dayIndex === 0 && arrivalLocation ? [{ id: `${id}-arrival`, time: favoriteArrivalTime || "抵達", title: `抵達 ${favoriteArrivalPlace.trim()}`, address: favoriteArrivalPlace.trim(), latitude: arrivalLocation.latitude, longitude: arrivalLocation.longitude, transport: "抵達後前往住宿或第一站", transportMode: "飛機", routeMode: "transit", note: "航班抵達地點；已預留入境、領行李與移動時間。", durationMinutes: 120 }] : [];
+          const departureStop: Stop[] = dayIndex === count - 1 && departureLocation ? [{ id: `${id}-departure`, time: favoriteDepartureTime || "起飛", title: `由 ${favoriteDeparturePlace.trim()} 回程`, address: favoriteDeparturePlace.trim(), latitude: departureLocation.latitude, longitude: departureLocation.longitude, transport: "提前前往機場／車站", transportMode: "飛機", routeMode: "transit", note: "回程出發地點；前方行程已預留至少 3 小時。", durationMinutes: 0 }] : [];
           return { id: `${id}-day-${dayIndex + 1}`, label: `DAY ${dayIndex + 1}`, date, title, stops: [...arrivalStop, ...scenicStops, ...departureStop] };
         });
         const flights: FlightInfo[] = [];
@@ -3070,7 +3101,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.10</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.03.11</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
