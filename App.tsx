@@ -328,7 +328,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   accommodations: trip.accommodations.map((hotel) => ({
     "住宿ID": hotel.id, "住宿名稱": hotel.name, "入住日期": hotel.period,
     "退房日期": "", "入住時間": hotel.checkIn || "", "退房時間": hotel.checkOut || "",
-    "地址": hotel.address || "", "櫃檯資訊": hotel.frontDesk || "", "設施": hotel.facilities || "",
+    "地址": hotel.address || "", "緯度": hotel.latitude ?? "", "經度": hotel.longitude ?? "", "櫃檯資訊": hotel.frontDesk || "", "設施": hotel.facilities || "",
     "訂房編號": "", "備註": hotel.note || ""
   })),
   shopping: trip.shopping.map((item) => ({
@@ -428,7 +428,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
       : String(cloudTrip["旅行ID"] || "") === "trip-1785397565924" ? BUSAN_ACCOMMODATIONS : []
     ).map((row: any) => ({
       id: String(row["住宿ID"]), name: String(row["住宿名稱"] || ""), period: formatCloudDateTime(row["入住日期"]),
-      address: String(row["地址"] || ""), checkIn: formatCloudDateTime(row["入住時間"]), checkOut: formatCloudDateTime(row["退房時間"]),
+      address: String(row["地址"] || ""), latitude: row["緯度"] === "" || row["緯度"] == null ? undefined : Number(row["緯度"]), longitude: row["經度"] === "" || row["經度"] == null ? undefined : Number(row["經度"]), checkIn: formatCloudDateTime(row["入住時間"]), checkOut: formatCloudDateTime(row["退房時間"]),
       facilities: String(row["設施"] || ""), frontDesk: String(row["櫃檯資訊"] || ""), note: String(row["備註"] || "")
     })),
     shopping: (data.shopping || []).filter((row: any) => !["__PREP__", "__TRIP_META__"].includes(String(row["分類"] || ""))).map((row: any) => {
@@ -547,6 +547,7 @@ export default function App() {
   const [favoriteDepartureDate, setFavoriteDepartureDate] = useState("");
   const [favoriteDepartureTime, setFavoriteDepartureTime] = useState("");
   const [favoriteDeparturePlace, setFavoriteDeparturePlace] = useState("");
+  const [favoriteAccommodationText, setFavoriteAccommodationText] = useState("");
   const [selectedFavoriteIds, setSelectedFavoriteIds] = useState<string[]>([]);
   const [collapsedFavoriteCountries, setCollapsedFavoriteCountries] = useState<string[]>([]);
   const [collapsedFavoriteCities, setCollapsedFavoriteCities] = useState<string[]>([]);
@@ -632,6 +633,8 @@ export default function App() {
   const [hotelName, setHotelName] = useState("");
   const [hotelPeriod, setHotelPeriod] = useState("");
   const [hotelAddress, setHotelAddress] = useState("");
+  const [hotelLatitude, setHotelLatitude] = useState<number | undefined>();
+  const [hotelLongitude, setHotelLongitude] = useState<number | undefined>();
   const [hotelCheckIn, setHotelCheckIn] = useState("");
   const [hotelCheckOut, setHotelCheckOut] = useState("");
   const [hotelFacilities, setHotelFacilities] = useState("");
@@ -1640,10 +1643,14 @@ export default function App() {
   const inferFavoriteRegion = (name: string, address: string) => {
     const text = `${name} ${address} ${activeTrip.destination}`;
     const country = /韓國|南韓|釜山|首爾|濟州|부산|서울|대한민국|korea/i.test(text) ? "韓國"
-      : /日本|東京|大阪|京都|沖繩|北海道|福岡|japan/i.test(text) ? "日本" : "其他";
+      : /日本|東京|大阪|京都|沖繩|北海道|福岡|大分|別府|由布|九重|日田|宇佐|國東|国東|中津|竹田|豊後高田|豐後高田|japan/i.test(text) ? "日本" : "其他";
     const city = /釜山|부산|busan/i.test(text) ? "釜山" : /首爾|서울|seoul/i.test(text) ? "首爾"
       : /濟州|제주|jeju/i.test(text) ? "濟州" : /東京|tokyo/i.test(text) ? "東京"
-      : /大阪|osaka/i.test(text) ? "大阪" : /沖繩|okinawa/i.test(text) ? "沖繩" : activeTrip.destination || "未分類";
+      : /大阪|osaka/i.test(text) ? "大阪" : /沖繩|okinawa/i.test(text) ? "沖繩"
+      : /別府|beppu/i.test(text) ? "別府" : /由布|湯布院|yufu/i.test(text) ? "由布" : /九重|kokonoe/i.test(text) ? "九重"
+      : /日田|hita/i.test(text) ? "日田" : /宇佐|usa/i.test(text) ? "宇佐" : /國東|国東|kunisaki/i.test(text) ? "國東"
+      : /中津|nakatsu/i.test(text) ? "中津" : /竹田|taketa/i.test(text) ? "竹田" : /豊後高田|豐後高田/i.test(text) ? "豐後高田"
+      : /大分|oita/i.test(text) ? "大分" : activeTrip.destination || "未分類";
     return { country, city };
   };
 
@@ -1843,6 +1850,39 @@ export default function App() {
         const locatedById = new Map(locatedSelections.map((place) => [place.id, place]));
         persistFavorites(favorites.map((place) => locatedById.get(place.id) || place));
         const id = `trip-${Date.now()}`;
+        const hotelRows = favoriteAccommodationText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        const parsedHotelRows = hotelRows.map((line, rowIndex) => {
+          const fields = line.split(/[｜|]/).map((field) => field.trim());
+          const hasNightSpec = /^\d+(?:\s*[-–~]\s*\d+)?(?:\s*[,、]\s*\d+)*$/.test(fields[0] || "");
+          const nightSpec = hasNightSpec ? fields[0]! : `1-${Math.max(1, count - 1)}`;
+          const name = hasNightSpec ? fields[1] || "" : fields[0] || "";
+          const address = hasNightSpec ? fields.slice(2).join("｜") : fields.slice(1).join("｜");
+          const nights = new Set<number>();
+          nightSpec.split(/[,、]/).forEach((part) => {
+            const range = part.trim().match(/^(\d+)(?:\s*[-–~]\s*(\d+))?$/);
+            if (!range) return;
+            const start = Number(range[1]); const end = Number(range[2] || range[1]);
+            for (let night = Math.min(start, end); night <= Math.max(start, end); night += 1) if (night >= 1 && night < count) nights.add(night);
+          });
+          return { rowIndex, name, address, nights: [...nights] };
+        }).filter((row) => row.name && row.nights.length);
+        const locatedHotels = await Promise.all(parsedHotelRows.map(async (row) => {
+          const inferred = inferFavoriteRegion(row.name, row.address);
+          const located = await locateFavoritePlace({ id: `${id}-hotel-${row.rowIndex}`, name: row.name, address: row.address || row.name, country: countries[0] || inferred.country, city: inferred.city });
+          return { ...row, latitude: located.latitude, longitude: located.longitude };
+        }));
+        const plannedAccommodations: TripPlan["accommodations"] = locatedHotels.map((hotel) => ({
+          id: `${id}-hotel-${hotel.rowIndex}`, name: hotel.name, period: `第 ${hotel.nights.join("、")} 晚`, address: hotel.address,
+          latitude: hotel.latitude, longitude: hotel.longitude, note: "由收藏排行程時設定；入住退房時間可在工具箱補充。"
+        }));
+        const accommodationByNight: Record<string, string> = {};
+        locatedHotels.forEach((hotel) => hotel.nights.forEach((night) => { accommodationByNight[`night-${night}`] = `${id}-hotel-${hotel.rowIndex}`; }));
+        const allNightsCovered = Array.from({ length: Math.max(0, count - 1) }, (_, index) => `night-${index + 1}`).every((key) => !!accommodationByNight[key]);
+        const hotelById = new Map(plannedAccommodations.map((hotel) => [hotel.id, hotel]));
+        const hotelForNight = (night: number) => {
+          const hotelId = accommodationByNight[`night-${night}`];
+          return hotelId ? hotelById.get(hotelId) : undefined;
+        };
         const verifiedFavoriteHours = (place: FavoritePlace) => {
           if (place.openingHours) return place.openingHours;
           if (/九重.*夢.*吊橋|Kokonoe Yume Otsuribashi/i.test(place.name)) return "08:30-17:00（11–12 月；最終售票 16:30）";
@@ -1897,6 +1937,20 @@ export default function App() {
         const departureCity = cities.find((city) => favoriteDeparturePlace.includes(city)) || arrivalCity;
         const preferredKeys = [...new Set([arrivalCity, ...groupKeys.filter((key) => key !== arrivalCity && key !== departureCity), departureCity].filter(Boolean) as string[])];
         const usedPlaceIds = new Set<string>();
+        const groupCentroid = (key: string) => {
+          const located = (grouped[key] || []).filter((place) => place.latitude != null && place.longitude != null);
+          if (!located.length) return undefined;
+          return { latitude: located.reduce((sum, place) => sum + place.latitude!, 0) / located.length, longitude: located.reduce((sum, place) => sum + place.longitude!, 0) / located.length };
+        };
+        const nearestUnusedGroup = (hotel: TripPlan["accommodations"][number] | undefined) => {
+          const unused = preferredKeys.filter((key) => !buckets.some((bucket) => bucket.some((place) => place.city === key)));
+          if (hotel?.latitude == null || hotel.longitude == null) return unused[0];
+          return [...unused].sort((a, b) => {
+            const pointA = groupCentroid(a); const pointB = groupCentroid(b);
+            const distance = (point: typeof pointA) => point ? Math.hypot((point.latitude - hotel.latitude!) * 111, (point.longitude - hotel.longitude!) * 91) : Number.POSITIVE_INFINITY;
+            return distance(pointA) - distance(pointB);
+          })[0];
+        };
         const isOpenWithinWindow = (place: FavoritePlace, start: number) => {
           if (!place.openingHours) return true;
           const times = [...place.openingHours.matchAll(/([01]?\d|2[0-3]):([0-5]\d)/g)].map((match) => Number(match[1]) * 60 + Number(match[2]));
@@ -1906,7 +1960,9 @@ export default function App() {
         windows.forEach((window, dayIndex) => {
           const isArrivalDay = dayIndex === 0 && !!favoriteArrivalTime;
           const isDepartureDay = dayIndex === count - 1 && !!favoriteDepartureTime;
-          const preferred = isArrivalDay ? arrivalCity : isDepartureDay ? departureCity : preferredKeys.find((key) => !buckets.some((bucket) => bucket.some((place) => place.city === key)));
+          const startHotel = dayIndex > 0 ? hotelForNight(dayIndex) : undefined;
+          const endHotel = dayIndex < count - 1 ? hotelForNight(dayIndex + 1) : undefined;
+          const preferred = nearestUnusedGroup(endHotel || startHotel) || (isArrivalDay ? arrivalCity : isDepartureDay ? departureCity : preferredKeys.find((key) => !buckets.some((bucket) => bucket.some((place) => place.city === key))));
           let candidates = preferred ? [...(grouped[preferred] || [])].filter((place) => !usedPlaceIds.has(place.id) && isOpenWithinWindow(place, window.start)) : [];
           if (isArrivalDay || isDepartureDay) candidates = candidates.filter((place) => !isStrenuousOutdoor(place));
           if (isArrivalDay && window.start >= 960) candidates.sort((a, b) => Number(/百貨|商場|plaza|mall|美術館/i.test(`${b.name} ${b.note || ""}`)) - Number(/百貨|商場|plaza|mall|美術館/i.test(`${a.name} ${a.note || ""}`)) || attractionScore(b) - attractionScore(a));
@@ -1916,6 +1972,8 @@ export default function App() {
         });
         const nextDays: TripDay[] = buckets.map((bucket, dayIndex) => {
           const window = windows[dayIndex]!;
+          const startHotel = dayIndex > 0 ? hotelForNight(dayIndex) : undefined;
+          const endHotel = dayIndex < count - 1 ? hotelForNight(dayIndex + 1) : undefined;
           const hasLunch = window.start <= 780 && window.end >= 720;
           const hasDinner = window.start <= 1140 && window.end >= 1050;
           const dayCity = bucket[0]?.city || "";
@@ -1932,12 +1990,17 @@ export default function App() {
           const availableMinutes = Math.max(120, window.end - window.start - mealStops.length * 90);
           const interval = bucket.length > 1 ? Math.max(90, Math.floor(availableMinutes / bucket.length)) : 120;
           const date = normalizedArrivalDate ? tripDayDateLabel(normalizedArrivalDate, dayIndex) : "日期未定";
-          const title = !bucket.length && dayIndex === 0 && favoriteArrivalTime ? `抵達 ${destination}` : !bucket.length && dayIndex === count - 1 && favoriteDepartureTime ? "整理行李・前往機場" : `${bucket[0]?.city || destination}・建議行程`;
-          const scenicStops = bucket.map((place, index) => generatedStop(place, dayIndex, index, window.start, interval));
+          const draftSuffix = allNightsCovered ? "" : "（住宿未完整設定・草稿）";
+          const title = (!bucket.length && dayIndex === 0 && favoriteArrivalTime ? `抵達 ${destination}` : !bucket.length && dayIndex === count - 1 && favoriteDepartureTime ? "整理行李・前往機場" : `${bucket[0]?.city || destination}・建議行程`) + draftSuffix;
+          const scenicStart = dayIndex === 0 && endHotel ? window.start + 60 : window.start;
+          const scenicStops = bucket.map((place, index) => generatedStop(place, dayIndex, index, scenicStart, interval));
           const arrivalStop: Stop[] = dayIndex === 0 && arrivalLocation ? [{ id: `${id}-arrival`, time: favoriteArrivalTime || "抵達", title: `抵達 ${favoriteArrivalPlace.trim()}`, address: favoriteArrivalPlace.trim(), latitude: arrivalLocation.latitude, longitude: arrivalLocation.longitude, transport: "抵達後前往住宿或第一站", transportMode: "飛機", routeMode: "transit", note: "航班抵達地點；已預留入境、領行李與移動時間。", durationMinutes: 120 }] : [];
           const departureStop: Stop[] = dayIndex === count - 1 && departureLocation ? [{ id: `${id}-departure`, time: favoriteDepartureTime || "起飛", title: `由 ${favoriteDeparturePlace.trim()} 回程`, address: favoriteDeparturePlace.trim(), latitude: departureLocation.latitude, longitude: departureLocation.longitude, transport: "提前前往機場／車站", transportMode: "飛機", routeMode: "transit", note: "回程出發地點；前方行程已預留至少 3 小時。", durationMinutes: 0 }] : [];
-          const scheduledStops = [...scenicStops, ...mealStops].sort((a, b) => a.time.localeCompare(b.time));
-          return { id: `${id}-day-${dayIndex + 1}`, label: `DAY ${dayIndex + 1}`, date, title, stops: [...arrivalStop, ...scheduledStops, ...departureStop] };
+          const lodgingStops: Stop[] = [];
+          if (startHotel) lodgingStops.push({ id: `${id}-day-${dayIndex + 1}-lodging-start`, time: dayIndex === count - 1 ? "08:30" : "08:00", title: startHotel.name, address: startHotel.address || "住宿地址待補", latitude: startHotel.latitude, longitude: startHotel.longitude, transport: "從昨晚住宿出發", transportMode: "其他", routeMode: "transit", note: endHotel && endHotel.id !== startHotel.id ? "退房並攜帶／寄放行李；今晚將更換住宿。" : "昨晚住宿・今天從這裡出發。", openingHours: "24 小時住宿地點", openingHoursSource: "建立旅行時的住宿設定", durationMinutes: 30 });
+          if (endHotel) lodgingStops.push({ id: `${id}-day-${dayIndex + 1}-lodging-end`, time: dayIndex === 0 ? `${String(Math.floor(window.start / 60)).padStart(2, "0")}:${String(window.start % 60).padStart(2, "0")}` : "20:30", title: endHotel.name, address: endHotel.address || "住宿地址待補", latitude: endHotel.latitude, longitude: endHotel.longitude, transport: startHotel && startHotel.id !== endHotel.id ? "前往新住宿・辦理入住" : "返回住宿", transportMode: "其他", routeMode: "transit", note: dayIndex === 0 ? "抵達後先寄放行李或辦理入住，再開始附近行程。" : startHotel && startHotel.id !== endHotel.id ? "今晚更換住宿；請確認行李寄放及入住時間。" : "今晚住宿・行程以此為終點。", openingHours: "24 小時住宿地點", openingHoursSource: "建立旅行時的住宿設定", durationMinutes: 30 });
+          const scheduledStops = [...arrivalStop, ...lodgingStops, ...scenicStops, ...mealStops, ...departureStop].sort((a, b) => a.time.localeCompare(b.time));
+          return { id: `${id}-day-${dayIndex + 1}`, label: `DAY ${dayIndex + 1}`, date, title, stops: scheduledStops };
         });
         const plannedCount = buckets.reduce((sum, bucket) => sum + bucket.length, 0);
         const omittedCount = Math.max(0, scenicSelections.length - plannedCount);
@@ -1945,16 +2008,16 @@ export default function App() {
         if (normalizedArrivalDate || favoriteArrivalTime || favoriteArrivalPlace) flights.push({ id: `flight-arrival-${Date.now()}`, route: `抵達 ${favoriteArrivalPlace.trim() || destination}`, flightNumber: "航班號碼待補", departure: "出發時間待補", arrival: `${normalizedArrivalDate} ${favoriteArrivalTime}`.trim(), terminal: favoriteArrivalPlace.trim(), note: "建立推薦行程時使用的抵達時間與地點" });
         if (normalizedDepartureDate || favoriteDepartureTime || favoriteDeparturePlace) flights.push({ id: `flight-departure-${Date.now()}`, route: `由 ${favoriteDeparturePlace.trim() || destination} 回程`, flightNumber: "航班號碼待補", departure: `${normalizedDepartureDate} ${favoriteDepartureTime}`.trim(), arrival: "抵達時間待補", terminal: favoriteDeparturePlace.trim(), note: "建立推薦行程時使用的回程時間與地點" });
         const period = normalizedArrivalDate && normalizedDepartureDate ? tripPeriodLabel(normalizedArrivalDate, normalizedDepartureDate) : "日期未定";
-        const trip: TripPlan = { id, title: `${destination} ${count}日收藏旅行`, destination, period, startDate: normalizedArrivalDate || undefined, endDate: normalizedDepartureDate || undefined, travelers: 1, days: nextDays, flights, accommodations: [], shopping: [], checklist: defaultPrepChecklist() };
+        const trip: TripPlan = { id, title: `${destination} ${count}日收藏旅行`, destination, period, startDate: normalizedArrivalDate || undefined, endDate: normalizedDepartureDate || undefined, travelers: 1, days: nextDays, flights, accommodations: plannedAccommodations, accommodationByNight, shopping: [], checklist: defaultPrepChecklist() };
         persistTrips([...trips, trip]); setSelectedFavoriteIds([]); selectTrip(trip);
         const inviteCode = String(Math.floor(100000 + Math.random() * 900000));
         try {
           await postCloud({ action: "createTrip", inviteCode, idToken: googleUser?.idToken, trip: { "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination, "開始日期": trip.startDate || trip.period, "結束日期": trip.endDate || "", "主要幣別": "TWD" }, member: { "成員ID": googleUser ? googleMemberId(googleUser) : `member-${Date.now()}`, "顯示名稱": googleUser?.name || "我", "角色": "owner" } });
           saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: googleUser?.name || "我", memberId: googleUser ? googleMemberId(googleUser) : undefined, role: "owner" } });
           await syncTripNow(trip, []);
-          showToast(`已建立 ${count} 天建議行程${omittedCount ? `；另保留 ${omittedCount} 個收藏未硬塞` : ""}`);
+          showToast(`已建立 ${count} 天建議行程${!allNightsCovered ? "；部分晚間住宿待補" : ""}${omittedCount ? `；另保留 ${omittedCount} 個收藏未硬塞` : ""}`);
         } catch {
-          showToast(`已建立 ${count} 天建議行程${omittedCount ? `；${omittedCount} 個收藏未硬塞` : ""}；同步稍後重試`);
+          showToast(`已建立 ${count} 天建議行程${!allNightsCovered ? "；部分晚間住宿待補" : ""}${omittedCount ? `；${omittedCount} 個收藏未硬塞` : ""}；同步稍後重試`);
         }
   };
 
@@ -2720,11 +2783,11 @@ export default function App() {
     const savedName = hotelName.trim();
     updateActiveTrip({ accommodations: [...activeTrip.accommodations, {
       id: `hotel-${Date.now()}`, name: hotelName.trim(), period: hotelPeriod.trim(),
-      address: hotelAddress.trim(), checkIn: hotelCheckIn.trim(), checkOut: hotelCheckOut.trim(),
+      address: hotelAddress.trim(), latitude: hotelLatitude, longitude: hotelLongitude, checkIn: hotelCheckIn.trim(), checkOut: hotelCheckOut.trim(),
       facilities: hotelFacilities.trim(), frontDesk: hotelFrontDesk.trim(), note: hotelNote.trim()
     }] });
     setAddingAccommodation(false);
-    setHotelName(""); setHotelPeriod(""); setHotelAddress(""); setHotelCheckIn(""); setHotelCheckOut("");
+    setHotelName(""); setHotelPeriod(""); setHotelAddress(""); setHotelLatitude(undefined); setHotelLongitude(undefined); setHotelCheckIn(""); setHotelCheckOut("");
     setHotelFacilities(""); setHotelFrontDesk(""); setHotelNote("");
     setHotelSuggestions([]); setHotelSearchStatus("idle");
     showToast(`已新增住宿「${savedName}」`);
@@ -2750,6 +2813,8 @@ export default function App() {
     const contact = [tags.phone ? `電話：${tags.phone}` : "", tags.website ? `官網：${tags.website}` : ""].filter(Boolean).join("；");
     setHotelName(verified?.name || name);
     setHotelAddress(verified?.address || address);
+    setHotelLatitude(verified?.latitude ?? (Number.isFinite(Number(place?.lat)) ? Number(place.lat) : undefined));
+    setHotelLongitude(verified?.longitude ?? (Number.isFinite(Number(place?.lon)) ? Number(place.lon) : undefined));
     setHotelCheckIn(verified?.checkIn || "");
     setHotelCheckOut(verified?.checkOut || "");
     setHotelFacilities(verified?.facilities || facilities);
@@ -2774,6 +2839,8 @@ export default function App() {
       const lodgingBase = {
         title: hotel.name,
         address: hotel.address || "住宿地址待補",
+        latitude: hotel.latitude,
+        longitude: hotel.longitude,
         transportMode: "其他" as const,
         note: "每日住宿起終點（可在住宿工具箱更換）",
         routeMode: "transit" as const,
@@ -2823,6 +2890,8 @@ export default function App() {
       const lodgingBase = {
         title: hotel.name,
         address: hotel.address || "住宿地址待補",
+        latitude: hotel.latitude,
+        longitude: hotel.longitude,
         transportMode: "其他" as const,
         note: "這一天指定的住宿起終點",
         routeMode: "transit" as const,
@@ -2854,6 +2923,8 @@ export default function App() {
       time: position === "start" ? "08:00" : "21:00",
       title: hotel.name,
       address: hotel.address || "住宿地址待補",
+      latitude: hotel.latitude,
+      longitude: hotel.longitude,
       transport: position === "start" ? "從住宿出發" : "返回住宿",
       transportMode: "其他",
       note: position === "start" ? "昨晚住宿・今天從這裡出發" : "今晚住宿・今天回到這裡",
@@ -3269,6 +3340,9 @@ export default function App() {
               <View style={styles.formRow}><View style={styles.formHalf}><Text style={styles.fieldLabel}>抵達日期</Text><TextInput value={favoriteArrivalDate} onChangeText={setFavoriteArrivalDate} style={styles.fieldInput} placeholder="YYYY-MM-DD" placeholderTextColor="#A49C90" /></View><View style={styles.formHalf}><Text style={styles.fieldLabel}>抵達時間</Text><TextInput value={favoriteArrivalTime} onChangeText={setFavoriteArrivalTime} style={styles.fieldInput} placeholder="例如 19:30" placeholderTextColor="#A49C90" /></View></View>
               <Text style={styles.fieldLabel}>回程出發地點（可與抵達地點不同）</Text><TextInput value={favoriteDeparturePlace} onChangeText={setFavoriteDeparturePlace} style={styles.fieldInput} placeholder="例如：福岡機場或別府港" placeholderTextColor="#A49C90" />
               <View style={styles.formRow}><View style={styles.formHalf}><Text style={styles.fieldLabel}>回程日期</Text><TextInput value={favoriteDepartureDate} onChangeText={setFavoriteDepartureDate} style={styles.fieldInput} placeholder="YYYY-MM-DD" placeholderTextColor="#A49C90" /></View><View style={styles.formHalf}><Text style={styles.fieldLabel}>回程起飛</Text><TextInput value={favoriteDepartureTime} onChangeText={setFavoriteDepartureTime} style={styles.fieldInput} placeholder="例如 16:40" placeholderTextColor="#A49C90" /></View></View>
+              <Text style={styles.favoriteTargetLabel}>住宿安排（會決定每天的出發點與終點）</Text>
+              <Text style={styles.favoritePlannerText}>每行格式：晚次｜住宿名稱｜完整地址。若全程住同一間，可以省略晚次；換飯店時分成多行。</Text>
+              <TextInput value={favoriteAccommodationText} onChangeText={setFavoriteAccommodationText} multiline style={[styles.noteInput, styles.favoriteBatchInput]} placeholder={'1-2｜大分市區飯店｜完整地址\n3-4｜由布院飯店｜完整地址\n\n全程同一間也可寫：\n飯店名稱｜完整地址'} placeholderTextColor="#A49C90" />
               <View style={styles.favoritePlannerRow}><TextInput value={favoriteDayCount} onChangeText={setFavoriteDayCount} keyboardType="number-pad" style={[styles.fieldInput, styles.favoriteDayInput]} placeholder="天數" /><Pressable style={styles.favoriteGenerateButton} onPress={generateTripFromFavorites}><Text style={styles.primaryButtonText}>建立新旅行</Text></Pressable></View>
               <Text style={styles.favoriteTargetLabel}>或加入既有旅行</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.favoriteTripChips}>{trips.map((trip) => <Pressable key={trip.id} style={[styles.favoriteTripChip, (favoriteTargetTripId || activeTrip.id) === trip.id && styles.favoriteTripChipActive]} onPress={() => setFavoriteTargetTripId(trip.id)}><Text style={[(favoriteTargetTripId || activeTrip.id) === trip.id && styles.favoriteTripChipTextActive]}>{trip.title}</Text></Pressable>)}</ScrollView>

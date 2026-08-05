@@ -48,6 +48,8 @@ export type AccommodationInfo = {
   name: string;
   period: string;
   address?: string;
+  latitude?: number;
+  longitude?: number;
   checkIn?: string;
   checkOut?: string;
   facilities?: string;
