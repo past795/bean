@@ -25,6 +25,14 @@ service cloud.firestore {
       ).data.role == 'owner';
     }
 
+    function ownsTripDocument(tripId) {
+      return signedIn() && exists(
+        /databases/$(database)/documents/trips/$(tripId)
+      ) && get(
+        /databases/$(database)/documents/trips/$(tripId)
+      ).data.ownerId == personId();
+    }
+
     match /users/{userId} {
       allow read, create, update: if signedIn() && userId == personId();
       allow delete: if false;
@@ -40,18 +48,20 @@ service cloud.firestore {
 
     match /trips/{tripId} {
       allow create: if signedIn() && request.resource.data.ownerId == personId();
-      allow read, update: if isTripMember(tripId);
+      // The owner fallback repairs older trips whose member record was not
+      // created because the previous client wrote these documents out of order.
+      allow read, update: if isTripMember(tripId) || ownsTripDocument(tripId);
       allow delete: if isTripOwner(tripId);
 
       match /members/{memberId} {
-        allow read: if isTripMember(tripId);
+        allow read: if isTripMember(tripId) || ownsTripDocument(tripId);
         allow create: if signedIn() && memberId == personId();
         allow update: if signedIn() && (memberId == personId() || isTripOwner(tripId));
         allow delete: if signedIn() && memberId == personId() && resource.data.role != 'owner';
       }
 
       match /{collection}/{documentId} {
-        allow read, write: if isTripMember(tripId);
+        allow read, write: if isTripMember(tripId) || ownsTripDocument(tripId);
       }
     }
   }

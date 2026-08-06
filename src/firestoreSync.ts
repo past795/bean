@@ -37,6 +37,14 @@ export const listenFirestoreFavorites = (personId: string, callback: (favorites:
 
 export const saveFirestoreTrip = async (personId: string, role: "owner" | "member", trip: any, expenses: any[]) => {
   const tripRef = doc(firestoreDb, "trips", trip.id);
+  // Register this device/account as a member first. Existing trips require
+  // membership before their root document or shared state may be updated.
+  await setDoc(doc(tripRef, "members", personId), {
+    personId,
+    displayName: personId === "person-jy" ? "JY" : "旅伴",
+    role,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
   if (role === "owner") {
     await setDoc(tripRef, {
       ownerId: personId,
@@ -47,12 +55,6 @@ export const saveFirestoreTrip = async (personId: string, role: "owner" | "membe
       updatedAt: serverTimestamp()
     }, { merge: true });
   }
-  await setDoc(doc(tripRef, "members", personId), {
-    personId,
-    displayName: personId === "person-jy" ? "JY" : "旅伴",
-    role,
-    updatedAt: serverTimestamp()
-  }, { merge: true });
   await setDoc(doc(tripRef, "state", "current"), {
     trip,
     expenses,
