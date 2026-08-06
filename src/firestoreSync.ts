@@ -3,6 +3,11 @@ import { firestoreDb } from "./firebase";
 
 const JY_EMAILS = new Set(["allison@taiwanbar.cc", "past795@gmail.com"]);
 
+// Firestore rejects `undefined` anywhere inside nested objects. Legacy trips
+// from Apps Script legitimately contain optional fields with that value, so
+// remove only those missing fields before writing without changing the data.
+const firestoreSafe = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+
 export const firestorePersonId = (email: string, firebaseUid: string) =>
   JY_EMAILS.has(email.trim().toLowerCase()) ? "person-jy" : firebaseUid;
 
@@ -62,8 +67,8 @@ export const saveFirestoreTrip = async (personId: string, role: "owner" | "membe
   // empty/default local data.
   if (!cloudState.exists()) {
     await setDoc(stateRef, {
-      trip,
-      expenses,
+      trip: firestoreSafe(trip),
+      expenses: firestoreSafe(expenses),
       updatedBy: personId,
       updatedAt: serverTimestamp()
     }, { merge: true });
@@ -78,8 +83,8 @@ export const saveFirestoreTrip = async (personId: string, role: "owner" | "membe
 
 export const updateFirestoreTripState = async (personId: string, trip: any, expenses: any[]) => {
   await setDoc(doc(firestoreDb, "trips", trip.id, "state", "current"), {
-    trip,
-    expenses,
+    trip: firestoreSafe(trip),
+    expenses: firestoreSafe(expenses),
     updatedBy: personId,
     updatedAt: serverTimestamp()
   }, { merge: true });
