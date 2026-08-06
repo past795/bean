@@ -55,12 +55,19 @@ export const saveFirestoreTrip = async (personId: string, role: "owner" | "membe
       updatedAt: serverTimestamp()
     }, { merge: true });
   }
-  await setDoc(doc(tripRef, "state", "current"), {
-    trip,
-    expenses,
-    updatedBy: personId,
-    updatedAt: serverTimestamp()
-  }, { merge: true });
+  const stateRef = doc(tripRef, "state", "current");
+  const cloudState = await getDoc(stateRef);
+  // Bootstrap only when this trip has never been stored in Firestore. A fresh
+  // browser must download the existing cloud copy instead of replacing it with
+  // empty/default local data.
+  if (!cloudState.exists()) {
+    await setDoc(stateRef, {
+      trip,
+      expenses,
+      updatedBy: personId,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  }
   await setDoc(doc(firestoreDb, "users", personId, "trips", trip.id), {
     tripId: trip.id,
     role,
