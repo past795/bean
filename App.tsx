@@ -27,7 +27,7 @@ import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
-import { deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
+import { deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
 
 type Tab = "home" | "itinerary" | "favorites" | "toolbox" | "expenses";
 type FavoritePlace = { id: string; name: string; address: string; country: string; city: string; latitude?: number; longitude?: number; note?: string; openingHours?: string };
@@ -830,6 +830,9 @@ export default function App() {
           await saveFirestoreTrip(personId, role, trip, expenses[trip.id] || []);
           firestoreSeededTripsRef.current.add(trip.id);
         }
+        if (personId === "person-jy") {
+          await repairFirestoreTripLink(personId, "trip-1785397565924").catch(() => false);
+        }
         if (cancelled) return;
         stopFavorites = listenFirestoreFavorites(personId, (incoming) => {
           setFavorites(incoming as FavoritePlace[]);
@@ -873,6 +876,7 @@ export default function App() {
     const tripStops = new Map<string, () => void>();
     const stopLinks = listenFirestoreTripLinks(personId, (links) => {
       const validLinks = links.filter((link) => typeof link?.tripId === "string" && link.tripId);
+      const hasRealTrip = validLinks.some((link) => String(link.tripId) !== "local-welcome");
       const linkedIds = new Set(validLinks.map((link) => String(link.tripId)));
       tripStops.forEach((stop, tripId) => {
         if (!linkedIds.has(tripId)) { stop(); tripStops.delete(tripId); }
@@ -880,6 +884,7 @@ export default function App() {
       const mergedLinks = { ...cloudLinksRef.current };
       validLinks.forEach((link) => {
         const tripId = String(link.tripId);
+        if (tripId === "local-welcome" && hasRealTrip) return;
         const existing = mergedLinks[tripId];
         mergedLinks[tripId] = {
           inviteCode: existing?.inviteCode || "",
@@ -3580,7 +3585,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.07.3</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.07.4</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (

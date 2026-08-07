@@ -101,6 +101,24 @@ export const listenFirestoreTripLinks = (personId: string, callback: (links: any
     callback(snapshot.docs.map((item) => item.data()));
   });
 
+export const repairFirestoreTripLink = async (personId: string, tripId: string) => {
+  const tripRef = doc(firestoreDb, "trips", tripId);
+  const [stateSnapshot, memberSnapshot, tripSnapshot] = await Promise.all([
+    getDoc(doc(tripRef, "state", "current")),
+    getDoc(doc(tripRef, "members", personId)),
+    getDoc(tripRef)
+  ]);
+  if (!stateSnapshot.exists() || !memberSnapshot.exists()) return false;
+  const trip = stateSnapshot.data()?.trip;
+  await setDoc(doc(firestoreDb, "users", personId, "trips", tripId), {
+    tripId,
+    role: memberSnapshot.data()?.role === "owner" ? "owner" : "member",
+    title: trip?.title || tripSnapshot.data()?.title || "旅行",
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+  return true;
+};
+
 export const deleteFirestoreTrip = async (personId: string, tripId: string) => {
   const tripRef = doc(firestoreDb, "trips", tripId);
   const members = await getDocs(collection(tripRef, "members"));
