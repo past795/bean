@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, onSnapshot, serverTimestamp, setDoc, Unsubscribe } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, serverTimestamp, setDoc, Unsubscribe } from "firebase/firestore";
 import { firestoreDb } from "./firebase";
 
 const JY_EMAILS = new Set(["allison@taiwanbar.cc", "past795@gmail.com"]);
@@ -100,3 +100,21 @@ export const listenFirestoreTripLinks = (personId: string, callback: (links: any
   onSnapshot(collection(firestoreDb, "users", personId, "trips"), (snapshot) => {
     callback(snapshot.docs.map((item) => item.data()));
   });
+
+export const deleteFirestoreTrip = async (personId: string, tripId: string) => {
+  const tripRef = doc(firestoreDb, "trips", tripId);
+  const members = await getDocs(collection(tripRef, "members"));
+  // Remove shared state and every member's dashboard link while the trip root
+  // still exists, allowing the owner rule to authorize the cleanup.
+  await deleteDoc(doc(tripRef, "state", "current"));
+  await Promise.all(members.docs.map((member) =>
+    deleteDoc(doc(firestoreDb, "users", member.id, "trips", tripId))
+  ));
+  await deleteDoc(doc(firestoreDb, "users", personId, "trips", tripId));
+  await deleteDoc(tripRef);
+};
+
+export const leaveFirestoreTrip = async (personId: string, tripId: string) => {
+  await deleteDoc(doc(firestoreDb, "users", personId, "trips", tripId));
+  await deleteDoc(doc(firestoreDb, "trips", tripId, "members", personId));
+};

@@ -27,7 +27,7 @@ import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
-import { ensureFirestoreUser, firestorePersonId, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
+import { deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
 
 type Tab = "home" | "itinerary" | "favorites" | "toolbox" | "expenses";
 type FavoritePlace = { id: string; name: string; address: string; country: string; city: string; latitude?: number; longitude?: number; note?: string; openingHours?: string };
@@ -2388,15 +2388,32 @@ export default function App() {
     setDeletingTrip(trip);
   };
 
-  const confirmDeleteTrip = () => {
+  const confirmDeleteTrip = async () => {
     if (!deletingTrip) return;
-    const next = trips.filter((item) => item.id !== deletingTrip.id);
-    persistTrips(next);
-    if (activeTrip.id === deletingTrip.id) {
-      setActiveTripId(next[0]!.id);
-      setSelectedDayId(next[0]!.days[0]?.id ?? "");
+    const target = deletingTrip;
+    if (firestoreConnected && googleUser?.firebaseUid) {
+      setSyncStatus("syncing");
+      try {
+        await deleteFirestoreTrip(firestorePersonId(googleUser.email, googleUser.firebaseUid), target.id);
+      } catch (error: any) {
+        setSyncStatus("error");
+        Alert.alert("雲端刪除失敗", error?.message || "請確認 Firestore 規則已發布。");
+        return;
+      }
+    }
+    const next = trips.filter((item) => item.id !== target.id);
+    const nextTrips = next.length ? next : starterTrips;
+    persistTrips(nextTrips);
+    const nextLinks = { ...cloudLinksRef.current };
+    delete nextLinks[target.id];
+    saveCloudLinks(nextLinks);
+    if (activeTrip.id === target.id) {
+      setActiveTripId(nextTrips[0]!.id);
+      setSelectedDayId(nextTrips[0]!.days[0]?.id ?? "");
     }
     setDeletingTrip(null);
+    setSyncStatus("synced");
+    showToast("旅行已從所有裝置刪除");
   };
 
   const leaveTrip = async (trip: TripPlan) => {
@@ -2407,6 +2424,9 @@ export default function App() {
     }
     setSyncStatus("syncing");
     try {
+      if (firestoreConnected && googleUser?.firebaseUid) {
+        await leaveFirestoreTrip(firestorePersonId(googleUser.email, googleUser.firebaseUid), trip.id);
+      }
       await postCloud({
         action: "leaveTrip",
         tripId: trip.id,
@@ -3559,7 +3579,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.07.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.07.2</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (

@@ -42,7 +42,8 @@ service cloud.firestore {
       }
 
       match /trips/{tripId} {
-        allow read, write: if signedIn() && userId == personId();
+        allow read, create, update: if signedIn() && userId == personId();
+        allow delete: if signedIn() && (userId == personId() || isTripOwner(tripId));
       }
     }
 
