@@ -27,7 +27,7 @@ import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
-import { ensureFirestoreUser, firestorePersonId, listenFirestoreFavorites, listenFirestoreTrip, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
+import { ensureFirestoreUser, firestorePersonId, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
 
 type Tab = "home" | "itinerary" | "favorites" | "toolbox" | "expenses";
 type FavoritePlace = { id: string; name: string; address: string; country: string; city: string; latitude?: number; longitude?: number; note?: string; openingHours?: string };
@@ -863,6 +863,56 @@ export default function App() {
       });
     });
   }, [firestoreConnected, activeTrip?.id]);
+
+  // A home-screen installation has its own local storage on iOS. Rebuild the
+  // complete trip list from the signed-in user's Firestore links so Safari,
+  // the installed web app and desktop all show the same journeys.
+  useEffect(() => {
+    if (!firestoreConnected || !googleUser?.firebaseUid) return;
+    const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
+    const tripStops = new Map<string, () => void>();
+    const stopLinks = listenFirestoreTripLinks(personId, (links) => {
+      const validLinks = links.filter((link) => typeof link?.tripId === "string" && link.tripId);
+      const linkedIds = new Set(validLinks.map((link) => String(link.tripId)));
+      tripStops.forEach((stop, tripId) => {
+        if (!linkedIds.has(tripId)) { stop(); tripStops.delete(tripId); }
+      });
+      const mergedLinks = { ...cloudLinksRef.current };
+      validLinks.forEach((link) => {
+        const tripId = String(link.tripId);
+        const existing = mergedLinks[tripId];
+        mergedLinks[tripId] = {
+          inviteCode: existing?.inviteCode || "",
+          memberName: existing?.memberName || googleUser.name,
+          memberId: existing?.memberId || personId,
+          role: link.role === "owner" ? "owner" : "member"
+        };
+        if (tripStops.has(tripId)) return;
+        tripStops.set(tripId, listenFirestoreTrip(tripId, (incomingTrip, incomingExpenses) => {
+          const trip = incomingTrip as TripPlan;
+          setTrips((current) => {
+            const withoutWelcome = current.filter((item) => item.id !== "local-welcome");
+            const next = withoutWelcome.some((item) => item.id === trip.id)
+              ? withoutWelcome.map((item) => item.id === trip.id ? trip : item)
+              : [...withoutWelcome, trip];
+            AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
+            return next;
+          });
+          setExpenses((current) => {
+            const next = { ...current, [trip.id]: incomingExpenses as Expense[] };
+            AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
+            return next;
+          });
+          setActiveTripId((current) => current === "local-welcome" || !current ? trip.id : current);
+          setSelectedDayId((current) => current === "welcome-day-1" || !current ? trip.days[0]?.id || "" : current);
+        }));
+      });
+      cloudLinksRef.current = mergedLinks;
+      setCloudLinks(mergedLinks);
+      AsyncStorage.setItem(CLOUD_LINK_KEY, JSON.stringify(mergedLinks)).catch(() => undefined);
+    });
+    return () => { stopLinks(); tripStops.forEach((stop) => stop()); };
+  }, [firestoreConnected, googleUser?.firebaseUid]);
   useEffect(() => {
     const count = inclusiveDayCount(favoriteArrivalDate.replaceAll("/", "-"), favoriteDepartureDate.replaceAll("/", "-"));
     if (count) setFavoriteDayCount(String(Math.min(14, count)));
@@ -3509,7 +3559,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.06.4</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.07.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
