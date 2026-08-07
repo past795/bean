@@ -3538,6 +3538,7 @@ export default function App() {
                   <View style={styles.tripCardInfo}>
                     <Text style={styles.tripCardName} numberOfLines={2}>{trip.title}</Text>
                     <Text style={styles.tripCardStatus}>{cloudLinks[trip.id] ? "☁ 已連接旅伴同步" : trip.id === activeTrip.id ? "目前開啟中" : "點擊查看行程"}</Text>
+                    {trips.filter((item) => item.title === trip.title).length > 1 && <Text style={styles.tripCardStatus}>旅行 ID｜{trip.id}</Text>}
                   </View>
                   <View style={styles.tripCardActions}>
                     <Pressable
@@ -3579,7 +3580,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.07.2</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.07.3</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
