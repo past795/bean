@@ -924,9 +924,11 @@ export default function App() {
           }
           setTrips((current) => {
             const withoutWelcome = current.filter((item) => item.id !== "local-welcome");
-            const next = withoutWelcome.some((item) => item.id === trip.id)
+            const merged = withoutWelcome.some((item) => item.id === trip.id)
               ? withoutWelcome.map((item) => item.id === trip.id ? trip : item)
               : [...withoutWelcome, trip];
+            const linked = merged.filter((item) => linkedIds.has(item.id));
+            const next = linked.length ? linked : merged;
             AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
             return next;
           });
@@ -942,9 +944,13 @@ export default function App() {
         }));
       });
       setTrips((current) => {
-        const next = hasRealTrip
+        const filtered = hasRealTrip
           ? current.filter((trip) => linkedIds.has(trip.id))
           : current.filter((trip) => trip.id === "local-welcome");
+        // A fresh iOS home-screen install may receive the link snapshot before
+        // the linked trip document. Never publish an empty trip array during
+        // that short window; the trip listener above will replace it shortly.
+        const next = filtered.length ? filtered : current;
         AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
         return next;
       });
@@ -3645,7 +3651,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.10.2</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.10.3</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
