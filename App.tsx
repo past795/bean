@@ -499,6 +499,29 @@ const starterTrips: TripPlan[] = [{
   checklist: defaultPrepChecklist()
 }];
 
+const verifiedOitaHours = (title: string) => {
+  if (/Park Place 大分|パークプレイス大分/i.test(title)) return { hours: "物販 10:00–21:00（部分店舖不同）", source: "Park Place Oita 官方網站" };
+  if (/AMU PLAZA 大分|アミュプラザおおいた/i.test(title)) return { hours: "物販 10:00–21:00（餐飲與個別店舖不同）", source: "JR 九州／AMU PLAZA 官方資料" };
+  return undefined;
+};
+
+const normalizeTripSchedule = (trip: TripPlan): TripPlan => ({
+  ...trip,
+  days: trip.days.map((day) => ({
+    ...day,
+    stops: day.stops.map((stop) => {
+      const hour = Number(stop.time.match(/^(\d{1,2}):/)?.[1]);
+      const verified = verifiedOitaHours(stop.title);
+      return {
+        ...stop,
+        time: Number.isFinite(hour) && hour >= 24 ? "彈性" : stop.time,
+        openingHours: stop.openingHours || verified?.hours,
+        openingHoursSource: stop.openingHoursSource || verified?.source
+      };
+    })
+  }))
+});
+
 const transportIcon = (mode: Stop["transportMode"]) =>
   ({ 步行: "🚶", 計程車: "🚕", 公車: "🚌", 地鐵: "🚇", 飛機: "✈️", 預約制: "🎫", 百貨內: "🏬", 其他: "↗️" }[mode]);
 
@@ -852,15 +875,16 @@ export default function App() {
     if (!firestoreConnected || !activeTrip?.id) return;
     return listenFirestoreTrip(activeTrip.id, (incomingTrip, incomingExpenses) => {
       if (Date.now() - localMutationAtRef.current < 1800) return;
+      const normalizedTrip = normalizeTripSchedule(incomingTrip as TripPlan);
       setTrips((current) => {
-        const next = current.some((trip) => trip.id === incomingTrip.id)
-          ? current.map((trip) => trip.id === incomingTrip.id ? incomingTrip as TripPlan : trip)
-          : [...current, incomingTrip as TripPlan];
+        const next = current.some((trip) => trip.id === normalizedTrip.id)
+          ? current.map((trip) => trip.id === normalizedTrip.id ? normalizedTrip : trip)
+          : [...current, normalizedTrip];
         AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
         return next;
       });
       setExpenses((current) => {
-        const next = { ...current, [incomingTrip.id]: incomingExpenses as Expense[] };
+        const next = { ...current, [normalizedTrip.id]: incomingExpenses as Expense[] };
         AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
         return next;
       });
@@ -894,7 +918,11 @@ export default function App() {
         };
         if (tripStops.has(tripId)) return;
         tripStops.set(tripId, listenFirestoreTrip(tripId, (incomingTrip, incomingExpenses) => {
-          const trip = incomingTrip as TripPlan;
+          const rawTrip = incomingTrip as TripPlan;
+          const trip = normalizeTripSchedule(rawTrip);
+          if (JSON.stringify(rawTrip) !== JSON.stringify(trip)) {
+            updateFirestoreTripState(personId, trip, incomingExpenses).catch(() => undefined);
+          }
           setTrips((current) => {
             const withoutWelcome = current.filter((item) => item.id !== "local-welcome");
             const next = withoutWelcome.some((item) => item.id === trip.id)
@@ -910,6 +938,8 @@ export default function App() {
           });
           setActiveTripId((current) => current === "local-welcome" || !current ? trip.id : current);
           setSelectedDayId((current) => current === "welcome-day-1" || !current ? trip.days[0]?.id || "" : current);
+          setSyncStatus("synced");
+          setSyncErrorMessage("");
         }));
       });
       cloudLinksRef.current = mergedLinks;
@@ -1793,11 +1823,17 @@ export default function App() {
     setSelectedFavoriteIds((current) => ids.every((id) => current.includes(id)) ? current.filter((id) => !ids.includes(id)) : [...new Set([...current, ...ids])]);
   };
 
-  const generatedStop = (place: FavoritePlace, dayIndex: number, index: number, startMinutes = 600, intervalMinutes = 120): Stop => ({
-    id: `generated-${Date.now()}-${dayIndex}-${index}-${place.id}`, time: `${String(Math.floor((startMinutes + index * intervalMinutes) / 60)).padStart(2, "0")}:${String((startMinutes + index * intervalMinutes) % 60).padStart(2, "0")}`, title: place.name,
+  const generatedStop = (place: FavoritePlace, dayIndex: number, index: number, startMinutes = 600, intervalMinutes = 120, endMinutes = 1320): Stop => {
+    const scheduledMinutes = startMinutes + index * intervalMinutes;
+    const time = scheduledMinutes >= 1440 || scheduledMinutes + 90 > Math.min(endMinutes, 1320)
+      ? "彈性"
+      : `${String(Math.floor(scheduledMinutes / 60)).padStart(2, "0")}:${String(scheduledMinutes % 60).padStart(2, "0")}`;
+    return ({
+    id: `generated-${Date.now()}-${dayIndex}-${index}-${place.id}`, time, title: place.name,
     address: place.address, transport: index === 0 ? "從住宿出發・大眾運輸" : "大眾運輸", transportMode: "地鐵", routeMode: "transit",
     note: place.note || "由收藏景點自動排入", latitude: place.latitude, longitude: place.longitude, openingHours: place.openingHours, durationMinutes: 90
   });
+  };
 
   const coordinateMatchesFavoriteRegion = (place: FavoritePlace, latitude: number, longitude: number) => {
     const context = `${place.country} ${place.city} ${place.address}`.toLowerCase();
@@ -1944,6 +1980,8 @@ export default function App() {
           if (/九重.*夢.*吊橋|Kokonoe Yume Otsuribashi/i.test(place.name)) return "08:30-17:00（11–12 月；最終售票 16:30）";
           if (/大分縣立美術館|OPAM/i.test(place.name)) return "10:00-19:00（最終入館 18:30）";
           if (/大分市美術館/i.test(place.name)) return "10:00-18:00（最終入館 17:30；週一原則休館）";
+          if (/Park Place 大分|パークプレイス大分/i.test(place.name)) return "物販 10:00-21:00（部分店舖不同）";
+          if (/AMU PLAZA 大分|アミュプラザおおいた/i.test(place.name)) return "物販 10:00-21:00（餐飲與個別店舖不同）";
           if (/海地獄|鬼石坊主地獄|灶地獄|かまど地獄|鬼山地獄|白池地獄|血池地獄|龍卷地獄|龍巻地獄/i.test(place.name)) return "08:00-17:00（到訪前仍請確認臨時異動）";
           return undefined;
         };
@@ -2064,7 +2102,7 @@ export default function App() {
           const draftSuffix = allNightsCovered ? "" : "（住宿未完整設定・草稿）";
           const title = (!bucket.length && dayIndex === 0 && favoriteArrivalTime ? `抵達 ${destination}` : !bucket.length && dayIndex === count - 1 && favoriteDepartureTime ? "整理行李・前往機場" : `${bucket[0]?.city || destination}・建議行程`) + draftSuffix;
           const scenicStart = dayIndex === 0 && endHotel ? window.start + 60 : window.start;
-          const scenicStops = bucket.map((place, index) => generatedStop(place, dayIndex, index, scenicStart, interval));
+          const scenicStops = bucket.map((place, index) => generatedStop(place, dayIndex, index, scenicStart, interval, window.end));
           const arrivalStop: Stop[] = dayIndex === 0 && arrivalLocation ? [{ id: `${id}-arrival`, time: favoriteArrivalTime || "抵達", title: `抵達 ${favoriteArrivalPlace.trim()}`, address: favoriteArrivalPlace.trim(), latitude: arrivalLocation.latitude, longitude: arrivalLocation.longitude, transport: "抵達後前往住宿或第一站", transportMode: "飛機", routeMode: "transit", note: "航班抵達地點；已預留入境、領行李與移動時間。", durationMinutes: 120 }] : [];
           const departureStop: Stop[] = dayIndex === count - 1 && departureLocation ? [{ id: `${id}-departure`, time: favoriteDepartureTime || "起飛", title: `由 ${favoriteDeparturePlace.trim()} 回程`, address: favoriteDeparturePlace.trim(), latitude: departureLocation.latitude, longitude: departureLocation.longitude, transport: "提前前往機場／車站", transportMode: "飛機", routeMode: "transit", note: "回程出發地點；前方行程已預留至少 3 小時。", durationMinutes: 0 }] : [];
           const lodgingStops: Stop[] = [];
@@ -2134,6 +2172,17 @@ export default function App() {
       const role = cloudLinksRef.current[trip.id]?.role || "owner";
       saveFirestoreTrip(personId, role, trip, expenses[trip.id] || []).then(() => {
         firestoreSeededTripsRef.current.add(trip.id);
+        const nextLinks = {
+          ...cloudLinksRef.current,
+          [trip.id]: {
+            inviteCode: cloudLinksRef.current[trip.id]?.inviteCode || "",
+            memberName: cloudLinksRef.current[trip.id]?.memberName || googleUser.name,
+            memberId: cloudLinksRef.current[trip.id]?.memberId || personId,
+            role
+          }
+        };
+        saveCloudLinks(nextLinks);
+        setSyncStatus("synced");
       }).catch((error: any) => setSyncErrorMessage(`Firebase 建立旅行失敗：${error?.message || "請稍後重試"}`));
     }
     setActiveTripId(trip.id);
@@ -3283,9 +3332,9 @@ export default function App() {
           <>
             <LinearGradient colors={["#F6EBDD", "#F7F3EC"]} style={styles.header}>
               <View style={styles.headerTop}>
-                <View>
-                  <Text style={styles.eyebrow}>{activeTrip.destination.toUpperCase()} · MY TRIP</Text>
-                  <Text style={styles.mainTitle}>{activeTrip.title}</Text>
+                <View style={styles.headerTitleBlock}>
+                  <Text numberOfLines={1} style={styles.eyebrow}>{activeTrip.destination.toUpperCase()} · MY TRIP</Text>
+                  <Text numberOfLines={2} style={styles.mainTitle}>{activeTrip.title}</Text>
                 </View>
                 <View style={styles.headerBadges}>
                   <Pressable hitSlop={12} style={[styles.syncBadge, syncStatus === "local" && styles.syncBadgeLocal]} onPress={showCloudInfo}>
@@ -3382,8 +3431,8 @@ export default function App() {
                         {days.length > 1 && <Pressable style={styles.dayDeleteButton} onPress={() => setDeletingDay(selectedDay)}>
                           <Text style={styles.dayDeleteText}>刪除這一天</Text>
                         </Pressable>}
-                        <Pressable style={styles.smallAddButton} onPress={() => setAddingStop(true)}>
-                          <Text style={styles.smallAddButtonText}>＋</Text>
+                        <Pressable accessibilityLabel="新增景點" style={styles.smallAddButton} onPress={() => setAddingStop(true)}>
+                          <Text style={styles.smallAddButtonText}>＋ 新增景點</Text>
                         </Pressable>
                       </View>
                     </View>
@@ -3585,7 +3634,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.07.4</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.10.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -4454,11 +4503,12 @@ const styles = StyleSheet.create({
   app: { flex: 1, minHeight: 0, overflow: "hidden", position: "relative", backgroundColor: "#FBFAF7", maxWidth: 520, width: "100%", alignSelf: "center" },
   header: { paddingTop: 18, paddingHorizontal: 22, paddingBottom: 18, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
   headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  headerTitleBlock: { flex: 1, minWidth: 0, paddingRight: 8 },
   eyebrow: { color: "#9A6A4F", fontSize: 11, fontWeight: "800", letterSpacing: 1.5 },
   mainTitle: { color: "#1F2925", fontSize: 32, fontWeight: "900", marginTop: 5, letterSpacing: -1 },
   subtitle: { color: "#756E65", fontSize: 13, marginTop: 10 },
   tripBadge: { backgroundColor: "#536783", borderRadius: 16, paddingHorizontal: 11, paddingVertical: 9, alignItems: "center" },
-  headerBadges: { alignItems: "flex-end", gap: 6 },
+  headerBadges: { flexShrink: 0, alignItems: "flex-end", gap: 6 },
   syncBadge: { backgroundColor: "rgba(255,255,255,.9)", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9, borderWidth: 1, borderColor: "#CFC4B6", minWidth: 92, alignItems: "center", zIndex: 20 },
   syncBadgeLocal: { backgroundColor: "#FFF8E8", borderColor: "#D9B86D" },
   syncBadgeText: { color: "#65758E", fontSize: 10, fontWeight: "900" },
@@ -4517,7 +4567,7 @@ const styles = StyleSheet.create({
   dayMoveText: { color: "#536783", fontSize: 9, fontWeight: "900" },
   dayDeleteButton: { backgroundColor: "#F5E6E1", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 8 },
   dayDeleteText: { color: "#A55748", fontSize: 9, fontWeight: "900" },
-  smallAddButton: { width: 30, height: 30, borderRadius: 11, backgroundColor: "#536783", alignItems: "center", justifyContent: "center" },
+  smallAddButton: { minHeight: 32, borderRadius: 11, backgroundColor: "#536783", paddingHorizontal: 11, alignItems: "center", justifyContent: "center" },
   smallAddButtonText: { color: "#FFF", fontSize: 19, marginTop: -2 },
   dayCount: { fontSize: 12, color: "#978F85" },
   mapCard: { backgroundColor: "#FFF", borderRadius: 24, overflow: "hidden", borderWidth: 1, borderColor: "#ECE7DF", shadowColor: "#3A2E22", shadowOpacity: .08, shadowRadius: 14, shadowOffset: { width: 0, height: 6 } },
