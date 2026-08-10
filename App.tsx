@@ -848,11 +848,9 @@ export default function App() {
       try {
         await ensureFirestoreUser(personId, { name: googleUser.name, email: googleUser.email, picture: googleUser.picture });
         await seedFirestoreFavorites(personId, favorites);
-        for (const trip of trips) {
-          const role = cloudLinksRef.current[trip.id]?.role || "owner";
-          await saveFirestoreTrip(personId, role, trip, expenses[trip.id] || []);
-          firestoreSeededTripsRef.current.add(trip.id);
-        }
+        // Firestore is authoritative after sign-in. Do not upload every trip
+        // found in this browser's local storage here: an old Safari/PWA cache
+        // could otherwise recreate trips that were already deleted in cloud.
         if (personId === "person-jy") {
           await repairFirestoreTripLink(personId, "trip-1785397565924").catch(() => false);
         }
@@ -905,7 +903,8 @@ export default function App() {
       tripStops.forEach((stop, tripId) => {
         if (!linkedIds.has(tripId)) { stop(); tripStops.delete(tripId); }
       });
-      const mergedLinks = { ...cloudLinksRef.current };
+      // Rebuild links from Firestore instead of merging stale local links.
+      const mergedLinks: CloudLinks = {};
       validLinks.forEach((link) => {
         const tripId = String(link.tripId);
         if (tripId === "local-welcome" && hasRealTrip) return;
@@ -941,6 +940,18 @@ export default function App() {
           setSyncStatus("synced");
           setSyncErrorMessage("");
         }));
+      });
+      setTrips((current) => {
+        const next = hasRealTrip
+          ? current.filter((trip) => linkedIds.has(trip.id))
+          : current.filter((trip) => trip.id === "local-welcome");
+        AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
+        return next;
+      });
+      setExpenses((current) => {
+        const next = Object.fromEntries(Object.entries(current).filter(([tripId]) => linkedIds.has(tripId)));
+        AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
+        return next;
       });
       cloudLinksRef.current = mergedLinks;
       setCloudLinks(mergedLinks);
@@ -3634,7 +3645,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.10.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.10.2</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
