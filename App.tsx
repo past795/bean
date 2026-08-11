@@ -581,7 +581,7 @@ export default function App() {
   const [favoriteCity, setFavoriteCity] = useState("");
   const [favoriteNote, setFavoriteNote] = useState("");
   const [favoriteDayCount, setFavoriteDayCount] = useState("5");
-  const [favoriteIncludeAll, setFavoriteIncludeAll] = useState(false);
+  const [favoriteIncludeAll, setFavoriteIncludeAll] = useState(true);
   const [favoriteArrivalDate, setFavoriteArrivalDate] = useState("");
   const [favoriteArrivalTime, setFavoriteArrivalTime] = useState("");
   const [favoriteArrivalPlace, setFavoriteArrivalPlace] = useState("");
@@ -2025,6 +2025,14 @@ export default function App() {
         });
         const isFoodPlace = (place: FavoritePlace) => /餐廳|食堂|定食|咖啡|coffee|cafe|café|烏龍|燒肉|釜飯|甜甜圈|銅鑼燒|蛋糕|餅店|可樂餅|糖果店|料理|拉麵|壽司|居酒屋|trattoria|restaurant/i.test(`${place.name} ${place.note || ""}`);
         const isStrenuousOutdoor = (place: FavoritePlace) => /九重山|登山|山峰|健行|步道|吊橋|溪谷|耶馬溪|一目八景|岡城跡|富貴寺/i.test(`${place.name} ${place.note || ""}`);
+        const placeDurationMinutes = (place: FavoritePlace) => {
+          const text = `${place.name} ${place.note || ""}`;
+          if (/小吃|甜甜圈|銅鑼燒|蛋糕|可樂餅|餅店|糖果店|伴手禮/i.test(text)) return 45;
+          if (/niko and|商場|百貨|mall|plaza|購物/i.test(text)) return 60;
+          if (/九重山|登山|健行|步道|吊橋|溪谷|耶馬溪|地獄巡禮/i.test(text)) return 120;
+          if (isFoodPlace(place)) return 75;
+          return 90;
+        };
         const attractionScore = (place: FavoritePlace) => {
           const text = `${place.name} ${place.note || ""}`;
           if (/金鱗湖|海地獄|夢.*吊橋|長者原|別府塔|OPAM|地獄蒸|豆田町|岡城跡|護國神社/i.test(text)) return 9;
@@ -2047,7 +2055,7 @@ export default function App() {
           return { start, end, weight: Math.max(0, end - start) };
         });
         const buckets = Array.from({ length: count }, () => [] as FavoritePlace[]);
-        const capacities = windows.map((window) => Math.max(1, Math.min(6, Math.floor(window.weight / 120))));
+        const capacities = windows.map((window) => Math.max(1, Math.min(8, Math.floor(window.weight / 90))));
         const grouped = scenicSelections.reduce((map, place) => {
           const key = place.city || "未分類";
           (map[key] ||= []).push(place);
@@ -2126,22 +2134,23 @@ export default function App() {
           let cursor = dayIndex === 0 && hotelForNight(1) ? window.start + 60 : window.start;
           const accepted: FavoritePlace[] = [];
           bucket.forEach((place) => {
+            const duration = placeDurationMinutes(place);
             const business = parseOpeningWindow(place.openingHours);
             let start = Math.max(cursor, business?.open ?? cursor);
-            if (start < 750 && start + 90 > 750) start = 840;
-            if (start < 1110 && start + 90 > 1110) start = 1200;
+            if (start < 750 && start + duration > 750) start = 840;
+            if (start < 1110 && start + duration > 1110) start = 1200;
             const close = business?.close ?? window.end;
-            if (start + 90 > close) {
+            if (start + duration > close) {
               scheduleOmissions.set(place.id, `與營業時間 ${place.openingHours || ""} 衝突`);
               return;
             }
-            if (start + 90 > window.end) {
+            if (start + duration > window.end) {
               scheduleOmissions.set(place.id, dayIndex === 0 ? "抵達後剩餘時間不足" : dayIndex === count - 1 ? "回程前剩餘時間不足" : "當天時間不足");
               return;
             }
             generatedTimes.set(place.id, start);
             accepted.push(place);
-            cursor = start + 120;
+            cursor = start + duration + 25;
           });
           buckets[dayIndex] = accepted;
         });
@@ -2170,7 +2179,7 @@ export default function App() {
           const scenicStops = bucket.map((place, index) => {
             const stop = generatedStop(place, dayIndex, index, scenicStart, interval, window.end);
             const minutes = generatedTimes.get(place.id);
-            return minutes == null ? stop : { ...stop, time: `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}` };
+            return minutes == null ? { ...stop, durationMinutes: placeDurationMinutes(place) } : { ...stop, time: `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`, durationMinutes: placeDurationMinutes(place) };
           });
           const arrivalStop: Stop[] = dayIndex === 0 && arrivalLocation ? [{ id: `${id}-arrival`, time: favoriteArrivalTime || "抵達", title: `抵達 ${favoriteArrivalPlace.trim()}`, address: favoriteArrivalPlace.trim(), latitude: arrivalLocation.latitude, longitude: arrivalLocation.longitude, transport: "抵達後前往住宿或第一站", transportMode: "飛機", routeMode: "transit", note: "航班抵達地點；已預留入境、領行李與移動時間。", durationMinutes: 120 }] : [];
           const departureStop: Stop[] = dayIndex === count - 1 && departureLocation ? [{ id: `${id}-departure`, time: favoriteDepartureTime || "起飛", title: `由 ${favoriteDeparturePlace.trim()} 回程`, address: favoriteDeparturePlace.trim(), latitude: departureLocation.latitude, longitude: departureLocation.longitude, transport: "提前前往機場／車站", transportMode: "飛機", routeMode: "transit", note: "回程出發地點；前方行程已預留至少 3 小時。", durationMinutes: 0 }] : [];
@@ -2204,10 +2213,10 @@ export default function App() {
           await postCloud({ action: "createTrip", inviteCode, idToken: googleUser?.idToken, trip: { "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination, "開始日期": trip.startDate || trip.period, "結束日期": trip.endDate || "", "主要幣別": "TWD" }, member: { "成員ID": googleUser ? googleMemberId(googleUser) : `member-${Date.now()}`, "顯示名稱": googleUser?.name || "我", "角色": "owner" } });
           saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: googleUser?.name || "我", memberId: googleUser ? googleMemberId(googleUser) : undefined, role: "owner" } });
           await syncTripNow(trip, []);
-          setFavoriteIncludeAll(false);
+          setFavoriteIncludeAll(true);
           showToast(`已建立 ${count} 天建議行程${favoriteIncludeAll ? "；已排入全部勾選景點" : ""}${!allNightsCovered ? "；部分晚間住宿待補" : ""}${omittedCount ? `；另保留 ${omittedCount} 個收藏未硬塞` : ""}`);
         } catch {
-          setFavoriteIncludeAll(false);
+          setFavoriteIncludeAll(true);
           showToast(`已建立 ${count} 天建議行程${favoriteIncludeAll ? "；已排入全部勾選景點" : ""}${!allNightsCovered ? "；部分晚間住宿待補" : ""}${omittedCount ? `；${omittedCount} 個收藏未硬塞` : ""}；同步稍後重試`);
         }
   };
@@ -3610,10 +3619,10 @@ export default function App() {
             <Pressable disabled={favoriteBulkUpdating} style={[styles.favoriteBulkUpdateButton, favoriteBulkUpdating && styles.buttonDisabled]} onPress={updateAllFavoriteCoordinates}><Text style={styles.favoriteBulkUpdateText}>{favoriteBulkUpdating ? "正在更新全部收藏座標…" : "⌖ 更新全部收藏座標"}</Text></Pressable>
             <View style={styles.favoritePlanner}>
               <Text style={styles.favoritePlannerTitle}>✨ 已選 {selectedFavorites.length} 個景點</Text>
-              <Text style={styles.favoritePlannerText}>{favoriteIncludeAll ? "盡量排入全部：仍會遵守航班、營業時間與每日可用時間；真的排不下會另外列出景點與原因，不再標成彈性硬塞。" : "收藏是你的候選資料庫，不會全部硬塞進行程。系統會依航班可用時間、地區、活動強度與每日合理數量挑選；餐廳會列首選與備案。"}</Text>
+              <Text style={styles.favoritePlannerText}>{favoriteIncludeAll ? "J 人密集模式：每天盡量排滿，依景點類型分配停留時間；仍遵守航班與營業時間，排不下的全部保留為備案。" : "精選模式：依航班可用時間、地區與活動強度挑選較少的主要景點；餐廳會列首選與備案。"}</Text>
               <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: favoriteIncludeAll }} style={styles.favoriteIncludeAllRow} onPress={() => setFavoriteIncludeAll((current) => !current)}>
                 <View style={[styles.favoriteCheckbox, favoriteIncludeAll && styles.favoriteCheckboxActive]}><Text style={styles.favoriteCheckboxMark}>{favoriteIncludeAll ? "✓" : ""}</Text></View>
-                <View style={styles.favoriteIncludeAllCopy}><Text style={styles.favoriteIncludeAllTitle}>盡量排入全部勾選景點</Text><Text style={styles.favoritePlannerText}>排得下才安排；排不下會清楚列出原因。</Text></View>
+                <View style={styles.favoriteIncludeAllCopy}><Text style={styles.favoriteIncludeAllTitle}>J 人密集排行程</Text><Text style={styles.favoritePlannerText}>預設開啟；完整日約 6～8 個點，排不下的放進備案區。</Text></View>
               </Pressable>
               <Text style={styles.favoriteTargetLabel}>航班時間（用來限制第一天與最後一天的安排）</Text>
               <Text style={styles.fieldLabel}>抵達地點／機場／車站</Text><TextInput value={favoriteArrivalPlace} onChangeText={setFavoriteArrivalPlace} style={styles.fieldInput} placeholder="例如：大分機場" placeholderTextColor="#A49C90" />
