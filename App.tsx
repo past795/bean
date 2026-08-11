@@ -1869,7 +1869,7 @@ export default function App() {
 
   const coordinateMatchesFavoriteRegion = (place: FavoritePlace, latitude: number, longitude: number) => {
     const context = `${place.country} ${place.city} ${place.address}`.toLowerCase();
-    if (/大分県|大分縣|oita/.test(context)) return latitude >= 32.65 && latitude <= 33.85 && longitude >= 130.75 && longitude <= 132.25;
+    if (/大分県|大分縣|oita/.test(context)) return latitude >= 32.70 && latitude <= 33.85 && longitude >= 130.78 && longitude <= 132.10;
     if (/釜山|busan/.test(context)) return latitude >= 34.75 && latitude <= 35.55 && longitude >= 128.65 && longitude <= 129.55;
     if (/京都|kyoto/.test(context)) return latitude >= 34.75 && latitude <= 35.35 && longitude >= 135.45 && longitude <= 136.05;
     if (/大阪|osaka/.test(context)) return latitude >= 34.35 && latitude <= 35.05 && longitude >= 135.05 && longitude <= 135.85;
