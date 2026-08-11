@@ -509,6 +509,7 @@ const normalizeTripSchedule = (trip: TripPlan): TripPlan => ({
   ...trip,
   days: trip.days.map((day) => ({
     ...day,
+    title: day.title.replace(/（住宿未完整設定・草稿）/g, ""),
     stops: day.stops.map((stop) => {
       const hour = Number(stop.time.match(/^(\d{1,2}):/)?.[1]);
       const verified = verifiedOitaHours(stop.title);
@@ -2116,8 +2117,7 @@ export default function App() {
           const availableMinutes = Math.max(120, window.end - window.start - mealStops.length * 90);
           const interval = bucket.length > 1 ? Math.max(90, Math.floor(availableMinutes / bucket.length)) : 120;
           const date = normalizedArrivalDate ? tripDayDateLabel(normalizedArrivalDate, dayIndex) : "日期未定";
-          const draftSuffix = allNightsCovered ? "" : "（住宿未完整設定・草稿）";
-          const title = (!bucket.length && dayIndex === 0 && favoriteArrivalTime ? `抵達 ${destination}` : !bucket.length && dayIndex === count - 1 && favoriteDepartureTime ? "整理行李・前往機場" : `${bucket[0]?.city || destination}・建議行程`) + draftSuffix;
+          const title = !bucket.length && dayIndex === 0 && favoriteArrivalTime ? `抵達 ${destination}` : !bucket.length && dayIndex === count - 1 && favoriteDepartureTime ? "整理行李・前往機場" : `${bucket[0]?.city || destination}・建議行程`;
           const scenicStart = dayIndex === 0 && endHotel ? window.start + 60 : window.start;
           const scenicStops = bucket.map((place, index) => generatedStop(place, dayIndex, index, scenicStart, interval, window.end));
           const arrivalStop: Stop[] = dayIndex === 0 && arrivalLocation ? [{ id: `${id}-arrival`, time: favoriteArrivalTime || "抵達", title: `抵達 ${favoriteArrivalPlace.trim()}`, address: favoriteArrivalPlace.trim(), latitude: arrivalLocation.latitude, longitude: arrivalLocation.longitude, transport: "抵達後前往住宿或第一站", transportMode: "飛機", routeMode: "transit", note: "航班抵達地點；已預留入境、領行李與移動時間。", durationMinutes: 120 }] : [];
@@ -3434,7 +3434,7 @@ export default function App() {
                   <View style={styles.dayHeading}>
                     <View style={styles.dayHeadingText}>
                       <Text style={styles.dayHeadingDate}>{selectedDay.date}</Text>
-                      <Text style={styles.dayHeadingTitle}>{selectedDay.title}</Text>
+                      <Text numberOfLines={2} style={styles.dayHeadingTitle}>{selectedDay.title}</Text>
                     </View>
                     <View style={styles.dayHeadingActions}>
                       <Text style={styles.dayCount}>{selectedDay.stops.length} 個安排</Text>
@@ -3651,7 +3651,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.10.3</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.08.11.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -4574,18 +4574,18 @@ const styles = StyleSheet.create({
   listContent: { paddingHorizontal: 16, paddingBottom: 110 },
   itineraryListHost: { flex: 1, minHeight: 0, overflow: "hidden" },
   itineraryList: { flex: 1, minHeight: 0 },
-  dayHeading: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginTop: 24, marginBottom: 13 },
-  dayHeadingText: { flex: 1, paddingRight: 10 },
+  dayHeading: { alignItems: "stretch", marginTop: 24, marginBottom: 13, gap: 10 },
+  dayHeadingText: { width: "100%" },
   dayHeadingDate: { fontSize: 11, fontWeight: "800", color: "#A06447", marginBottom: 4 },
-  dayHeadingTitle: { fontSize: 23, fontWeight: "900", color: "#252D29", letterSpacing: -.4 },
-  dayHeadingActions: { alignItems: "flex-end", gap: 7 },
+  dayHeadingTitle: { fontSize: 21, lineHeight: 27, fontWeight: "900", color: "#252D29", letterSpacing: -.4 },
+  dayHeadingActions: { width: "100%", alignItems: "flex-end", gap: 7 },
   dayActionRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", gap: 7 },
   dayMoveButton: { backgroundColor: "#EEEAE4", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 8 },
   dayMoveText: { color: "#536783", fontSize: 9, fontWeight: "900" },
   dayDeleteButton: { backgroundColor: "#F5E6E1", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 8 },
   dayDeleteText: { color: "#A55748", fontSize: 9, fontWeight: "900" },
   smallAddButton: { minHeight: 32, borderRadius: 11, backgroundColor: "#536783", paddingHorizontal: 11, alignItems: "center", justifyContent: "center" },
-  smallAddButtonText: { color: "#FFF", fontSize: 19, marginTop: -2 },
+  smallAddButtonText: { color: "#FFF", fontSize: 10, lineHeight: 14, fontWeight: "900" },
   dayCount: { fontSize: 12, color: "#978F85" },
   mapCard: { backgroundColor: "#FFF", borderRadius: 24, overflow: "hidden", borderWidth: 1, borderColor: "#ECE7DF", shadowColor: "#3A2E22", shadowOpacity: .08, shadowRadius: 14, shadowOffset: { width: 0, height: 6 } },
   mapFooter: { padding: 14 },
