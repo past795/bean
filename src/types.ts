@@ -77,6 +77,17 @@ export type TripChecklistItem = {
   owner?: string;
 };
 
+export type UnscheduledPlace = {
+  id: string;
+  name: string;
+  address: string;
+  reason: string;
+  latitude?: number;
+  longitude?: number;
+  note?: string;
+  openingHours?: string;
+};
+
 export type TripPlan = {
   id: string;
   title: string;
@@ -95,4 +106,5 @@ export type TripPlan = {
   shopping: TripShoppingItem[];
   shoppingCatalogImported?: boolean;
   checklist: TripChecklistItem[];
+  unscheduledPlaces?: UnscheduledPlace[];
 };

@@ -342,6 +342,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
       homeBaseByDay: trip.homeBaseByDay || {},
       accommodationByNight: trip.accommodationByNight || {},
       shoppingCatalogImported: !!trip.shoppingCatalogImported,
+      unscheduledPlaces: trip.unscheduledPlaces || [],
       days: trip.days.map((day) => ({ id: day.id, date: day.date, title: day.title }))
     }), "已購買": false
   }]).concat((trip.checklist || []).filter((item) => item.scope !== "personal").map((item) => ({
@@ -413,6 +414,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
       try { return JSON.parse(String(row?.["備註"] || "{}")).accommodationByNight || {}; } catch { return {}; }
     })(),
     shoppingCatalogImported: !!tripMeta.shoppingCatalogImported,
+    unscheduledPlaces: Array.isArray(tripMeta.unscheduledPlaces) ? tripMeta.unscheduledPlaces : [],
     period: startDate
       ? tripPeriodLabel(startDate, endDate)
       : String(cloudTrip["開始日期"] || "日期未定"),
@@ -593,6 +595,7 @@ export default function App() {
   const [favoriteCollapseReady, setFavoriteCollapseReady] = useState(false);
   const [favoriteTargetTripId, setFavoriteTargetTripId] = useState("");
   const [editingFavoriteId, setEditingFavoriteId] = useState<string | null>(null);
+  const [unscheduledExpanded, setUnscheduledExpanded] = useState(true);
   const [favoriteSuggestions, setFavoriteSuggestions] = useState<any[]>([]);
   const [favoriteSearchStatus, setFavoriteSearchStatus] = useState<"idle" | "loading" | "empty">("idle");
   const [favoriteLatitude, setFavoriteLatitude] = useState<number | undefined>();
@@ -2185,7 +2188,7 @@ export default function App() {
         if (normalizedArrivalDate || favoriteArrivalTime || favoriteArrivalPlace) flights.push({ id: `flight-arrival-${Date.now()}`, route: `抵達 ${favoriteArrivalPlace.trim() || destination}`, flightNumber: "航班號碼待補", departure: "出發時間待補", arrival: `${normalizedArrivalDate} ${favoriteArrivalTime}`.trim(), terminal: favoriteArrivalPlace.trim(), note: "建立推薦行程時使用的抵達時間與地點" });
         if (normalizedDepartureDate || favoriteDepartureTime || favoriteDeparturePlace) flights.push({ id: `flight-departure-${Date.now()}`, route: `由 ${favoriteDeparturePlace.trim() || destination} 回程`, flightNumber: "航班號碼待補", departure: `${normalizedDepartureDate} ${favoriteDepartureTime}`.trim(), arrival: "抵達時間待補", terminal: favoriteDeparturePlace.trim(), note: "建立推薦行程時使用的回程時間與地點" });
         const period = normalizedArrivalDate && normalizedDepartureDate ? tripPeriodLabel(normalizedArrivalDate, normalizedDepartureDate) : "日期未定";
-        const trip: TripPlan = { id, title: `${destination} ${count}日收藏旅行`, destination, period, startDate: normalizedArrivalDate || undefined, endDate: normalizedDepartureDate || undefined, travelers: 1, days: nextDays, flights, accommodations: plannedAccommodations, accommodationByNight, shopping: [], checklist: defaultPrepChecklist() };
+        const trip: TripPlan = { id, title: `${destination} ${count}日收藏旅行`, destination, period, startDate: normalizedArrivalDate || undefined, endDate: normalizedDepartureDate || undefined, travelers: 1, days: nextDays, flights, accommodations: plannedAccommodations, accommodationByNight, shopping: [], checklist: defaultPrepChecklist(), unscheduledPlaces: omittedPlaces.map((place) => ({ id: place.id, name: place.name, address: place.address, reason: scheduleOmissions.get(place.id) || "超過每日可用時間、距離不順或當日不適合", latitude: place.latitude, longitude: place.longitude, note: place.note, openingHours: place.openingHours })) };
         persistTrips([...trips, trip]); setSelectedFavoriteIds([]); selectTrip(trip);
         const inviteCode = String(Math.floor(100000 + Math.random() * 900000));
         const showScheduleReview = () => {
@@ -3283,6 +3286,57 @@ export default function App() {
     return fallback;
   };
 
+  const addUnscheduledPlaceToDay = (place: NonNullable<TripPlan["unscheduledPlaces"]>[number], dayId: string) => {
+    const targetDay = activeTrip.days.find((day) => day.id === dayId);
+    if (!targetDay) return;
+    const latestMinutes = targetDay.stops.reduce((latest, stop) => {
+      const match = stop.time.match(/^(\d{1,2}):([0-5]\d)$/);
+      return match ? Math.max(latest, Number(match[1]) * 60 + Number(match[2])) : latest;
+    }, 480);
+    const start = Math.min(1200, latestMinutes + (targetDay.stops.length ? 120 : 0));
+    const nextStop: Stop = {
+      id: `scheduled-${Date.now()}-${place.id}`,
+      time: `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}`,
+      title: place.name,
+      address: place.address,
+      transport: "加入後請確認交通與時間",
+      transportMode: "其他",
+      routeMode: "transit",
+      note: place.note || "由未排入候選景點手動加入",
+      latitude: place.latitude,
+      longitude: place.longitude,
+      openingHours: place.openingHours,
+      durationMinutes: 90
+    };
+    persistTrips(trips.map((trip) => trip.id !== activeTrip.id ? trip : {
+      ...trip,
+      days: trip.days.map((day) => day.id === dayId ? { ...day, stops: [...day.stops, nextStop] } : day),
+      unscheduledPlaces: (trip.unscheduledPlaces || []).filter((item) => item.id !== place.id)
+    }));
+    showToast(`已把「${place.name}」加入 ${targetDay.label}`);
+  };
+
+  const renderUnscheduledSection = () => {
+    const places = activeTrip.unscheduledPlaces || [];
+    if (!places.length) return null;
+    return <View style={styles.unscheduledCard}>
+      <Pressable style={styles.unscheduledHeader} onPress={() => setUnscheduledExpanded((value) => !value)}>
+        <View><Text style={styles.unscheduledTitle}>未排入候選景點</Text><Text style={styles.unscheduledCount}>{places.length} 個尚未加入行程</Text></View>
+        <Text style={styles.unscheduledArrow}>{unscheduledExpanded ? "⌃" : "⌄"}</Text>
+      </Pressable>
+      {unscheduledExpanded && places.map((place) => <View key={place.id} style={styles.unscheduledItem}>
+        <Text style={styles.unscheduledName}>{place.name}</Text>
+        {!!place.address && <Text style={styles.unscheduledAddress}>{place.address}</Text>}
+        <Text style={styles.unscheduledReason}>未排入原因｜{place.reason}</Text>
+        {!!place.openingHours && <Text style={styles.unscheduledHours}>營業時間｜{place.openingHours}</Text>}
+        <Text style={styles.unscheduledAddLabel}>加入哪一天？</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.unscheduledDayRow}>
+          {activeTrip.days.map((day) => <Pressable key={day.id} style={styles.unscheduledDayButton} onPress={() => addUnscheduledPlaceToDay(place, day.id)}><Text style={styles.unscheduledDayText}>{day.label}</Text></Pressable>)}
+        </ScrollView>
+      </View>)}
+    </View>;
+  };
+
   const renderStop = ({ item, drag, isActive, getIndex }: RenderItemParams<Stop>) => {
     const index = getIndex() ?? 0;
     const nextStop = selectedDay.stops[index + 1];
@@ -3469,6 +3523,7 @@ export default function App() {
                   <View style={[styles.allDayStripe, { backgroundColor: DAY_ROUTE_COLORS[dayIndex % DAY_ROUTE_COLORS.length] }]} />
                   <View style={styles.allDayBody}><Text style={styles.allDayTitle}>{day.label}・{day.date}</Text><Text style={styles.allDaySubtitle}>{day.stops.length ? day.stops.map((stop) => stop.title).join(" → ") : "尚未安排"}</Text></View><Text style={styles.chevron}>›</Text>
                 </Pressable>)}
+                {renderUnscheduledSection()}
               </ScrollView>
             ) : <View style={styles.itineraryListHost}>
               <DraggableFlatList
@@ -3490,6 +3545,7 @@ export default function App() {
                   </Pressable>
                 </View>
                 }
+                ListFooterComponent={renderUnscheduledSection()}
                 ListHeaderComponent={
                 <>
                   <View style={styles.dayHeading}>
@@ -4922,6 +4978,20 @@ const styles = StyleSheet.create({
   currencyChoiceActive: { backgroundColor: "#536783" },
   currencyChoiceText: { color: "#776F67", fontSize: 11, fontWeight: "900" },
   currencyChoiceTextActive: { color: "#FFF" },
+  unscheduledCard: { marginTop: 18, marginBottom: 30, padding: 16, borderRadius: 22, backgroundColor: "#F2F5FA", borderWidth: 1, borderColor: "#D9E0EC" },
+  unscheduledHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  unscheduledTitle: { color: "#26364F", fontSize: 18, fontWeight: "900" },
+  unscheduledCount: { color: "#718099", fontSize: 12, marginTop: 3 },
+  unscheduledArrow: { color: "#536783", fontSize: 24, fontWeight: "900" },
+  unscheduledItem: { marginTop: 12, padding: 14, borderRadius: 16, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E1E6EF" },
+  unscheduledName: { color: "#1F2D42", fontSize: 15, fontWeight: "900" },
+  unscheduledAddress: { color: "#7B8390", fontSize: 11, lineHeight: 17, marginTop: 4 },
+  unscheduledReason: { color: "#A45E50", fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 7 },
+  unscheduledHours: { color: "#64748A", fontSize: 11, lineHeight: 17, marginTop: 3 },
+  unscheduledAddLabel: { color: "#536783", fontSize: 11, fontWeight: "900", marginTop: 10 },
+  unscheduledDayRow: { gap: 7, paddingTop: 7 },
+  unscheduledDayButton: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: 999, backgroundColor: "#536783" },
+  unscheduledDayText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
   payerChoices: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 7, marginBottom: 8 },
   payerChoice: { paddingHorizontal: 16, paddingVertical: 11, borderRadius: 999, backgroundColor: "#EEE9E2", borderWidth: 1, borderColor: "#E5DED5" },
   payerChoiceActive: { backgroundColor: "#536783", borderColor: "#536783" },
