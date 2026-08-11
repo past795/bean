@@ -505,6 +505,18 @@ const verifiedOitaHours = (title: string) => {
   return undefined;
 };
 
+const verifiedStopLocation = (stop: Stop): Partial<Stop> | undefined => {
+  const text = `${stop.title} ${stop.address}`;
+  if (/大分機場|大分空港|Oita Airport/i.test(text)) {
+    return {
+      address: "〒873-0231 大分県国東市安岐町下原13",
+      latitude: 33.479444,
+      longitude: 131.737222
+    };
+  }
+  return undefined;
+};
+
 const normalizeTripSchedule = (trip: TripPlan): TripPlan => ({
   ...trip,
   days: trip.days.map((day) => ({
@@ -513,8 +525,10 @@ const normalizeTripSchedule = (trip: TripPlan): TripPlan => ({
     stops: day.stops.map((stop) => {
       const hour = Number(stop.time.match(/^(\d{1,2}):/)?.[1]);
       const verified = verifiedOitaHours(stop.title);
+      const verifiedLocation = verifiedStopLocation(stop);
       return {
         ...stop,
+        ...verifiedLocation,
         time: Number.isFinite(hour) && hour >= 24 ? "彈性" : stop.time,
         openingHours: stop.openingHours || verified?.hours,
         openingHoursSource: stop.openingHoursSource || verified?.source
