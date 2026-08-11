@@ -2044,11 +2044,7 @@ export default function App() {
           return { start, end, weight: Math.max(0, end - start) };
         });
         const buckets = Array.from({ length: count }, () => [] as FavoritePlace[]);
-        const capacities = windows.map((window, dayIndex) => {
-          if (dayIndex === 0 && favoriteArrivalTime) return window.start >= 1020 ? 1 : 2;
-          if (dayIndex === count - 1 && favoriteDepartureTime) return window.end <= 840 ? 1 : 2;
-          return 4;
-        });
+        const capacities = windows.map((window) => Math.max(1, Math.min(6, Math.floor(window.weight / 120))));
         const grouped = scenicSelections.reduce((map, place) => {
           const key = place.city || "未分類";
           (map[key] ||= []).push(place);
@@ -2096,8 +2092,12 @@ export default function App() {
           chosen.forEach((place) => usedPlaceIds.add(place.id));
           buckets[dayIndex]!.push(...chosen);
         });
-        if (favoriteIncludeAll) {
-          scenicSelections.filter((place) => !usedPlaceIds.has(place.id)).forEach((place) => {
+        // Fill every usable day as much as its real time window allows. "Include all"
+        // changes priority, but never bypasses flight, opening-hour or capacity limits.
+        scenicSelections
+          .filter((place) => !usedPlaceIds.has(place.id))
+          .sort((a, b) => favoriteIncludeAll ? 0 : attractionScore(b) - attractionScore(a))
+          .forEach((place) => {
             const eligibleDays = windows.map((_, index) => index).filter((index) => {
               if (count <= 2 || !isStrenuousOutdoor(place)) return true;
               return index !== 0 && index !== count - 1;
@@ -2112,7 +2112,6 @@ export default function App() {
               usedPlaceIds.add(place.id);
             }
           });
-        }
         const parseOpeningWindow = (value?: string) => {
           const times = [...String(value || "").matchAll(/([01]?\d|2[0-3]):([0-5]\d)/g)].map((match) => Number(match[1]) * 60 + Number(match[2]));
           return times.length >= 2 ? { open: times[0]!, close: times[1]! } : undefined;
@@ -2189,17 +2188,21 @@ export default function App() {
         const trip: TripPlan = { id, title: `${destination} ${count}日收藏旅行`, destination, period, startDate: normalizedArrivalDate || undefined, endDate: normalizedDepartureDate || undefined, travelers: 1, days: nextDays, flights, accommodations: plannedAccommodations, accommodationByNight, shopping: [], checklist: defaultPrepChecklist() };
         persistTrips([...trips, trip]); setSelectedFavoriteIds([]); selectTrip(trip);
         const inviteCode = String(Math.floor(100000 + Math.random() * 900000));
+        const showScheduleReview = () => {
+          if (!omittedCount && !unverifiedPlaces.length) return;
+          setTimeout(() => Alert.alert(
+            "排程檢查結果",
+            `${omittedCount ? `未排入 ${omittedCount} 個景點：\n${omittedPlaces.map((place) => `• ${place.name}：${scheduleOmissions.get(place.id) || "超過每日可用時間、距離不順或當日不適合"}`).join("\n")}` : "所有景點都已排入。"}${unverifiedPlaces.length ? `\n\n已排入但營業時間尚待確認（${unverifiedPlaces.length} 個）：\n${unverifiedPlaces.map((place) => `• ${place.name}`).join("\n")}` : ""}`,
+            [{ text: "知道了" }]
+          ), 350);
+        };
+        showScheduleReview();
         try {
           await postCloud({ action: "createTrip", inviteCode, idToken: googleUser?.idToken, trip: { "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination, "開始日期": trip.startDate || trip.period, "結束日期": trip.endDate || "", "主要幣別": "TWD" }, member: { "成員ID": googleUser ? googleMemberId(googleUser) : `member-${Date.now()}`, "顯示名稱": googleUser?.name || "我", "角色": "owner" } });
           saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: googleUser?.name || "我", memberId: googleUser ? googleMemberId(googleUser) : undefined, role: "owner" } });
           await syncTripNow(trip, []);
           setFavoriteIncludeAll(false);
           showToast(`已建立 ${count} 天建議行程${favoriteIncludeAll ? "；已排入全部勾選景點" : ""}${!allNightsCovered ? "；部分晚間住宿待補" : ""}${omittedCount ? `；另保留 ${omittedCount} 個收藏未硬塞` : ""}`);
-          if (omittedCount || unverifiedPlaces.length) setTimeout(() => Alert.alert(
-            "排程檢查結果",
-            `${omittedCount ? `未排入 ${omittedCount} 個景點：\n${omittedPlaces.slice(0, 12).map((place) => `• ${place.name}：${scheduleOmissions.get(place.id) || "超過每日合理數量或距離不順"}`).join("\n")}${omittedCount > 12 ? `\n…另有 ${omittedCount - 12} 個` : ""}` : "所有景點都已排入。"}${unverifiedPlaces.length ? `\n\n另有 ${unverifiedPlaces.length} 個已排入景點尚未取得可靠營業時間，請在出發前確認。` : ""}`,
-            [{ text: "知道了" }]
-          ), 350);
         } catch {
           setFavoriteIncludeAll(false);
           showToast(`已建立 ${count} 天建議行程${favoriteIncludeAll ? "；已排入全部勾選景點" : ""}${!allNightsCovered ? "；部分晚間住宿待補" : ""}${omittedCount ? `；${omittedCount} 個收藏未硬塞` : ""}；同步稍後重試`);
@@ -3266,7 +3269,8 @@ export default function App() {
   const weatherIcon = (code: number) =>
     code === 0 ? "☀️" : code <= 3 ? "⛅" : code <= 48 ? "🌫️" : code <= 67 ? "🌧️" : code <= 77 ? "❄️" : code <= 82 ? "🌦️" : "⛈️";
 
-  const currencyForTrip = /日本|沖繩|東京|大阪|京都|北海道|福岡|Japan|日本/.test(activeTrip.destination)
+  const tripCurrencyContext = `${activeTrip.destination} ${activeTrip.days.flatMap((day) => day.stops.map((stop) => `${stop.title} ${stop.address}`)).join(" ")} ${activeTrip.accommodations.map((hotel) => hotel.address).join(" ")}`;
+  const currencyForTrip = /日本|Japan|大分|別府|由布|九重|日田|宇佐|國東|国東|中津|竹田|豊後|豐後|沖繩|東京|大阪|京都|北海道|福岡|〒\d{3}-\d{4}|[都道府県]/i.test(tripCurrencyContext)
     ? { code: "JPY", symbol: "¥", rate: 0.22 }
     : { code: "KRW", symbol: "₩", rate: 0.022 };
 
