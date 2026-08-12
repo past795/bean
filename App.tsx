@@ -685,8 +685,7 @@ export default function App() {
   const [hotelSuggestions, setHotelSuggestions] = useState<any[]>([]);
   const [hotelSearchStatus, setHotelSearchStatus] = useState<"idle" | "loading" | "empty">("idle");
   const suppressNextHotelSearchRef = useRef(false);
-  const [weatherData, setWeatherData] = useState<any>(null);
-  const [weatherPlace, setWeatherPlace] = useState("");
+  const [weatherData, setWeatherData] = useState<any[]>([]);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState("");
 
@@ -1120,33 +1119,44 @@ export default function App() {
     let cancelled = false;
     setWeatherLoading(true);
     setWeatherError("");
-    setWeatherData(null);
-    const weatherCountry = /韓國|釜山|首爾|濟州|仁川|부산|서울|제주/.test(activeTrip.destination) ? "KR"
-      : /日本|沖繩|東京|大阪|京都|北海道|福岡/.test(activeTrip.destination) ? "JP" : "";
-    const weatherQuery =
-      /釜山|부산/.test(activeTrip.destination) ? "Busan" :
-      /首爾|서울/.test(activeTrip.destination) ? "Seoul" :
-      /濟州|제주/.test(activeTrip.destination) ? "Jeju" :
-      /沖繩/.test(activeTrip.destination) ? "Okinawa" :
-      /東京/.test(activeTrip.destination) ? "Tokyo" :
-      /大阪/.test(activeTrip.destination) ? "Osaka" :
-      /京都/.test(activeTrip.destination) ? "Kyoto" :
-      /福岡/.test(activeTrip.destination) ? "Fukuoka" : activeTrip.destination;
-    const countryFilter = weatherCountry ? `&countryCode=${weatherCountry}` : "";
-    fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(weatherQuery)}&count=1&language=zh&format=json${countryFilter}`)
-      .then((response) => response.json())
-      .then((geo) => {
-        const place = geo.results?.[0];
-        if (!place) throw new Error("找不到目的地");
-        if (!cancelled) setWeatherPlace([place.name, place.admin1, place.country].filter(Boolean).join("・"));
-        return fetch(`https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=5`);
+    setWeatherData([]);
+    const context = [activeTrip.destination, activeTrip.title, ...activeTrip.days.map((day) => day.title), ...activeTrip.days.flatMap((day) => day.stops.map((stop) => stop.address))].join("・");
+    const knownPlaces = [
+      { label: "大分", query: "Oita", country: "JP" }, { label: "日田", query: "Hita", country: "JP" },
+      { label: "別府", query: "Beppu", country: "JP" }, { label: "由布", query: "Yufu", country: "JP" },
+      { label: "九重", query: "Kokonoe", country: "JP" }, { label: "宇佐", query: "Usa Oita", country: "JP" },
+      { label: "國東", query: "Kunisaki", country: "JP" }, { label: "国東", query: "Kunisaki", country: "JP" },
+      { label: "豐後高田", query: "Bungotakada", country: "JP" }, { label: "豊後高田", query: "Bungotakada", country: "JP" },
+      { label: "中津", query: "Nakatsu Oita", country: "JP" }, { label: "竹田", query: "Taketa Oita", country: "JP" },
+      { label: "釜山", query: "Busan", country: "KR" }, { label: "首爾", query: "Seoul", country: "KR" },
+      { label: "濟州", query: "Jeju", country: "KR" }, { label: "沖繩", query: "Okinawa", country: "JP" },
+      { label: "東京", query: "Tokyo", country: "JP" }, { label: "大阪", query: "Osaka", country: "JP" },
+      { label: "京都", query: "Kyoto", country: "JP" }, { label: "福岡", query: "Fukuoka", country: "JP" },
+    ];
+    const seenQueries = new Set<string>();
+    const locations = knownPlaces.filter((place) => context.includes(place.label) && !seenQueries.has(place.query) && !!seenQueries.add(place.query));
+    const requested = locations.length ? locations.slice(0, 12) : [{ label: activeTrip.destination, query: activeTrip.destination, country: "" }];
+    Promise.allSettled(requested.map(async (location) => {
+      const countryFilter = location.country ? `&countryCode=${location.country}` : "";
+      const geoResponse = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location.query)}&count=1&language=zh&format=json${countryFilter}`);
+      const geo = await geoResponse.json();
+      const place = geo.results?.[0];
+      if (!place) throw new Error(`找不到 ${location.label}`);
+      const response = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=5`);
+      const data = await response.json();
+      return { ...data, label: location.label, place: [place.name, place.admin1].filter(Boolean).join("・") };
+    }))
+      .then((results) => {
+        if (cancelled) return;
+        const forecasts = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+        setWeatherData(forecasts);
+        if (!forecasts.length) setWeatherError("目前無法取得這些地點的天氣，請稍後再試。");
+        else if (forecasts.length < requested.length) setWeatherError(`已顯示 ${forecasts.length} 個地點；另有 ${requested.length - forecasts.length} 個地點暫時查不到。`);
       })
-      .then((response) => response.json())
-      .then((data) => { if (!cancelled) setWeatherData(data); })
       .catch(() => { if (!cancelled) setWeatherError("目前無法取得天氣，請稍後再試。"); })
       .finally(() => { if (!cancelled) setWeatherLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedTool, activeTrip.destination]);
+  }, [selectedTool, activeTrip.id, activeTrip.destination, activeTrip.title, activeTrip.days]);
   const routeStops = useMemo(
     () => selectedDay?.stops
       .filter((s) => s.latitude != null && s.longitude != null)
@@ -4181,31 +4191,32 @@ export default function App() {
               )}
               {selectedTool === "天氣" && (
                 <View style={styles.detailBlock}>
-                  {weatherLoading && <Text style={styles.weatherLoading}>正在取得 {activeTrip.destination} 天氣……</Text>}
+                  {weatherLoading && <Text style={styles.weatherLoading}>正在整理這趟旅行各地天氣……</Text>}
                   {!!weatherError && <Text style={styles.weatherError}>{weatherError}</Text>}
-                  {weatherData && <>
-                    <Text style={styles.weatherPlace}>{weatherPlace}</Text>
-                    <LinearGradient colors={["#DCEBEE", "#EFF5F2"]} style={styles.weatherCurrent}>
-                      <Text style={styles.weatherBigIcon}>{weatherIcon(weatherData.current.weather_code)}</Text>
-                      <View><Text style={styles.weatherTemperature}>{Math.round(weatherData.current.temperature_2m)}°</Text><Text style={styles.weatherCondition}>{weatherLabel(weatherData.current.weather_code)}・體感 {Math.round(weatherData.current.apparent_temperature)}°</Text></View>
+                  {weatherData.map((weather) => <View key={weather.label} style={styles.weatherCityCard}>
+                    <Text style={styles.weatherCityTitle}>{weather.label}</Text>
+                    <Text style={styles.weatherPlace}>{weather.place}</Text>
+                    <LinearGradient colors={["#E9EEF8", "#F5F7FB"]} style={styles.weatherCurrent}>
+                      <Text style={styles.weatherBigIcon}>{weatherIcon(weather.current.weather_code)}</Text>
+                      <View><Text style={styles.weatherTemperature}>{Math.round(weather.current.temperature_2m)}°</Text><Text style={styles.weatherCondition}>{weatherLabel(weather.current.weather_code)}・體感 {Math.round(weather.current.apparent_temperature)}°</Text></View>
                     </LinearGradient>
                     <View style={styles.weatherMetrics}>
-                      <Text style={styles.weatherMetric}>濕度 {weatherData.current.relative_humidity_2m}%</Text>
-                      <Text style={styles.weatherMetric}>降雨 {weatherData.current.precipitation} mm</Text>
-                      <Text style={styles.weatherMetric}>風速 {weatherData.current.wind_speed_10m} km/h</Text>
+                      <Text style={styles.weatherMetric}>濕度 {weather.current.relative_humidity_2m}%</Text>
+                      <Text style={styles.weatherMetric}>降雨 {weather.current.precipitation} mm</Text>
+                      <Text style={styles.weatherMetric}>風速 {weather.current.wind_speed_10m} km/h</Text>
                     </View>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.forecastScroll}>
-                      {weatherData.daily.time.map((date: string, index: number) => (
+                      {weather.daily.time.map((date: string, index: number) => (
                         <View key={date} style={styles.forecastCard}>
                           <Text style={styles.forecastDate}>{date.slice(5).replace("-", "/")}</Text>
-                          <Text style={styles.forecastIcon}>{weatherIcon(weatherData.daily.weather_code[index])}</Text>
-                          <Text style={styles.forecastTemp}>{Math.round(weatherData.daily.temperature_2m_max[index])}° / {Math.round(weatherData.daily.temperature_2m_min[index])}°</Text>
-                          <Text style={styles.forecastRain}>雨 {weatherData.daily.precipitation_probability_max[index] ?? 0}%</Text>
+                          <Text style={styles.forecastIcon}>{weatherIcon(weather.daily.weather_code[index])}</Text>
+                          <Text style={styles.forecastTemp}>{Math.round(weather.daily.temperature_2m_max[index])}° / {Math.round(weather.daily.temperature_2m_min[index])}°</Text>
+                          <Text style={styles.forecastRain}>雨 {weather.daily.precipitation_probability_max[index] ?? 0}%</Text>
                         </View>
                       ))}
                     </ScrollView>
-                    <Text style={styles.detailHint}>資料來源：Open-Meteo・依目的地自動更新</Text>
-                  </>}
+                  </View>)}
+                  {!!weatherData.length && <Text style={styles.detailHint}>資料來源：Open-Meteo・依這趟旅行出現的城市分別更新；遠期旅行會在進入預報範圍後顯示對應日期。</Text>}
                 </View>
               )}
               {selectedTool === "匯率" && (
@@ -4941,6 +4952,8 @@ const styles = StyleSheet.create({
   hotelDetail: { color: "#625B54", fontSize: 11, lineHeight: 17, marginTop: 7 },
   weatherLoading: { color: "#718099", textAlign: "center", paddingVertical: 35, fontWeight: "700" },
   weatherError: { color: "#A85445", textAlign: "center", paddingVertical: 25 },
+  weatherCityCard: { backgroundColor: "#FFF", borderWidth: 1, borderColor: "#E8E2DA", borderRadius: 22, padding: 14, marginBottom: 14 },
+  weatherCityTitle: { color: "#273641", fontSize: 20, fontWeight: "900", marginBottom: 2 },
   weatherPlace: { color: "#7D756D", fontSize: 11, marginBottom: 9 },
   weatherCurrent: { flexDirection: "row", alignItems: "center", gap: 18, borderRadius: 21, padding: 18 },
   weatherBigIcon: { fontSize: 46 },
