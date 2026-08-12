@@ -40,7 +40,7 @@ export const listenFirestoreFavorites = (personId: string, callback: (favorites:
     if (Array.isArray(favorites)) callback(favorites);
   });
 
-export const saveFirestoreTrip = async (personId: string, role: "owner" | "member", trip: any, expenses: any[]) => {
+export const saveFirestoreTrip = async (personId: string, role: "owner" | "member", trip: any, expenses: any[], inviteCode = "") => {
   const tripRef = doc(firestoreDb, "trips", trip.id);
   // Register this device/account as a member first. Existing trips require
   // membership before their root document or shared state may be updated.
@@ -57,6 +57,7 @@ export const saveFirestoreTrip = async (personId: string, role: "owner" | "membe
       destination: trip.destination,
       startDate: trip.startDate || "",
       endDate: trip.endDate || "",
+      inviteCode,
       updatedAt: serverTimestamp()
     }, { merge: true });
   }
@@ -77,6 +78,7 @@ export const saveFirestoreTrip = async (personId: string, role: "owner" | "membe
     tripId: trip.id,
     role,
     title: trip.title,
+    inviteCode,
     updatedAt: serverTimestamp()
   }, { merge: true });
 };
@@ -114,6 +116,7 @@ export const repairFirestoreTripLink = async (personId: string, tripId: string) 
     tripId,
     role: memberSnapshot.data()?.role === "owner" ? "owner" : "member",
     title: trip?.title || tripSnapshot.data()?.title || "旅行",
+    inviteCode: String(tripSnapshot.data()?.inviteCode || ""),
     updatedAt: serverTimestamp()
   }, { merge: true });
   return true;

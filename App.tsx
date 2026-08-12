@@ -928,7 +928,7 @@ export default function App() {
         if (tripId === "local-welcome" && hasRealTrip) return;
         const existing = mergedLinks[tripId];
         mergedLinks[tripId] = {
-          inviteCode: existing?.inviteCode || "",
+          inviteCode: String(link.inviteCode || existing?.inviteCode || ""),
           memberName: existing?.memberName || googleUser.name,
           memberId: existing?.memberId || personId,
           role: link.role === "owner" ? "owner" : "member"
@@ -1329,10 +1329,16 @@ export default function App() {
   };
 
   const syncExpensesNow = async (trip: TripPlan, tripExpenses: Expense[]) => {
-    queueFirestoreState(trip, tripExpenses);
-    if (firestoreConnected) {
-      setSyncStatus("synced");
-      setSyncErrorMessage("");
+    if (firestoreConnected && googleUser?.firebaseUid) {
+      setSyncStatus("syncing");
+      try {
+        await updateFirestoreTripState(firestorePersonId(googleUser.email, googleUser.firebaseUid), trip, tripExpenses);
+        setSyncStatus("synced");
+        setSyncErrorMessage("");
+      } catch (error: any) {
+        setSyncStatus("error");
+        setSyncErrorMessage(`Firebase 記帳同步失敗：${error?.message || "請稍後重試"}`);
+      }
       return;
     }
     if (uploadingRef.current) {
@@ -2212,6 +2218,7 @@ export default function App() {
         try {
           await postCloud({ action: "createTrip", inviteCode, idToken: googleUser?.idToken, trip: { "旅行ID": trip.id, "名稱": trip.title, "目的地": trip.destination, "開始日期": trip.startDate || trip.period, "結束日期": trip.endDate || "", "主要幣別": "TWD" }, member: { "成員ID": googleUser ? googleMemberId(googleUser) : `member-${Date.now()}`, "顯示名稱": googleUser?.name || "我", "角色": "owner" } });
           saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: googleUser?.name || "我", memberId: googleUser ? googleMemberId(googleUser) : undefined, role: "owner" } });
+          if (firestoreConnected && googleUser?.firebaseUid) await saveFirestoreTrip(firestorePersonId(googleUser.email, googleUser.firebaseUid), "owner", trip, [], inviteCode);
           await syncTripNow(trip, []);
           setFavoriteIncludeAll(true);
           showToast(`已建立 ${count} 天建議行程${favoriteIncludeAll ? "；已排入全部勾選景點" : ""}${!allNightsCovered ? "；部分晚間住宿待補" : ""}${omittedCount ? `；另保留 ${omittedCount} 個收藏未硬塞` : ""}`);
@@ -2259,7 +2266,7 @@ export default function App() {
     if (firestoreConnected && googleUser?.firebaseUid && !firestoreSeededTripsRef.current.has(trip.id)) {
       const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
       const role = cloudLinksRef.current[trip.id]?.role || "owner";
-      saveFirestoreTrip(personId, role, trip, expenses[trip.id] || []).then(() => {
+      saveFirestoreTrip(personId, role, trip, expenses[trip.id] || [], cloudLinksRef.current[trip.id]?.inviteCode || "").then(() => {
         firestoreSeededTripsRef.current.add(trip.id);
         const nextLinks = {
           ...cloudLinksRef.current,
@@ -2285,6 +2292,21 @@ export default function App() {
       title: "加入我的豆遊旅行",
       message
     }).catch(() => undefined);
+  };
+
+  const regenerateInviteCode = async () => {
+    if (!googleUser?.firebaseUid) { Alert.alert("請先登入 Google 帳號"); return; }
+    const inviteCode = String(Math.floor(100000 + Math.random() * 900000));
+    const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
+    try {
+      await saveFirestoreTrip(personId, "owner", activeTrip, expenses[activeTrip.id] || [], inviteCode);
+      saveCloudLinks({ ...cloudLinksRef.current, [activeTrip.id]: { inviteCode, memberName: googleUser.name, memberId: personId, role: "owner" } });
+      setSyncStatus("synced");
+      setSyncErrorMessage("");
+      showToast("已產生新的六位數邀請碼");
+    } catch (error: any) {
+      Alert.alert("無法產生邀請碼", error?.message || "請稍後再試");
+    }
   };
 
   const copyInviteText = async (tripId: string, inviteCode: string) => {
@@ -2654,6 +2676,7 @@ export default function App() {
         member: { "成員ID": googleUser ? googleMemberId(googleUser) : `member-${Date.now()}`, "顯示名稱": googleUser?.name || "我", "角色": "owner" }
       });
       saveCloudLinks({ ...cloudLinksRef.current, [trip.id]: { inviteCode, memberName: googleUser?.name || "我", memberId: googleUser ? googleMemberId(googleUser) : undefined, role: "owner" } });
+      if (firestoreConnected && googleUser?.firebaseUid) await saveFirestoreTrip(firestorePersonId(googleUser.email, googleUser.firebaseUid), "owner", trip, [], inviteCode);
       await syncTripNow(trip, []);
       Alert.alert("旅行已建立並同步", `旅行 ID：${trip.id}\n邀請碼：${inviteCode}\n\n把這兩項傳給旅伴即可加入。`);
     } catch {
@@ -2689,6 +2712,7 @@ export default function App() {
       const joinedRole: CloudLink["role"] = myMember?.["角色"] === "owner" ? "owner" : "member";
       saveCloudLinks({ ...cloudLinksRef.current, [tripId]: { inviteCode, memberName: joinMemberName.trim(), memberId: myMemberId, role: joinedRole } });
       const converted = cloudToTrip(data);
+      if (firestoreConnected && googleUser?.firebaseUid) await saveFirestoreTrip(firestorePersonId(googleUser.email, googleUser.firebaseUid), joinedRole, converted.trip, converted.expenses, inviteCode);
       const memberNames = (data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter((name: string) => name && name !== "我");
       setCloudMembers((current) => ({ ...current, [tripId]: [...new Set(memberNames)] as string[] }));
       setTrips((current) => {
@@ -3888,7 +3912,11 @@ export default function App() {
                   <Text style={styles.cloudLabel}>旅行 ID</Text>
                   <Text selectable style={styles.cloudCode}>{activeTrip.id}</Text>
                   <Text style={styles.cloudLabel}>六位數邀請碼</Text>
-                  <Text selectable style={styles.cloudInvite}>{cloudLinks[activeTrip.id]!.inviteCode}</Text>
+                  {cloudLinks[activeTrip.id]!.inviteCode
+                    ? <Text selectable style={styles.cloudInvite}>{cloudLinks[activeTrip.id]!.inviteCode}</Text>
+                    : cloudLinks[activeTrip.id]!.role === "owner"
+                      ? <Pressable style={styles.primaryButton} onPress={regenerateInviteCode}><Text style={styles.primaryButtonText}>產生新的邀請碼</Text></Pressable>
+                      : <Text style={styles.joinErrorText}>邀請碼只會顯示在建立者帳號，請向建立者索取。</Text>}
                   <Text style={styles.cloudLabel}>這趟旅行的成員</Text>
                   <View style={styles.memberChips}>
                     {activeMemberNames.map((name) => (
