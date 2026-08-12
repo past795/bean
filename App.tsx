@@ -3826,7 +3826,7 @@ export default function App() {
               <Pressable style={styles.addTripButton} onPress={openExpenseModal}><Text style={styles.addTripPlus}>＋</Text></Pressable>
             </View>
             {cloudLinks[activeTrip.id] && (
-              cloudLinks[activeTrip.id]!.inviteCode
+              firestoreConnected || cloudLinks[activeTrip.id]!.inviteCode
                 ? <View style={styles.refreshSyncButton}><Text style={styles.refreshSyncText}>{firestoreConnected ? "● Firebase 即時同步已開啟" : syncStatus === "syncing" ? "☁ 正在自動同步……" : "● 舊版同步暫時保留"}</Text></View>
                 : <Pressable
                     style={styles.refreshSyncButton}
