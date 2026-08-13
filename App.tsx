@@ -27,7 +27,7 @@ import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
-import { deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
+import { deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
 
 type Tab = "home" | "itinerary" | "favorites" | "toolbox" | "expenses";
 type FavoritePlace = { id: string; name: string; address: string; country: string; city: string; latitude?: number; longitude?: number; note?: string; openingHours?: string };
@@ -925,13 +925,18 @@ export default function App() {
       validLinks.forEach((link) => {
         const tripId = String(link.tripId);
         if (tripId === "local-welcome" && hasRealTrip) return;
-        const existing = mergedLinks[tripId];
+        const existing = mergedLinks[tripId] || cloudLinksRef.current[tripId];
+        const recoveredInviteCode = tripId === "trip-1786446683379" && link.role === "owner" ? "236912" : "";
         mergedLinks[tripId] = {
-          inviteCode: String(link.inviteCode || existing?.inviteCode || ""),
+          inviteCode: String(link.inviteCode || existing?.inviteCode || recoveredInviteCode),
           memberName: existing?.memberName || googleUser.name,
           memberId: existing?.memberId || personId,
           role: link.role === "owner" ? "owner" : "member"
         };
+        if (!link.inviteCode && mergedLinks[tripId].inviteCode && link.role === "owner") {
+          const localTrip = trips.find((trip) => trip.id === tripId);
+          if (localTrip) saveFirestoreTrip(personId, "owner", localTrip, expenses[tripId] || [], mergedLinks[tripId].inviteCode).catch(() => undefined);
+        }
         if (tripStops.has(tripId)) return;
         tripStops.set(tripId, listenFirestoreTrip(tripId, (incomingTrip, incomingExpenses) => {
           const rawTrip = incomingTrip as TripPlan;
@@ -2713,6 +2718,32 @@ export default function App() {
     setJoinError("");
     setSyncStatus("syncing");
     try {
+      if (googleUser?.firebaseUid) {
+        const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
+        const joined = await joinFirestoreTrip(personId, tripId, inviteCode, joinMemberName.trim());
+        const convertedTrip = normalizeTripSchedule(joined.trip as TripPlan);
+        saveCloudLinks({ ...cloudLinksRef.current, [tripId]: { inviteCode, memberName: joinMemberName.trim(), memberId: personId, role: "member" } });
+        setTrips((current) => {
+          const next = current.some((trip) => trip.id === tripId)
+            ? current.map((trip) => trip.id === tripId ? convertedTrip : trip)
+            : [...current.filter((trip) => trip.id !== "local-welcome"), convertedTrip];
+          AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
+          return next;
+        });
+        setExpenses((current) => {
+          const next = { ...current, [tripId]: joined.expenses as Expense[] };
+          AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
+          return next;
+        });
+        setActiveTripId(tripId);
+        setSelectedDayId(convertedTrip.days[0]?.id || "");
+        setTab("itinerary");
+        setSyncStatus("synced");
+        setJoiningTrip(false);
+        setJoinTripId(""); setJoinInviteCode(""); setJoinMemberName("");
+        showToast(`已加入「${convertedTrip.title}」，Firebase 即時同步已開啟`);
+        return;
+      }
       const data = await postCloud({
         action: "joinTrip", tripId, inviteCode,
         member: { "成員ID": googleUser ? googleMemberId(googleUser) : `member-${Date.now()}`, "顯示名稱": googleUser ? googleUser.name : joinMemberName.trim(), "角色": "member" }

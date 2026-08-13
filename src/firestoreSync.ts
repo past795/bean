@@ -42,14 +42,8 @@ export const listenFirestoreFavorites = (personId: string, callback: (favorites:
 
 export const saveFirestoreTrip = async (personId: string, role: "owner" | "member", trip: any, expenses: any[], inviteCode = "") => {
   const tripRef = doc(firestoreDb, "trips", trip.id);
-  // Register this device/account as a member first. Existing trips require
-  // membership before their root document or shared state may be updated.
-  await setDoc(doc(tripRef, "members", personId), {
-    personId,
-    displayName: personId === "person-jy" ? "JY" : "旅伴",
-    role,
-    updatedAt: serverTimestamp()
-  }, { merge: true });
+  // Create/update the protected root first so the member rule can verify the
+  // owner or invitation code instead of allowing an unscoped member write.
   if (role === "owner") {
     await setDoc(tripRef, {
       ownerId: personId,
@@ -57,10 +51,17 @@ export const saveFirestoreTrip = async (personId: string, role: "owner" | "membe
       destination: trip.destination,
       startDate: trip.startDate || "",
       endDate: trip.endDate || "",
-      inviteCode,
+      ...(inviteCode ? { inviteCode } : {}),
       updatedAt: serverTimestamp()
     }, { merge: true });
   }
+  await setDoc(doc(tripRef, "members", personId), {
+    personId,
+    displayName: personId === "person-jy" ? "JY" : "旅伴",
+    role,
+    ...(inviteCode ? { inviteCode } : {}),
+    updatedAt: serverTimestamp()
+  }, { merge: true });
   const stateRef = doc(tripRef, "state", "current");
   const cloudState = await getDoc(stateRef);
   // Bootstrap only when this trip has never been stored in Firestore. A fresh
@@ -78,9 +79,34 @@ export const saveFirestoreTrip = async (personId: string, role: "owner" | "membe
     tripId: trip.id,
     role,
     title: trip.title,
-    inviteCode,
+    ...(inviteCode ? { inviteCode } : {}),
     updatedAt: serverTimestamp()
   }, { merge: true });
+};
+
+export const joinFirestoreTrip = async (personId: string, tripId: string, inviteCode: string, displayName: string) => {
+  const tripRef = doc(firestoreDb, "trips", tripId);
+  // The rule validates this code against the trip root before granting membership.
+  await setDoc(doc(tripRef, "members", personId), {
+    personId,
+    displayName,
+    role: "member",
+    inviteCode,
+    updatedAt: serverTimestamp()
+  });
+  const [tripSnapshot, stateSnapshot] = await Promise.all([getDoc(tripRef), getDoc(doc(tripRef, "state", "current"))]);
+  if (!tripSnapshot.exists() || !stateSnapshot.exists() || !stateSnapshot.data()?.trip) throw new Error("找不到旅行或邀請碼不正確");
+  const storedCode = String(tripSnapshot.data()?.inviteCode || "");
+  if (!storedCode || storedCode !== inviteCode) throw new Error("邀請碼不正確");
+  const trip = stateSnapshot.data()!.trip;
+  await setDoc(doc(firestoreDb, "users", personId, "trips", tripId), {
+    tripId,
+    role: "member",
+    title: trip?.title || tripSnapshot.data()?.title || "旅行",
+    inviteCode: storedCode,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+  return { trip, expenses: Array.isArray(stateSnapshot.data()?.expenses) ? stateSnapshot.data()!.expenses : [] };
 };
 
 export const updateFirestoreTripState = async (personId: string, trip: any, expenses: any[]) => {

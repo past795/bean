@@ -56,7 +56,15 @@ service cloud.firestore {
 
       match /members/{memberId} {
         allow read: if isTripMember(tripId) || ownsTripDocument(tripId);
-        allow create: if signedIn() && memberId == personId();
+        allow create: if signedIn() && memberId == personId() &&
+          exists(/databases/$(database)/documents/trips/$(tripId)) && (
+            get(/databases/$(database)/documents/trips/$(tripId)).data.ownerId == personId() ||
+            (
+              get(/databases/$(database)/documents/trips/$(tripId)).data.inviteCode is string &&
+              get(/databases/$(database)/documents/trips/$(tripId)).data.inviteCode.size() == 6 &&
+              request.resource.data.inviteCode == get(/databases/$(database)/documents/trips/$(tripId)).data.inviteCode
+            )
+          );
         allow update: if signedIn() && (memberId == personId() || isTripOwner(tripId));
         allow delete: if signedIn() && memberId == personId() && resource.data.role != 'owner';
       }
