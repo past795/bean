@@ -226,7 +226,9 @@ const normalizeGoogleUser = (user: GoogleUser): GoogleUser =>
   JY_EMAILS.has(user.email.trim().toLowerCase()) ? { ...user, name: "JY" } : user;
 const googleMemberId = (user: GoogleUser) =>
   JY_EMAILS.has(user.email.trim().toLowerCase()) ? "person:jy" : `google:${user.sub}`;
-const WEB_APP_ICON = { uri: "/bean/apple-touch-icon.png?v=83630ed0dd00" };
+// GitHub Pages uses /bean/, while Cloudflare Pages is served from /.  Build the
+// logo URL from the current site so the sign-in mark works on either host.
+const WEB_APP_ICON = { uri: `${currentWebBase}apple-touch-icon.png?v=83630ed0dd00` };
 
 const formatCloudDateTime = (value: unknown) => {
   const text = String(value || "");
