@@ -42,7 +42,12 @@ const ALL_DAYS_ID = "__all_days__";
 const DAY_ROUTE_COLORS = ["#E98268", "#5E7FA3", "#D3A54A", "#9A72B5", "#4F9A96", "#C96B8A", "#7F8D4E"];
 const SYNC_URL = "https://script.google.com/macros/s/AKfycbx59WE7iqgehx4nsE4xxxp_Q8-eQrd59VSfR4xSa3IlU7lIBtikr1gvG3EZgxWHEOwj/exec";
 const GOOGLE_CLIENT_ID = "280761518317-gdvrt4provk183vi87j6uoapmu5umn30.apps.googleusercontent.com";
-const SHARE_URL = "https://past795.github.io/bean/?share=2026080212";
+const currentWebOrigin = String((globalThis as any)?.location?.origin || "");
+const currentWebPath = String((globalThis as any)?.location?.pathname || "/");
+const currentWebBase = currentWebOrigin && currentWebPath
+  ? `${currentWebOrigin}${currentWebPath.endsWith("/") ? currentWebPath : currentWebPath.replace(/[^/]*$/, "")}`
+  : "https://past795.github.io/bean/";
+const SHARE_URL = `${currentWebBase}?share=2026080212`;
 const buildInviteMessage = (tripId: string, inviteCode: string) => `一起編輯豆遊行程 ✈️
 
 加入步驟：

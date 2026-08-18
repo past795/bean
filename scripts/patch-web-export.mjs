@@ -3,6 +3,9 @@ import { createHash } from "node:crypto";
 
 const path = new URL("../dist/index.html", import.meta.url);
 const iconPath = new URL("../assets/douyou-icon.png", import.meta.url);
+const isCloudflare = process.argv.includes("cloudflare");
+const siteUrl = isCloudflare ? (process.env.CF_PAGES_URL || "https://douyou.pages.dev").replace(/\/$/, "") : "https://past795.github.io/bean";
+const basePath = isCloudflare ? "" : "/bean";
 let html = await readFile(path, "utf8");
 const icon = await readFile(iconPath);
 const iconVersion = createHash("sha256").update(icon).digest("hex").slice(0, 12);
@@ -23,19 +26,20 @@ html = html.replace(
     <meta property="og:site_name" content="豆遊" />
     <meta property="og:title" content="豆遊｜一起規劃旅行" />
     <meta property="og:description" content="行程、住宿、工具箱與旅伴記帳，都放在同一個地方。" />
-    <meta property="og:url" content="https://past795.github.io/bean/" />
-    <meta property="og:image" content="https://past795.github.io/bean/apple-touch-icon.png?v=${iconVersion}" />
-    <meta property="og:image:secure_url" content="https://past795.github.io/bean/apple-touch-icon.png?v=${iconVersion}" />
+    <meta property="og:url" content="${siteUrl}/" />
+    <meta property="og:image" content="${siteUrl}/apple-touch-icon.png?v=${iconVersion}" />
+    <meta property="og:image:secure_url" content="${siteUrl}/apple-touch-icon.png?v=${iconVersion}" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1254" />
     <meta property="og:image:height" content="1254" />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="豆遊｜一起規劃旅行" />
-    <meta name="twitter:image" content="https://past795.github.io/bean/apple-touch-icon.png?v=${iconVersion}" />
+    <meta name="twitter:image" content="${siteUrl}/apple-touch-icon.png?v=${iconVersion}" />
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <link rel="icon" type="image/png" href="/bean/apple-touch-icon.png?v=${iconVersion}" />
-    <link rel="shortcut icon" type="image/png" href="/bean/apple-touch-icon.png?v=${iconVersion}" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/bean/apple-touch-icon.png?v=${iconVersion}" />`
+    <link rel="icon" type="image/png" href="${basePath}/apple-touch-icon.png?v=${iconVersion}" />
+    <link rel="shortcut icon" type="image/png" href="${basePath}/apple-touch-icon.png?v=${iconVersion}" />
+    <link rel="apple-touch-icon" sizes="180x180" href="${basePath}/apple-touch-icon.png?v=${iconVersion}" />`
 );
+if (isCloudflare) html = html.replaceAll("/bean/", "/");
 await writeFile(path, html);
 await copyFile(iconPath, new URL("../dist/apple-touch-icon.png", import.meta.url));

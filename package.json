@@ -9,6 +9,7 @@
     "android": "expo start --android",
     "web": "expo start --web",
     "predeploy": "expo export --platform web && node scripts/patch-web-export.mjs",
+    "build:cloudflare": "expo export --platform web && node scripts/patch-web-export.mjs cloudflare",
     "deploy": "gh-pages --nojekyll -d dist",
     "typecheck": "tsc --noEmit"
   },
