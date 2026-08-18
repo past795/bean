@@ -54,6 +54,16 @@ export const saveFirestoreTrip = async (personId: string, role: "owner" | "membe
       ...(inviteCode ? { inviteCode } : {}),
       updatedAt: serverTimestamp()
     }, { merge: true });
+    // A short invite code is the only thing a travel companion needs.  Its
+    // separate document lets a signed-in user resolve the trip without being
+    // shown (or having to type) the internal trip ID.
+    if (inviteCode) {
+      await setDoc(doc(firestoreDb, "invites", inviteCode), {
+        tripId: trip.id,
+        ownerId: personId,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    }
   }
   await setDoc(doc(tripRef, "members", personId), {
     personId,
@@ -107,6 +117,14 @@ export const joinFirestoreTrip = async (personId: string, tripId: string, invite
     updatedAt: serverTimestamp()
   }, { merge: true });
   return { trip, expenses: Array.isArray(stateSnapshot.data()?.expenses) ? stateSnapshot.data()!.expenses : [] };
+};
+
+export const joinFirestoreTripByInvite = async (personId: string, inviteCode: string, displayName: string) => {
+  const inviteSnapshot = await getDoc(doc(firestoreDb, "invites", inviteCode));
+  const tripId = String(inviteSnapshot.data()?.tripId || "");
+  if (!tripId) throw new Error("找不到這組邀請碼，請請建立者重新分享。 ");
+  const joined = await joinFirestoreTrip(personId, tripId, inviteCode, displayName);
+  return { ...joined, tripId };
 };
 
 export const updateFirestoreTripState = async (personId: string, trip: any, expenses: any[]) => {

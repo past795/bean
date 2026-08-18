@@ -27,7 +27,7 @@ import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
-import { deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
+import { deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
 
 type Tab = "home" | "itinerary" | "favorites" | "toolbox" | "expenses";
 type FavoritePlace = { id: string; name: string; address: string; country: string; city: string; latitude?: number; longitude?: number; note?: string; openingHours?: string };
@@ -48,15 +48,14 @@ const currentWebBase = currentWebOrigin && currentWebPath
   ? `${currentWebOrigin}${currentWebPath.endsWith("/") ? currentWebPath : currentWebPath.replace(/[^/]*$/, "")}`
   : "https://past795.github.io/bean/";
 const SHARE_URL = `${currentWebBase}?share=2026080212`;
-const buildInviteMessage = (tripId: string, inviteCode: string) => `一起編輯豆遊行程 ✈️
+const buildInviteMessage = (_tripId: string, inviteCode: string) => `一起編輯豆遊行程 ✈️
 
 加入步驟：
 1. 開啟豆遊網站並登入自己的 Google 帳號
 2. 在「我的旅行」頁面按右上角「加入旅行」
-3. 輸入下方旅行 ID、邀請碼與成員名稱
+3. 輸入下方邀請碼與成員名稱
 4. 按「加入並開始同步」
 
-旅行 ID：${tripId}
 邀請碼：${inviteCode}
 豆遊網站：${SHARE_URL}
 
@@ -2708,12 +2707,12 @@ export default function App() {
   };
 
   const joinCloudTrip = async () => {
-    const tripId = joinTripId.trim();
+    const legacyTripId = joinTripId.trim();
     const inviteCode = joinInviteCode.trim();
-    if (!tripId || !inviteCode) {
-      setJoinError("請填寫旅行 ID 與六位數邀請碼。");
-      Alert.alert("請填寫旅行 ID 與邀請碼");
-      showToast("請填寫旅行 ID 與六位數邀請碼");
+    if (!inviteCode) {
+      setJoinError("請填寫六位數邀請碼。");
+      Alert.alert("請填寫邀請碼");
+      showToast("請填寫六位數邀請碼");
       return;
     }
     if (!joinMemberName.trim()) {
@@ -2727,7 +2726,10 @@ export default function App() {
     try {
       if (googleUser?.firebaseUid) {
         const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
-        const joined = await joinFirestoreTrip(personId, tripId, inviteCode, joinMemberName.trim());
+        const joined = legacyTripId
+          ? { ...(await joinFirestoreTrip(personId, legacyTripId, inviteCode, joinMemberName.trim())), tripId: legacyTripId }
+          : await joinFirestoreTripByInvite(personId, inviteCode, joinMemberName.trim());
+        const tripId = joined.tripId;
         const convertedTrip = normalizeTripSchedule(joined.trip as TripPlan);
         saveCloudLinks({ ...cloudLinksRef.current, [tripId]: { inviteCode, memberName: joinMemberName.trim(), memberId: personId, role: "member" } });
         setTrips((current) => {
@@ -2751,6 +2753,8 @@ export default function App() {
         showToast(`已加入「${convertedTrip.title}」，Firebase 即時同步已開啟`);
         return;
       }
+      if (!legacyTripId) throw new Error("請先登入 Google 帳號，再用邀請碼加入旅行。");
+      const tripId = legacyTripId;
       const data = await postCloud({
         action: "joinTrip", tripId, inviteCode,
         member: { "成員ID": googleUser ? googleMemberId(googleUser) : `member-${Date.now()}`, "顯示名稱": googleUser ? googleUser.name : joinMemberName.trim(), "角色": "member" }
@@ -3957,9 +3961,7 @@ export default function App() {
               <Text style={styles.sheetTitle}>{cloudLinks[activeTrip.id] ? "旅伴加入資訊" : "開啟雙人同步"}</Text>
               {cloudLinks[activeTrip.id] ? (
                 <>
-                  <Text style={styles.cloudLabel}>旅行 ID</Text>
-                  <Text selectable style={styles.cloudCode}>{activeTrip.id}</Text>
-                  <Text style={styles.cloudLabel}>六位數邀請碼</Text>
+                  <Text style={styles.cloudLabel}>這趟旅行的專屬邀請碼</Text>
                   {cloudLinks[activeTrip.id]!.inviteCode
                     ? <Text selectable style={styles.cloudInvite}>{cloudLinks[activeTrip.id]!.inviteCode}</Text>
                     : cloudLinks[activeTrip.id]!.role === "owner"
@@ -3981,7 +3983,7 @@ export default function App() {
                     <TextInput value={memberDraft} onChangeText={setMemberDraft} placeholder="輸入成員名稱" placeholderTextColor="#AAA198" style={styles.memberInput} />
                     <Pressable style={styles.memberAddButton} onPress={addTripMember}><Text style={styles.memberAddText}>新增</Text></Pressable>
                   </View>
-                  <Text style={styles.sheetAddress}>旅伴在豆遊首頁點「加入旅行」，輸入上面兩項資料。</Text>
+                  <Text style={styles.sheetAddress}>旅伴在豆遊首頁點「加入旅行」，輸入這組邀請碼與自己的名稱即可。</Text>
                   <View style={styles.inviteShareGrid}>
                     <Pressable style={styles.inviteShareButton} onPress={() => copyInviteText(activeTrip.id, cloudLinks[activeTrip.id]!.inviteCode)}>
                       <Text style={styles.inviteShareText}>複製邀請文字</Text>
@@ -3996,7 +3998,7 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <Text style={styles.sheetAddress}>開啟後會將這趟旅行上傳到豆遊同步服務，並產生旅行 ID 與邀請碼。</Text>
+                  <Text style={styles.sheetAddress}>開啟後會將這趟旅行上傳到豆遊同步服務，並產生專屬邀請碼。</Text>
                   <Text style={styles.cloudLabel}>你的名稱</Text>
                   <TextInput value={myNameDraft} onChangeText={setMyNameDraft} placeholder="例如：Julie" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                   <Pressable disabled={syncStatus === "syncing"} style={styles.primaryButton} onPress={enableCloudForExistingTrip}>
@@ -4458,10 +4460,8 @@ export default function App() {
               <Text style={styles.sheetAddress}>使用目前登入的 Google 帳號加入。成功後會出現在你的首頁，行程與記帳會共同同步。</Text>
               <Text style={styles.fieldLabel}>這趟旅行顯示的成員名稱 *</Text>
               <TextInput value={joinMemberName} onChangeText={setJoinMemberName} placeholder="例如：小豆、Julie" placeholderTextColor="#AAA198" style={styles.fieldInput} />
-              <Text style={styles.fieldLabel}>旅行 ID *</Text>
-              <TextInput value={joinTripId} onChangeText={setJoinTripId} autoCapitalize="none" placeholder="trip-..." placeholderTextColor="#AAA198" style={styles.fieldInput} />
               <Text style={styles.fieldLabel}>邀請碼 *</Text>
-              <TextInput value={joinInviteCode} onChangeText={setJoinInviteCode} keyboardType="number-pad" placeholder="六位數邀請碼" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+              <TextInput value={joinInviteCode} onChangeText={setJoinInviteCode} keyboardType="number-pad" placeholder="向旅伴索取六位數邀請碼" placeholderTextColor="#AAA198" style={styles.fieldInput} />
               {!!joinError && <Text style={styles.joinErrorText}>加入失敗｜{joinError}</Text>}
               <Pressable disabled={syncStatus === "syncing"} style={styles.primaryButton} onPress={joinCloudTrip}>
                 <Text style={styles.primaryButtonText}>{syncStatus === "syncing" ? "正在加入並同步……" : "加入並開始同步"}</Text>

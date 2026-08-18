@@ -47,6 +47,20 @@ service cloud.firestore {
       }
     }
 
+    // Invite codes are deliberately readable only by a signed-in user who
+    // already knows the code.  Listing is not allowed, and only a trip owner
+    // may point a code at their own trip.
+    match /invites/{inviteCode} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create, update: if signedIn() &&
+        request.resource.data.tripId is string &&
+        ownsTripDocument(request.resource.data.tripId);
+      allow delete: if signedIn() &&
+        resource.data.tripId is string &&
+        ownsTripDocument(resource.data.tripId);
+    }
+
     match /trips/{tripId} {
       allow create: if signedIn() && request.resource.data.ownerId == personId();
       // The owner fallback repairs older trips whose member record was not
