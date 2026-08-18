@@ -48,6 +48,7 @@ const currentWebBase = currentWebOrigin && currentWebPath
   ? `${currentWebOrigin}${currentWebPath.endsWith("/") ? currentWebPath : currentWebPath.replace(/[^/]*$/, "")}`
   : "https://past795.github.io/bean/";
 const SHARE_URL = `${currentWebBase}?share=2026080212`;
+const DOUYOU_AI_URL = "https://throbbing-dust-5d68douyou-ai.past795.workers.dev/chat";
 const buildInviteMessage = (_tripId: string, inviteCode: string) => `一起編輯豆遊行程 ✈️
 
 加入步驟：
@@ -694,6 +695,12 @@ export default function App() {
   const [weatherData, setWeatherData] = useState<any[]>([]);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState("");
+  const [aiAssistantVisible, setAiAssistantVisible] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiAnswer, setAiAnswer] = useState("");
+  const [aiError, setAiError] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiFocusStop, setAiFocusStop] = useState<Stop | null>(null);
 
   useEffect(() => {
     const count = inclusiveDayCount(newStartDate, newEndDate);
@@ -1590,6 +1597,64 @@ export default function App() {
 
   const updateActiveTrip = (changes: Partial<TripPlan>) => {
     persistTrips(trips.map((trip) => trip.id === activeTrip.id ? { ...trip, ...changes } : trip));
+  };
+
+  const openAiAssistant = (focus?: Stop | null) => {
+    const stop = focus || null;
+    setAiFocusStop(stop);
+    setAiAnswer("");
+    setAiError("");
+    if (stop) {
+      const index = selectedDay.stops.findIndex((item) => item.id === stop.id);
+      const previous = index > 0 ? selectedDay.stops[index - 1] : null;
+      setAiPrompt(previous
+        ? `從「${previous.title}」前往「${stop.title}」怎麼走？請比較大眾運輸、步行與計程車，並提醒我適合的抵達時間與時間風險。`
+        : `我正在安排「${stop.title}」，請建議適合抵達時間、預計停留時間、交通方式與注意事項。`);
+    } else {
+      setAiPrompt("");
+    }
+    setAiAssistantVisible(true);
+  };
+
+  const askDouyouAi = async () => {
+    const message = aiPrompt.trim();
+    if (!message) {
+      setAiError("請先輸入想問豆遊小助手的問題。");
+      return;
+    }
+    setAiLoading(true);
+    setAiError("");
+    try {
+      const payload = {
+        message,
+        trip: {
+          title: activeTrip.title,
+          destination: activeTrip.destination,
+          startDate: activeTrip.startDate,
+          endDate: activeTrip.endDate,
+          selectedDay: {
+            label: selectedDay.label,
+            date: selectedDay.date,
+            title: selectedDay.title,
+            stops: selectedDay.stops.map((stop) => ({ title: stop.title, address: stop.address, time: stop.time, transport: stop.transport, openingHours: stop.openingHours, note: stop.note }))
+          },
+          accommodations: (activeTrip.accommodations || []).map((hotel: any) => ({ name: hotel.name, address: hotel.address, period: hotel.period }))
+        },
+        focus: aiFocusStop ? { title: aiFocusStop.title, address: aiFocusStop.address, time: aiFocusStop.time, openingHours: aiFocusStop.openingHours, note: aiFocusStop.note } : null
+      };
+      const response = await fetch(DOUYOU_AI_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(data?.error || "小助手暫時無法回覆"));
+      setAiAnswer(String(data?.answer || "目前沒有取得回覆，請再試一次。"));
+    } catch (error: any) {
+      setAiError(error?.message || "豆遊小助手暫時無法回覆，請稍後再試。");
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const saveNote = () => {
@@ -3944,6 +4009,11 @@ export default function App() {
           </Pressable>
         )}
 
+        <Pressable style={[styles.aiFloatingButton, previousStops && styles.aiFloatingButtonRaised]} onPress={() => openAiAssistant()}>
+          <Text style={styles.aiFloatingIcon}>✦</Text>
+          <Text style={styles.aiFloatingText}>豆遊小助手</Text>
+        </Pressable>
+
         <View style={styles.bottomBar}>
           <TabButton icon="home" label="首頁" active={tab === "home"} onPress={() => setTab("home")} />
           <TabButton icon="heart" label="收藏" active={tab === "favorites"} onPress={() => setTab("favorites")} />
@@ -4053,6 +4123,9 @@ export default function App() {
               <Text style={styles.sheetEyebrow}>景點備註</Text>
               <Text style={styles.sheetTitle}>{editing?.title}</Text>
               <Text style={styles.sheetAddress}>{editing?.address}</Text>
+              <Pressable style={styles.aiInlineButton} onPress={() => editing && openAiAssistant(editing)}>
+                <Text style={styles.aiInlineText}>✦ AI 說說這裡：問交通、最佳抵達時間或備案</Text>
+              </Pressable>
               <Text style={styles.fieldLabel}>交通方式</Text>
               <View style={styles.legRouteActions}>
                 {([
@@ -4110,6 +4183,36 @@ export default function App() {
               <Pressable style={styles.primaryButton} onPress={saveNote}><Text style={styles.primaryButtonText}>儲存景點資料</Text></Pressable>
               <Pressable style={styles.deleteStopButton} onPress={deleteEditingStop}><Text style={styles.deleteStopText}>刪除此景點</Text></Pressable>
               <Pressable style={styles.cancelButton} onPress={() => setEditing(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal visible={aiAssistantVisible} animationType="slide" transparent onRequestClose={() => setAiAssistantVisible(false)}>
+          <View style={styles.modalShade}>
+            <View style={[styles.sheet, styles.aiSheet]}>
+              <View style={styles.sheetHandle} />
+              <View style={styles.aiHeader}>
+                <View>
+                  <Text style={styles.sheetEyebrow}>DOUYOU AI</Text>
+                  <Text style={styles.sheetTitle}>豆遊小助手</Text>
+                  <Text style={styles.sheetAddress}>{aiFocusStop ? `正在協助：${aiFocusStop.title}` : `目前旅行：${activeTrip.title}`}</Text>
+                </View>
+                <Pressable style={styles.sheetCloseButton} onPress={() => setAiAssistantVisible(false)}><Text style={styles.closeButtonText}>×</Text></Pressable>
+              </View>
+              <Text style={styles.aiHint}>可問：怎麼去、什麼時候到比較好、景點是否排太滿、餐廳備案。</Text>
+              <TextInput
+                value={aiPrompt}
+                onChangeText={setAiPrompt}
+                multiline
+                placeholder="例如：這一天是否來得及？請幫我調整順序。"
+                placeholderTextColor="#A49C90"
+                style={styles.aiPromptInput}
+              />
+              {!!aiError && <Text style={styles.aiError}>{aiError}</Text>}
+              <Pressable style={[styles.primaryButton, aiLoading && styles.disabledButton]} disabled={aiLoading} onPress={askDouyouAi}>
+                <Text style={styles.primaryButtonText}>{aiLoading ? "豆遊小助手思考中…" : "✦ 問問豆遊小助手"}</Text>
+              </Pressable>
+              {!!aiAnswer && <ScrollView style={styles.aiAnswerBox} contentContainerStyle={styles.aiAnswerContent}><Text style={styles.aiAnswerText}>{aiAnswer}</Text></ScrollView>}
             </View>
           </View>
         </Modal>
@@ -4856,6 +4959,10 @@ const styles = StyleSheet.create({
   bottomGroupDivider: { width: 1, height: 38, alignSelf: "center", backgroundColor: "#D8DDE7" },
   floatingUndoButton: { position: "absolute", right: 20, bottom: 92, zIndex: 120, elevation: 25, backgroundColor: "#9C613F", borderRadius: 999, paddingHorizontal: 17, height: 42, alignItems: "center", justifyContent: "center", shadowColor: "#3A2419", shadowOpacity: .22, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
   floatingUndoText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
+  aiFloatingButton: { position: "absolute", right: 18, bottom: 92, zIndex: 119, elevation: 24, flexDirection: "row", alignItems: "center", gap: 6, height: 42, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#536783", shadowColor: "#26354C", shadowOpacity: .24, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  aiFloatingButtonRaised: { bottom: 142 },
+  aiFloatingIcon: { color: "#FFE2A6", fontSize: 16, fontWeight: "900" },
+  aiFloatingText: { color: "#FFF", fontSize: 11, fontWeight: "900" },
   tabButton: { flex: 1, alignItems: "center", justifyContent: "center" },
   tabIconFrame: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
   tabIconImage: { width: 22, height: 22 },
@@ -4955,6 +5062,17 @@ const styles = StyleSheet.create({
   sheetEyebrow: { fontSize: 11, letterSpacing: 1.4, color: "#9A6A4F", fontWeight: "800" },
   sheetTitle: { fontSize: 23, fontWeight: "800", color: "#292622", marginTop: 6 },
   sheetAddress: { color: "#8B837A", fontSize: 12, marginTop: 6 },
+  aiInlineButton: { marginTop: 14, backgroundColor: "#EAF2FB", borderWidth: 1, borderColor: "#CFDBEB", borderRadius: 13, paddingHorizontal: 13, paddingVertical: 10, alignItems: "center" },
+  aiInlineText: { color: "#536783", fontSize: 11, fontWeight: "900" },
+  aiSheet: { maxHeight: "86%" },
+  aiHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  closeButtonText: { color: "#625A53", fontSize: 25, lineHeight: 28, fontWeight: "400", marginTop: -2 },
+  aiHint: { color: "#718099", fontSize: 11, lineHeight: 17, marginTop: 12 },
+  aiPromptInput: { minHeight: 100, maxHeight: 160, backgroundColor: "#FFF", borderWidth: 1, borderColor: "#DDE4EF", borderRadius: 16, padding: 13, marginTop: 12, color: "#38332E", fontSize: 14, lineHeight: 20, textAlignVertical: "top" },
+  aiError: { color: "#A85445", fontSize: 11, lineHeight: 16, marginTop: 9 },
+  aiAnswerBox: { maxHeight: 250, marginTop: 14, backgroundColor: "#F1F5FB", borderRadius: 16, borderWidth: 1, borderColor: "#DDE6F2" },
+  aiAnswerContent: { padding: 14 },
+  aiAnswerText: { color: "#3F4C60", fontSize: 13, lineHeight: 21 },
   noteInput: { minHeight: 130, backgroundColor: "#FFF", borderWidth: 1, borderColor: "#E5DED5", borderRadius: 17, padding: 14, marginTop: 18, textAlignVertical: "top", color: "#38332E", fontSize: 15, lineHeight: 21 },
   compactNoteInput: { minHeight: 92, marginTop: 0 },
   fieldLabel: { color: "#696159", fontSize: 11, fontWeight: "800", marginTop: 16, marginBottom: 7 },
