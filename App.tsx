@@ -719,6 +719,7 @@ export default function App() {
   const [shoppingScope, setShoppingScope] = useState<"shared" | "personal">("shared");
   const [shoppingView, setShoppingView] = useState<"shared" | "mine">("shared");
   const [checklistText, setChecklistText] = useState("");
+  const [checklistError, setChecklistError] = useState("");
   const [previousStops, setPreviousStops] = useState<Stop[] | null>(null);
   const [cloudLinks, setCloudLinks] = useState<CloudLinks>({});
   const [cloudMembers, setCloudMembers] = useState<Record<string, string[]>>({});
@@ -3381,9 +3382,10 @@ export default function App() {
   const createChecklistItem = () => {
     const text = checklistText.trim();
     if (!text) {
-      Alert.alert("請輸入準備事項");
+      setChecklistError("請先在上方輸入一項準備事項，例如：購買網卡。");
       return;
     }
+    setChecklistError("");
     updateActiveTrip({
       checklist: [...(activeTrip.checklist || []), {
         id: `prep-${Date.now()}`, text, completed: false, scope: "personal",
@@ -3437,12 +3439,12 @@ export default function App() {
     setExchangeRateLoading(true);
     setExchangeRateError("");
     try {
-      const response = await fetch(`https://api.frankfurter.dev/v1/latest?base=${currencyForTrip.code}&symbols=TWD`);
+      const response = await fetch(`https://open.er-api.com/v6/latest/${currencyForTrip.code}`);
       const data = await response.json();
       const rate = Number(data?.rates?.TWD);
-      if (!response.ok || !Number.isFinite(rate) || rate <= 0) throw new Error("匯率服務暫時沒有回傳資料");
+      if (!response.ok || data?.result !== "success" || !Number.isFinite(rate) || rate <= 0) throw new Error("匯率服務暫時沒有回傳資料");
       setExchangeRate(rate);
-      setExchangeRateDate(String(data?.date || ""));
+      setExchangeRateDate(String(data?.time_last_update_utc || "").replace(/\s*\+0000$/, " UTC"));
     } catch (error: any) {
       setExchangeRate(null);
       setExchangeRateError(error?.message || "無法更新匯率，請檢查網路後再試一次。");
@@ -4484,7 +4486,8 @@ export default function App() {
                 <View style={styles.detailBlock}>
                   <Text style={styles.detailTitle}>行前準備清單</Text>
                   <Text style={styles.detailHint}>這是你的個人準備與行李清單；每位旅伴各自勾選，互不影響。</Text>
-                  <TextInput value={checklistText} onChangeText={setChecklistText} placeholder="例如：購買網卡、確認護照效期" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                  <TextInput value={checklistText} onChangeText={(text) => { setChecklistText(text); if (checklistError) setChecklistError(""); }} placeholder="例如：購買網卡、確認護照效期" placeholderTextColor="#AAA198" style={[styles.fieldInput, !!checklistError && styles.fieldInputError]} />
+                  {!!checklistError && <Text style={styles.placeSearchError}>{checklistError}</Text>}
                   <Pressable style={styles.primaryButton} onPress={createChecklistItem}><Text style={styles.primaryButtonText}>＋ 新增準備事項</Text></Pressable>
                   <View style={styles.shoppingList}>
                     {visibleChecklistItems.map((item) => (
@@ -5114,6 +5117,7 @@ const styles = StyleSheet.create({
   compactNoteInput: { minHeight: 92, marginTop: 0 },
   fieldLabel: { color: "#696159", fontSize: 11, fontWeight: "800", marginTop: 16, marginBottom: 7 },
   fieldInput: { height: 48, backgroundColor: "#FFF", borderWidth: 1, borderColor: "#E5DED5", borderRadius: 14, paddingHorizontal: 13, color: "#38332E", fontSize: 14 },
+  fieldInputError: { borderColor: "#C96A5B", borderWidth: 1.5 },
   fieldRow: { flexDirection: "row", gap: 10 },
   fieldHalf: { flex: 1 },
   dayCountField: { width: 90 },
