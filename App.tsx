@@ -14,6 +14,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -4267,7 +4268,7 @@ export default function App() {
                   </View>
                 </Pressable>
               </View>
-              <ScrollView style={styles.toolSheetBody} contentContainerStyle={styles.toolSheetBodyContent} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+              <ScrollView style={styles.toolSheetBody} contentContainerStyle={styles.toolSheetBodyContent} keyboardShouldPersistTaps="always" nestedScrollEnabled>
               {selectedTool === "班機" && (
                 <View style={styles.detailBlock}>
                   {addingFlight ? (
@@ -4486,9 +4487,11 @@ export default function App() {
                 <View style={styles.detailBlock}>
                   <Text style={styles.detailTitle}>行前準備清單</Text>
                   <Text style={styles.detailHint}>這是你的個人準備與行李清單；每位旅伴各自勾選，互不影響。</Text>
-                  <TextInput value={checklistText} onChangeText={(text) => { setChecklistText(text); if (checklistError) setChecklistError(""); }} placeholder="例如：購買網卡、確認護照效期" placeholderTextColor="#AAA198" style={[styles.fieldInput, !!checklistError && styles.fieldInputError]} />
+                  <TextInput value={checklistText} onChangeText={(text) => { setChecklistText(text); if (checklistError) setChecklistError(""); }} onSubmitEditing={createChecklistItem} returnKeyType="done" placeholder="例如：購買網卡、確認護照效期" placeholderTextColor="#AAA198" style={[styles.fieldInput, !!checklistError && styles.fieldInputError]} />
                   {!!checklistError && <Text style={styles.placeSearchError}>{checklistError}</Text>}
-                  <Pressable style={styles.primaryButton} onPress={createChecklistItem}><Text style={styles.primaryButtonText}>＋ 新增準備事項</Text></Pressable>
+                  <TouchableOpacity accessibilityRole="button" activeOpacity={0.66} style={[styles.primaryButton, styles.checklistAddButton]} onPress={createChecklistItem}>
+                    <Text style={styles.primaryButtonText}>＋ 新增準備事項</Text>
+                  </TouchableOpacity>
                   <View style={styles.shoppingList}>
                     {visibleChecklistItems.map((item) => (
                       <View key={item.id} style={[styles.shoppingItem, item.completed && styles.shoppingItemPurchased]}>
@@ -5122,6 +5125,7 @@ const styles = StyleSheet.create({
   fieldHalf: { flex: 1 },
   dayCountField: { width: 90 },
   primaryButton: { backgroundColor: "#536783", height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginTop: 16 },
+  checklistAddButton: { position: "relative", zIndex: 12, elevation: 12 },
   primaryButtonText: { color: "#FFF", fontWeight: "800", fontSize: 15 },
   destructiveButton: { backgroundColor: "#A85445", height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginTop: 20 },
   cancelButton: { height: 44, alignItems: "center", justifyContent: "center" },
