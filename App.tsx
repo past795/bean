@@ -695,6 +695,10 @@ export default function App() {
   const [weatherData, setWeatherData] = useState<any[]>([]);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState("");
+  const [exchangeRate, setExchangeRate] = useState<number | null>(null);
+  const [exchangeRateDate, setExchangeRateDate] = useState("");
+  const [exchangeRateLoading, setExchangeRateLoading] = useState(false);
+  const [exchangeRateError, setExchangeRateError] = useState("");
   const [aiAssistantVisible, setAiAssistantVisible] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiAnswer, setAiAnswer] = useState("");
@@ -2961,6 +2965,7 @@ export default function App() {
   const tripExpenses = expenses[activeTrip.id] ?? [];
   const localMemberAlias = cloudLinks[activeTrip.id]?.memberName;
   const myDisplayName = localMemberAlias || googleUser?.name;
+  const checklistOwner = myDisplayName || googleUser?.name || "我";
   const activeMemberNames = [...new Set([
     myDisplayName,
     ...(cloudMembers[activeTrip.id] || [])
@@ -3382,10 +3387,11 @@ export default function App() {
     updateActiveTrip({
       checklist: [...(activeTrip.checklist || []), {
         id: `prep-${Date.now()}`, text, completed: false, scope: "personal",
-        owner: myDisplayName || ""
+        owner: checklistOwner
       }]
     });
     setChecklistText("");
+    showToast(`已新增「${text}」`);
   };
 
   const toggleChecklistItem = (id: string) => {
@@ -3397,24 +3403,24 @@ export default function App() {
   };
 
   const visibleChecklistItems = (activeTrip.checklist || []).filter(
-    (item) => item.scope === "personal" && item.owner === myDisplayName
+    (item) => item.scope === "personal" && (item.owner === checklistOwner || (!item.owner && checklistOwner === "我"))
   );
 
   useEffect(() => {
-    if (!myDisplayName || !activeTrip.id || activeTrip.id === "local-welcome") return;
+    if (!checklistOwner || !activeTrip.id || activeTrip.id === "local-welcome") return;
     const checklist = activeTrip.checklist || [];
-    if (checklist.some((item) => item.scope === "personal" && item.owner === myDisplayName)) return;
+    if (checklist.some((item) => item.scope === "personal" && item.owner === checklistOwner)) return;
     const personalBasics = defaultPrepChecklist().map((item) => ({
       ...item,
-      id: `prep-personal-${encodeURIComponent(myDisplayName)}-${item.id}`,
+      id: `prep-personal-${encodeURIComponent(checklistOwner)}-${item.id}`,
       scope: "personal" as const,
-      owner: myDisplayName
+      owner: checklistOwner
     }));
-    updateActiveTrip({ checklist: [...checklist, ...personalBasics, ...defaultPersonalPacking(myDisplayName)] });
+    updateActiveTrip({ checklist: [...checklist, ...personalBasics, ...defaultPersonalPacking(checklistOwner)] });
   }, [
     activeTrip.id,
-    myDisplayName,
-    (activeTrip.checklist || []).some((item) => item.scope === "personal" && item.owner === myDisplayName)
+    checklistOwner,
+    (activeTrip.checklist || []).some((item) => item.scope === "personal" && item.owner === checklistOwner)
   ]);
 
   const weatherLabel = (code: number) =>
@@ -3426,6 +3432,28 @@ export default function App() {
   const currencyForTrip = /日本|Japan|大分|別府|由布|九重|日田|宇佐|國東|国東|中津|竹田|豊後|豐後|沖繩|東京|大阪|京都|北海道|福岡|〒\d{3}-\d{4}|[都道府県]/i.test(tripCurrencyContext)
     ? { code: "JPY", symbol: "¥", rate: 0.22 }
     : { code: "KRW", symbol: "₩", rate: 0.022 };
+
+  const refreshExchangeRate = async () => {
+    setExchangeRateLoading(true);
+    setExchangeRateError("");
+    try {
+      const response = await fetch(`https://api.frankfurter.dev/v1/latest?base=${currencyForTrip.code}&symbols=TWD`);
+      const data = await response.json();
+      const rate = Number(data?.rates?.TWD);
+      if (!response.ok || !Number.isFinite(rate) || rate <= 0) throw new Error("匯率服務暫時沒有回傳資料");
+      setExchangeRate(rate);
+      setExchangeRateDate(String(data?.date || ""));
+    } catch (error: any) {
+      setExchangeRate(null);
+      setExchangeRateError(error?.message || "無法更新匯率，請檢查網路後再試一次。");
+    } finally {
+      setExchangeRateLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedTool === "匯率") refreshExchangeRate();
+  }, [selectedTool, currencyForTrip.code]);
 
   const toolboxSubtitle = (title: string, fallback: string) => {
     if (title === "班機") return activeTrip.flights.length ? `${activeTrip.flights.length} 段航班` : "尚未新增航班";
@@ -4366,8 +4394,17 @@ export default function App() {
                 <View style={styles.detailBlock}>
                   <Text style={styles.fieldLabel}>{currencyForTrip.code} 金額</Text>
                   <TextInput value={krwAmount} onChangeText={setKrwAmount} keyboardType="numeric" style={styles.fieldInput} />
-                  <Text style={styles.exchangeResult}>約 NT$ {(Number(krwAmount.replace(/,/g, "")) * currencyForTrip.rate).toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
-                  <Text style={styles.detailHint}>暫以 1 {currencyForTrip.code} ≈ {currencyForTrip.rate} TWD 估算，刷卡與換匯以實際匯率為準。</Text>
+                  <Text style={styles.exchangeResult}>約 NT$ {(Number(krwAmount.replace(/,/g, "")) * (exchangeRate ?? currencyForTrip.rate)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
+                  <Text style={styles.detailHint}>{exchangeRateLoading
+                    ? "正在更新最新參考匯率…"
+                    : exchangeRate
+                      ? `最新可用參考匯率：1 ${currencyForTrip.code} ≈ ${exchangeRate.toLocaleString(undefined, { maximumFractionDigits: 6 })} TWD${exchangeRateDate ? `（資料日 ${exchangeRateDate}）` : ""}`
+                      : `目前無法更新，即先以 1 ${currencyForTrip.code} ≈ ${currencyForTrip.rate} TWD 估算。`}</Text>
+                  {!!exchangeRateError && <Text style={styles.placeSearchError}>{exchangeRateError}</Text>}
+                  <Pressable style={[styles.addressLookupButton, exchangeRateLoading && styles.disabledButton]} disabled={exchangeRateLoading} onPress={refreshExchangeRate}>
+                    <Text style={styles.addressLookupText}>{exchangeRateLoading ? "更新中…" : "↻ 更新最新匯率"}</Text>
+                  </Pressable>
+                  <Text style={styles.detailHint}>此為每日更新的市場參考匯率；銀行、信用卡與現鈔匯率仍會因手續費不同。</Text>
                 </View>
               )}
               {selectedTool === "必買商品" && (
