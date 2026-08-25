@@ -30,6 +30,8 @@ import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWit
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
 import { deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
 
+const homeTravelBean = require("./assets/home-travel-bean.jpg");
+
 type Tab = "home" | "itinerary" | "favorites" | "toolbox" | "expenses";
 type FavoritePlace = { id: string; name: string; address: string; country: string; city: string; latitude?: number; longitude?: number; note?: string; openingHours?: string };
 const STORE_KEY = "travel-companion-v2";
@@ -3859,6 +3861,7 @@ export default function App() {
                 <Text style={styles.pageTitle}>我的旅行</Text>
                 <Text style={styles.pageSubtitle}>每次出發，都從這裡開始。</Text>
               </View>
+              <Image source={homeTravelBean} resizeMode="contain" style={styles.homeHeaderArtwork} accessibilityLabel="豆遊旅行插畫" />
               <View style={styles.homeHeaderActions}>
                 <Pressable style={styles.joinTripButton} onPress={() => { setJoinError(""); setJoinMemberName(googleUser?.name || ""); setJoiningTrip(true); }}>
                   <Text style={styles.joinTripButtonText}>加入旅行</Text>
@@ -5014,9 +5017,10 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: "#FBFAF7" },
   pageContent: { padding: 22, paddingTop: 36, paddingBottom: 110 },
   homeContent: { padding: 22, paddingTop: 32, paddingBottom: 115 },
-  homeHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  homeHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", position: "relative", minHeight: 166 },
+  homeHeaderArtwork: { position: "absolute", right: 78, top: -8, width: 154, height: 164, zIndex: 0 },
   addTripButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: "#536783", alignItems: "center", justifyContent: "center", shadowColor: "#536783", shadowOpacity: .18, shadowRadius: 10 },
-  homeHeaderActions: { flexDirection: "row", alignItems: "center", gap: 9 },
+  homeHeaderActions: { flexDirection: "row", alignItems: "center", gap: 9, zIndex: 2 },
   accountCard: { backgroundColor: "#FFF", borderRadius: 18, padding: 14, marginTop: 14, marginBottom: 4, borderWidth: 1, borderColor: "#E9E2D9" },
   accountTitle: { color: "#343D50", fontSize: 14, fontWeight: "900" },
   accountHint: { color: "#887F76", fontSize: 10, lineHeight: 15, marginTop: 4 },
