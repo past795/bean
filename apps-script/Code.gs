@@ -119,10 +119,8 @@ function doPost(e) {
     }
     if (body.action === 'archiveTrip') {
       const tripId = required_(body.tripId, '缺少 tripId');
-      const email = required_(body.email, '請輸入收件信箱');
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Email 格式不正確');
       verifyArchiveOwner_(tripId, required_(body.idToken, '請先登入 Google'), body.data);
-      return json_({ ok: true, data: archiveTrip_(tripId, email, body.data) });
+      return json_({ ok: true, data: archiveTrip_(tripId, body.data) });
     }
     if (body.action === 'archiveMailTest') {
       const tripId = required_(body.tripId, '缺少 tripId');
@@ -323,45 +321,28 @@ function verifyArchiveOwner_(tripId, idToken, data) {
   if (!data || !data.trip || String(data.trip['旅行ID'] || '') !== String(tripId)) throw new Error('旅行匯出資料不完整，請重新整理後再試');
 }
 
-function archiveTrip_(tripId, email, firebaseData) {
+function archiveTrip_(tripId, firebaseData) {
   const legacyTrip = findTrip_(tripId);
   const trip = legacyTrip || (firebaseData && firebaseData.trip);
   if (!trip) throw new Error('找不到旅行');
   if (legacyTrip && String(trip['封存狀態']) === 'archived') throw new Error('這趟旅行已經封存');
-  if (MailApp.getRemainingDailyQuota() < 1) throw new Error('今日寄信額度已用完，請明天再試');
-  // Firebase is the live database now.  Make a permanent Google Sheet in the
-  // Apps Script owner's Drive first; email is only a convenience notification
-  // and can never make a completed export look like a failure.
-  const driveExport = firebaseData && firebaseData.trip ? buildTripDriveSpreadsheetFromData_(tripId, firebaseData) : null;
-  const blob = driveExport ? null : buildTripWorkbook_(tripId);
-  let emailSent = false;
-  try {
-    MailApp.sendEmail({
-      to: email,
-      subject: '豆遊旅行封存｜' + String(trip['名稱'] || trip['目的地'] || tripId),
-      body: driveExport ? ('你的豆遊旅行已完成打包。Google Sheet：' + driveExport.url) : '你的豆遊旅行已完成打包，Excel 檔案附在本信。',
-      htmlBody: driveExport ? ('<p>你的豆遊旅行已完成打包。</p><p><a href="' + driveExport.url + '">開啟 Google Sheet</a></p>') : '<p>你的豆遊旅行已完成打包，Excel 檔案附在本信。</p>',
-      ...(blob ? { attachments: [blob] } : {}),
-      name: '豆遊'
-    });
-    emailSent = true;
-  } catch (mailError) {
-    console.log('豆遊封存已建立 Google Sheet，但寄信通知失敗：' + mailError);
-  }
+  // No email, attachment conversion or quota is involved.  The completed
+  // archive is a normal Google Sheet in the Drive that owns this Apps Script.
+  const driveExport = buildTripDriveSpreadsheetFromData_(tripId, firebaseData && firebaseData.trip ? firebaseData : readTrip_(tripId));
   const archivedAt = new Date();
   const deleteAt = new Date(archivedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
   if (!legacyTrip) {
-    return { trip: { '旅行ID': tripId, '名稱': trip['名稱'] || trip['目的地'] || '豆遊旅行', '封存狀態': 'archived', '封存時間': archivedAt.toISOString(), '預定刪除時間': deleteAt.toISOString(), '封存信箱': email }, email: email, emailSent: emailSent, sheetUrl: driveExport ? driveExport.url : '' };
+    return { trip: { '旅行ID': tripId, '名稱': trip['名稱'] || trip['目的地'] || '豆遊旅行', '封存狀態': 'archived', '封存時間': archivedAt.toISOString(), '預定刪除時間': deleteAt.toISOString(), '封存信箱': '' }, sheetUrl: driveExport.url };
   }
   const rows = readObjects_(TABLES.trips);
   const index = rows.findIndex(row => String(row['旅行ID']) === String(tripId));
   rows[index]['封存狀態'] = 'archived';
   rows[index]['封存時間'] = archivedAt.toISOString();
   rows[index]['預定刪除時間'] = deleteAt.toISOString();
-  rows[index]['封存信箱'] = email;
+  rows[index]['封存信箱'] = '';
   rows[index]['更新時間'] = archivedAt.toISOString();
   replaceObjects_(TABLES.trips, rows);
-  return { trip: publicTrip_(rows[index]), email: email, emailSent: emailSent, sheetUrl: driveExport ? driveExport.url : '' };
+  return { trip: publicTrip_(rows[index]), sheetUrl: driveExport.url };
 }
 
 // A small diagnostic mail distinguishes a Gmail/Apps Script permission problem

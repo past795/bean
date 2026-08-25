@@ -1244,14 +1244,14 @@ export default function App() {
   };
 
   const archiveTripAndEmail = async () => {
-    if (!archiveTripTarget || !archiveEmail.trim()) { Alert.alert("請輸入收件信箱"); return; }
+    if (!archiveTripTarget) return;
     if (!googleUser?.idToken) { Alert.alert("請先登入 Google 帳號"); return; }
     setArchiveBusy(true);
     try {
       const payload = tripToCloud(archiveTripTarget, expenses[archiveTripTarget.id] || []);
-      const data = await postCloud({ action: "archiveTrip", tripId: archiveTripTarget.id, email: archiveEmail.trim(), idToken: googleUser.idToken, data: payload }, 75_000);
+      const data = await postCloud({ action: "archiveTrip", tripId: archiveTripTarget.id, idToken: googleUser.idToken, data: payload }, 75_000);
       if (firestoreConnected && googleUser?.firebaseUid) {
-        await archiveFirestoreTrip(firestorePersonId(googleUser.email, googleUser.firebaseUid), archiveTripTarget.id, archiveEmail.trim());
+        await archiveFirestoreTrip(firestorePersonId(googleUser.email, googleUser.firebaseUid), archiveTripTarget.id, "");
       }
       setArchivedTrips((current) => [data.trip, ...current.filter((trip) => String(trip["旅行ID"]) !== archiveTripTarget.id)]);
       const remaining = trips.filter((trip) => trip.id !== archiveTripTarget.id);
@@ -1259,9 +1259,7 @@ export default function App() {
       const next = remaining.length ? remaining : [fallback];
       persistTrips(next); setActiveTripId(next[0]!.id); setSelectedDayId(next[0]!.days[0]?.id || "");
       setArchiveTripTarget(null); setArchiveEmail(""); setTab("home");
-      const message = data.sheetUrl
-        ? "完整 Google Sheet 已建立在你的雲端硬碟。旅行會保留 30 天，期間可從封存區復原。"
-        : `Excel 已寄到 ${data.email}。雲端資料將保留 30 天，期間可從封存區復原。`;
+      const message = "完整 Google Sheet 已建立在你的雲端硬碟。旅行會保留 30 天，期間可從封存區復原。";
       if (data.sheetUrl) {
         Alert.alert("旅行已打包", message, [
           { text: "稍後開啟" },
@@ -4205,11 +4203,9 @@ export default function App() {
 
         <Modal visible={!!archiveTripTarget} animationType="slide" transparent onRequestClose={() => !archiveBusy && setArchiveTripTarget(null)}>
           <View style={styles.modalShade}><View style={styles.sheet}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>PACK & ARCHIVE</Text><Text style={styles.sheetTitle}>打包旅行</Text>
-            <View style={styles.archiveWarning}><Text style={styles.archiveWarningTitle}>請先確認</Text><Text style={styles.archiveWarningText}>系統會先把完整 Excel 寄到指定信箱；寄送成功後，旅行會移至封存區。雲端資料保留 30 天，之後永久刪除。只有建立者可以操作，寄信失敗不會刪除任何資料。</Text></View>
+            <View style={styles.archiveWarning}><Text style={styles.archiveWarningTitle}>請先確認</Text><Text style={styles.archiveWarningText}>系統會在你的 Google 雲端硬碟建立完整的 Google Sheet；建立成功後，旅行會移至封存區。雲端資料保留 30 天，之後永久刪除。只有建立者可以操作。</Text></View>
             <Text style={styles.fieldLabel}>旅行</Text><Text style={styles.archiveTripName}>{archiveTripTarget?.title}</Text>
-            <Text style={styles.fieldLabel}>Excel 收件信箱 *</Text><TextInput value={archiveEmail} onChangeText={setArchiveEmail} keyboardType="email-address" autoCapitalize="none" style={styles.fieldInput} placeholder="name@example.com" placeholderTextColor="#A49C90" />
-            <Pressable style={[styles.archiveTestButton, archiveBusy && styles.disabledButton]} disabled={archiveBusy} onPress={sendArchiveEmailTest}><Text style={styles.archiveTestText}>先寄送測試信（不會封存）</Text></Pressable>
-            <Pressable style={[styles.primaryButton, archiveBusy && styles.disabledButton]} disabled={archiveBusy} onPress={archiveTripAndEmail}><Text style={styles.primaryButtonText}>{archiveBusy ? "正在產生 Excel 並寄送…" : "確認寄送並封存"}</Text></Pressable>
+            <Pressable style={[styles.primaryButton, archiveBusy && styles.disabledButton]} disabled={archiveBusy} onPress={archiveTripAndEmail}><Text style={styles.primaryButtonText}>{archiveBusy ? "正在建立 Google Sheet…" : "建立 Google Sheet 並封存"}</Text></Pressable>
             <Pressable style={styles.cancelButton} disabled={archiveBusy} onPress={() => setArchiveTripTarget(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
           </View></View>
         </Modal>
