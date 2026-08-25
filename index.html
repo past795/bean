@@ -21,15 +21,18 @@
       /* Ship the selected Traditional Chinese typeface with the app instead of
          depending on a mobile browser being able to reach Google Fonts. */
       @font-face {
-        font-family: "Douyou Noto Serif TC";
+        font-family: "Noto Serif TC";
         src: url("/bean/NotoSerifTC-Variable.ttf") format("truetype");
         font-style: normal;
-        font-weight: 200 900;
-        font-display: block;
+        /* Use one broadly supported face declaration. Safari home-screen apps
+           otherwise may ignore the variable-weight range and fall back to its
+           system font. Browsers synthesize heavier weights when needed. */
+        font-weight: normal;
+        font-display: swap;
       }
       /* One typeface everywhere: Chinese, English and numbers use the same face. */
       html, body, #root, #root *, button, input, textarea, select, [role="button"] {
-        font-family: "Douyou Noto Serif TC", "Noto Serif TC", "Songti TC", "PMingLiU", serif !important;
+        font-family: "Noto Serif TC", "Songti TC", "PMingLiU", serif !important;
       }
     </style>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
