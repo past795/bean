@@ -329,19 +329,29 @@ function archiveTrip_(tripId, email, firebaseData) {
   if (!trip) throw new Error('找不到旅行');
   if (legacyTrip && String(trip['封存狀態']) === 'archived') throw new Error('這趟旅行已經封存');
   if (MailApp.getRemainingDailyQuota() < 1) throw new Error('今日寄信額度已用完，請明天再試');
-  const blob = firebaseData && firebaseData.trip ? buildTripWorkbookFromData_(tripId, firebaseData) : buildTripWorkbook_(tripId);
-  MailApp.sendEmail({
-    to: email,
-    subject: '豆遊旅行封存｜' + String(trip['名稱'] || trip['目的地'] || tripId),
-    body: '你的豆遊旅行已完成打包，Excel 檔案附在本信。雲端資料將保留 30 天，期間可在豆遊封存區復原。',
-    htmlBody: '<p>你的豆遊旅行已完成打包，Excel 檔案附在本信。</p><p>雲端資料將保留 30 天，期間可在豆遊封存區復原；到期後會永久刪除。</p>',
-    attachments: [blob],
-    name: '豆遊'
-  });
+  // Firebase is the live database now.  Make a permanent Google Sheet in the
+  // Apps Script owner's Drive first; email is only a convenience notification
+  // and can never make a completed export look like a failure.
+  const driveExport = firebaseData && firebaseData.trip ? buildTripDriveSpreadsheetFromData_(tripId, firebaseData) : null;
+  const blob = driveExport ? null : buildTripWorkbook_(tripId);
+  let emailSent = false;
+  try {
+    MailApp.sendEmail({
+      to: email,
+      subject: '豆遊旅行封存｜' + String(trip['名稱'] || trip['目的地'] || tripId),
+      body: driveExport ? ('你的豆遊旅行已完成打包。Google Sheet：' + driveExport.url) : '你的豆遊旅行已完成打包，Excel 檔案附在本信。',
+      htmlBody: driveExport ? ('<p>你的豆遊旅行已完成打包。</p><p><a href="' + driveExport.url + '">開啟 Google Sheet</a></p>') : '<p>你的豆遊旅行已完成打包，Excel 檔案附在本信。</p>',
+      ...(blob ? { attachments: [blob] } : {}),
+      name: '豆遊'
+    });
+    emailSent = true;
+  } catch (mailError) {
+    console.log('豆遊封存已建立 Google Sheet，但寄信通知失敗：' + mailError);
+  }
   const archivedAt = new Date();
   const deleteAt = new Date(archivedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
   if (!legacyTrip) {
-    return { trip: { '旅行ID': tripId, '名稱': trip['名稱'] || trip['目的地'] || '豆遊旅行', '封存狀態': 'archived', '封存時間': archivedAt.toISOString(), '預定刪除時間': deleteAt.toISOString(), '封存信箱': email }, email: email };
+    return { trip: { '旅行ID': tripId, '名稱': trip['名稱'] || trip['目的地'] || '豆遊旅行', '封存狀態': 'archived', '封存時間': archivedAt.toISOString(), '預定刪除時間': deleteAt.toISOString(), '封存信箱': email }, email: email, emailSent: emailSent, sheetUrl: driveExport ? driveExport.url : '' };
   }
   const rows = readObjects_(TABLES.trips);
   const index = rows.findIndex(row => String(row['旅行ID']) === String(tripId));
@@ -351,7 +361,7 @@ function archiveTrip_(tripId, email, firebaseData) {
   rows[index]['封存信箱'] = email;
   rows[index]['更新時間'] = archivedAt.toISOString();
   replaceObjects_(TABLES.trips, rows);
-  return { trip: publicTrip_(rows[index]), email: email };
+  return { trip: publicTrip_(rows[index]), email: email, emailSent: emailSent, sheetUrl: driveExport ? driveExport.url : '' };
 }
 
 // A small diagnostic mail distinguishes a Gmail/Apps Script permission problem
@@ -408,6 +418,34 @@ function buildTripWorkbookFromData_(tripId, data) {
   } finally {
     DriveApp.getFileById(book.getId()).setTrashed(true);
   }
+}
+
+function buildTripDriveSpreadsheetFromData_(tripId, data) {
+  const trip = data && data.trip;
+  if (!trip || String(trip['旅行ID'] || '') !== String(tripId)) throw new Error('旅行匯出資料不完整');
+  const fileName = String(trip['名稱'] || trip['目的地'] || '豆遊旅行').replace(/[\\/:*?"<>|]/g, '_');
+  const book = SpreadsheetApp.create('豆遊封存_' + fileName + '_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm'));
+  const sheets = [
+    ['旅行總覽', [trip]], ['行程', Array.isArray(data.itinerary) ? data.itinerary : []],
+    ['班機', Array.isArray(data.flights) ? data.flights : []], ['住宿', Array.isArray(data.accommodations) ? data.accommodations : []],
+    ['必買清單', Array.isArray(data.shopping) ? data.shopping : []], ['記帳', Array.isArray(data.expenses) ? data.expenses : []]
+  ];
+  const summary = book.getSheets()[0];
+  sheets.forEach((entry, index) => {
+    const sheet = index === 0 ? summary : book.insertSheet(entry[0]);
+    sheet.setName(entry[0]);
+    const rows = entry[1];
+    const headers = rows.reduce((all, row) => all.concat(Object.keys(row || {}).filter(key => all.indexOf(key) < 0)), []);
+    if (!headers.length) { sheet.getRange(1, 1).setValue('尚無資料'); return; }
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#E8EDF6');
+    if (rows.length) sheet.getRange(2, 1, rows.length, headers.length).setValues(rows.map(row => headers.map(header => {
+      const value = row && row[header];
+      return value == null ? '' : (typeof value === 'object' ? JSON.stringify(value) : value);
+    })));
+    sheet.setFrozenRows(1); sheet.autoResizeColumns(1, headers.length);
+  });
+  SpreadsheetApp.flush();
+  return { url: book.getUrl(), id: book.getId(), name: book.getName() };
 }
 
 function restoreArchivedTrip_(tripId) {

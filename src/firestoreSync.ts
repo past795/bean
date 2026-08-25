@@ -162,6 +162,23 @@ export const restoreFirestoreTrip = async (personId: string, tripId: string) => 
   }, { merge: true });
 };
 
+// Member names live in Firestore for the realtime app.  The former Google
+// Sheet endpoint is only retained for legacy trips, so renaming a Firebase
+// trip must write the member document directly.
+export const updateFirestoreMemberName = async (personId: string, tripId: string, displayName: string) => {
+  await Promise.all([
+    setDoc(doc(firestoreDb, "trips", tripId, "members", personId), {
+      personId,
+      displayName,
+      updatedAt: serverTimestamp()
+    }, { merge: true }),
+    setDoc(doc(firestoreDb, "users", personId, "trips", tripId), {
+      memberName: displayName,
+      updatedAt: serverTimestamp()
+    }, { merge: true })
+  ]);
+};
+
 export const listenFirestoreTrip = (tripId: string, callback: (trip: any, expenses: any[]) => void): Unsubscribe =>
   onSnapshot(doc(firestoreDb, "trips", tripId, "state", "current"), (snapshot) => {
     const data = snapshot.data();

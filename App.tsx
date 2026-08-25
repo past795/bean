@@ -28,7 +28,7 @@ import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
-import { archiveFirestoreTrip, deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, restoreFirestoreTrip, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
+import { archiveFirestoreTrip, deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, restoreFirestoreTrip, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreMemberName, updateFirestoreTripState } from "./src/firestoreSync";
 
 const homeTravelBean = require("./assets/home-travel-bean-transparent.png");
 // This file is copied to dist with a stable name by patch-web-export.mjs.
@@ -1259,7 +1259,15 @@ export default function App() {
       const next = remaining.length ? remaining : [fallback];
       persistTrips(next); setActiveTripId(next[0]!.id); setSelectedDayId(next[0]!.days[0]?.id || "");
       setArchiveTripTarget(null); setArchiveEmail(""); setTab("home");
-      Alert.alert("旅行已打包", `Excel 已寄到 ${data.email}。雲端資料將保留 30 天，期間可從封存區復原。`);
+      const message = data.sheetUrl
+        ? "完整 Google Sheet 已建立在你的雲端硬碟。旅行會保留 30 天，期間可從封存區復原。"
+        : `Excel 已寄到 ${data.email}。雲端資料將保留 30 天，期間可從封存區復原。`;
+      if (data.sheetUrl) {
+        Alert.alert("旅行已打包", message, [
+          { text: "稍後開啟" },
+          { text: "開啟 Google Sheet", onPress: () => Linking.openURL(String(data.sheetUrl)).catch(() => showToast("無法開啟 Google Sheet")) }
+        ]);
+      } else Alert.alert("旅行已打包", message);
     } catch (error: any) {
       Alert.alert("打包失敗，旅行未封存", error?.message || "請稍後再試。原旅行資料仍完整保留。");
     } finally { setArchiveBusy(false); }
@@ -2617,6 +2625,15 @@ export default function App() {
     const memberId = link.memberId || `member-${Date.now()}`;
     setSyncStatus("syncing");
     try {
+      if (firestoreConnected && googleUser?.firebaseUid) {
+        await updateFirestoreMemberName(firestorePersonId(googleUser.email, googleUser.firebaseUid), activeTrip.id, name);
+        saveCloudLinks({ ...cloudLinksRef.current, [activeTrip.id]: { ...link, memberName: name, memberId: firestorePersonId(googleUser.email, googleUser.firebaseUid) } });
+        setCloudMembers((current) => ({ ...current, [activeTrip.id]: [...new Set([...(current[activeTrip.id] || []), name])] }));
+        setSyncStatus("synced");
+        setMyNameDraft("");
+        showToast(`名稱已儲存：${name}`);
+        return;
+      }
       const data = await postCloud({
         action: "joinTrip", tripId: activeTrip.id, inviteCode: link.inviteCode,
         member: { "成員ID": memberId, "顯示名稱": name, "角色": "member" }
