@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 const path = new URL("../dist/index.html", import.meta.url);
 const iconPath = new URL("../assets/douyou-icon.png", import.meta.url);
 const homeMascotPath = new URL("../assets/home-travel-bean-transparent.png", import.meta.url);
+const fontPath = new URL("../assets/NotoSerifTC-Variable.ttf", import.meta.url);
 const isCloudflare = process.argv.includes("cloudflare");
 const siteUrl = isCloudflare ? (process.env.CF_PAGES_URL || "https://douyou.pages.dev").replace(/\/$/, "") : "https://past795.github.io/bean";
 const basePath = isCloudflare ? "" : "/bean";
@@ -36,13 +37,19 @@ html = html.replace(
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="豆遊｜一起規劃旅行" />
     <meta name="twitter:image" content="${siteUrl}/apple-touch-icon.png?v=${iconVersion}" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <style>
-      /* One typeface everywhere: Chinese, English and numbers all use Noto Serif TC. */
+      /* Ship the selected Traditional Chinese typeface with the app instead of
+         depending on a mobile browser being able to reach Google Fonts. */
+      @font-face {
+        font-family: "Douyou Noto Serif TC";
+        src: url("${basePath}/NotoSerifTC-Variable.ttf") format("truetype");
+        font-style: normal;
+        font-weight: 200 900;
+        font-display: block;
+      }
+      /* One typeface everywhere: Chinese, English and numbers use the same face. */
       html, body, #root, #root *, button, input, textarea, select, [role="button"] {
-        font-family: "Noto Serif TC", serif !important;
+        font-family: "Douyou Noto Serif TC", "Noto Serif TC", "Songti TC", "PMingLiU", serif !important;
       }
     </style>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -54,3 +61,4 @@ if (isCloudflare) html = html.replaceAll("/bean/", "/");
 await writeFile(path, html);
 await copyFile(iconPath, new URL("../dist/apple-touch-icon.png", import.meta.url));
 await copyFile(homeMascotPath, new URL("../dist/home-travel-bean.png", import.meta.url));
+await copyFile(fontPath, new URL("../dist/NotoSerifTC-Variable.ttf", import.meta.url));
