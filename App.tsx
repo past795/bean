@@ -4873,7 +4873,7 @@ const styles = StyleSheet.create({
   header: { paddingTop: 18, paddingHorizontal: 22, paddingBottom: 18, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
   headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   headerTitleBlock: { flex: 1, minWidth: 0, paddingRight: 8 },
-  eyebrow: { color: "#9A6A4F", fontSize: 11, fontWeight: "800", letterSpacing: 1.5, fontFamily: "Zen Maru Gothic" },
+  eyebrow: { color: "#9A6A4F", fontSize: 11, fontWeight: "800", letterSpacing: 1.5, fontFamily: "Noto Serif TC" },
   mainTitle: { color: "#1F2925", fontSize: 32, fontWeight: "900", marginTop: 5, letterSpacing: -1 },
   subtitle: { color: "#756E65", fontSize: 13, marginTop: 10 },
   tripBadge: { backgroundColor: "#536783", borderRadius: 16, paddingHorizontal: 11, paddingVertical: 9, alignItems: "center" },

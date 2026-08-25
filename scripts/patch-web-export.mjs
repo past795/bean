@@ -37,11 +37,11 @@ html = html.replace(
     <meta name="twitter:image" content="${siteUrl}/apple-touch-icon.png?v=${iconVersion}" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600;700;800;900&family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <style>
-      /* Zen Maru covers Latin/figures; Noto Serif TC supplies Chinese glyphs. */
-      body, button, input, textarea, select, [role="button"] {
-        font-family: "Zen Maru Gothic", "Noto Serif TC", serif !important;
+      /* One typeface everywhere: Chinese, English and numbers all use Noto Serif TC. */
+      html, body, #root, #root *, button, input, textarea, select, [role="button"] {
+        font-family: "Noto Serif TC", serif !important;
       }
     </style>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
