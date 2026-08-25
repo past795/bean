@@ -31,6 +31,12 @@ import { firebaseAuth, googleAuthProvider } from "./src/firebase";
 import { deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
 
 const homeTravelBean = require("./assets/home-travel-bean.jpg");
+// React Native Web occasionally fails to paint a local JPEG inside an absolutely
+// positioned header. Use the exported web asset directly there; native keeps
+// the normal bundled asset.
+const homeTravelBeanWebUri = Platform.OS === "web" && typeof window !== "undefined" && window.location.pathname.startsWith("/bean")
+  ? "/bean/assets/assets/home-travel-bean.a8a5fdcdcd696502504317704d1cb4f8.jpg"
+  : "/assets/assets/home-travel-bean.a8a5fdcdcd696502504317704d1cb4f8.jpg";
 
 type Tab = "home" | "itinerary" | "favorites" | "toolbox" | "expenses";
 type FavoritePlace = { id: string; name: string; address: string; country: string; city: string; latitude?: number; longitude?: number; note?: string; openingHours?: string };
@@ -3861,7 +3867,11 @@ export default function App() {
                 <Text style={styles.pageTitle}>我的旅行</Text>
                 <Text style={styles.pageSubtitle}>每次出發，都從這裡開始。</Text>
               </View>
-              <Image source={homeTravelBean} resizeMode="contain" style={styles.homeHeaderArtwork} accessibilityLabel="豆遊旅行插畫" />
+              {Platform.OS === "web" ? (
+                <img src={homeTravelBeanWebUri} alt="豆遊旅行插畫" style={styles.homeHeaderArtwork as never} />
+              ) : (
+                <Image source={homeTravelBean} resizeMode="contain" style={styles.homeHeaderArtwork} accessibilityLabel="豆遊旅行插畫" />
+              )}
               <View style={styles.homeHeaderActions}>
                 <Pressable style={styles.joinTripButton} onPress={() => { setJoinError(""); setJoinMemberName(googleUser?.name || ""); setJoiningTrip(true); }}>
                   <Text style={styles.joinTripButtonText}>加入旅行</Text>
