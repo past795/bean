@@ -65,9 +65,13 @@ export const saveFirestoreTrip = async (personId: string, role: "owner" | "membe
       }, { merge: true });
     }
   }
-  await setDoc(doc(tripRef, "members", personId), {
+  const memberRef = doc(tripRef, "members", personId);
+  const existingMember = await getDoc(memberRef);
+  // Do not replace a companion's chosen name with the old generic fallback
+  // whenever their browser synchronizes the trip state.
+  await setDoc(memberRef, {
     personId,
-    displayName: personId === "person-jy" ? "JY" : "旅伴",
+    ...(!existingMember.exists() ? { displayName: personId === "person-jy" ? "JY" : "尚未設定名稱的旅伴" } : {}),
     role,
     ...(inviteCode ? { inviteCode } : {}),
     updatedAt: serverTimestamp()
@@ -189,7 +193,7 @@ export const listenFirestoreMembers = (tripId: string, callback: (members: Array
   onSnapshot(collection(firestoreDb, "trips", tripId, "members"), (snapshot) => {
     callback(snapshot.docs.map((item) => ({
       personId: String(item.data()?.personId || item.id),
-      displayName: String(item.data()?.displayName || "旅伴"),
+      displayName: String(item.data()?.displayName || "尚未設定名稱的旅伴"),
       role: String(item.data()?.role || "member")
     })));
   });
