@@ -407,6 +407,21 @@ function setupArchiveCleanupTrigger() {
   ScriptApp.newTrigger('purgeExpiredArchivedTrips').timeBased().everyDays(1).atHour(3).create();
 }
 
+// Run this once from the Apps Script editor after saving. It sends a real
+// lightweight message and forces Google to show any missing MailApp approval.
+function 測試豆遊寄信_() {
+  const recipient = 'past795@gmail.com';
+  const quota = MailApp.getRemainingDailyQuota();
+  if (quota < 1) throw new Error('今日寄信額度已用完，請明天再試');
+  MailApp.sendEmail({
+    to: recipient,
+    subject: '豆遊寄信測試｜請勿回覆',
+    htmlBody: '<p>這是由 Apps Script 直接寄出的豆遊測試信。</p><p>若你收到這封信，代表寄信權限正常；打包問題會是 Excel 匯出流程，而不是 Email。</p>',
+    name: '豆遊'
+  });
+  console.log('豆遊測試信已交給 MailApp；收件人：' + recipient + '；寄信額度餘：' + quota);
+}
+
 function verifyGoogleToken_(idToken) {
   const response = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), {
     muteHttpExceptions: true
