@@ -37,8 +37,10 @@ const homeTravelBean = require("./assets/home-travel-bean-transparent.png");
 const homeTravelBeanWebUri = Platform.OS === "web" && typeof window !== "undefined" && window.location.pathname.startsWith("/bean")
   ? "/bean/home-travel-bean.png"
   : "/home-travel-bean.png";
-const webHomeMascotStyle = { position: "absolute", left: "50%", bottom: "-56px", transform: "translateX(-50%)", width: "158px", height: "158px", objectFit: "contain", zIndex: 3, pointerEvents: "none" };
-const webPageMascotStyle = { position: "absolute", right: "18px", top: "8px", width: "62px", height: "62px", objectFit: "contain", zIndex: 1, pointerEvents: "none", opacity: 0.98 };
+const webHomeMascotStyle = { position: "absolute", left: "50%", bottom: "-22px", transform: "translateX(-50%)", width: "174px", height: "174px", objectFit: "contain", zIndex: 3, pointerEvents: "none" };
+const webItineraryMascotStyle = { position: "absolute", right: "106px", top: "68px", width: "132px", height: "132px", objectFit: "contain", zIndex: 1, pointerEvents: "none" };
+const webToolboxMascotStyle = { position: "absolute", right: "34px", top: "48px", width: "142px", height: "142px", objectFit: "contain", zIndex: 1, pointerEvents: "none" };
+const webExpensesMascotStyle = { position: "absolute", right: "68px", top: "62px", width: "142px", height: "142px", objectFit: "contain", zIndex: 1, pointerEvents: "none" };
 
 type Tab = "home" | "itinerary" | "favorites" | "toolbox" | "expenses";
 type FavoritePlace = { id: string; name: string; address: string; country: string; city: string; latitude?: number; longitude?: number; note?: string; openingHours?: string };
@@ -3654,7 +3656,7 @@ export default function App() {
         {tab === "itinerary" && (
           <>
             <LinearGradient colors={["#F6EBDD", "#F7F3EC"]} style={styles.header}>
-              {Platform.OS === "web" ? <img src={homeTravelBeanWebUri} alt="豆遊小豆" style={webPageMascotStyle as never} /> : <Image source={homeTravelBean} resizeMode="contain" style={styles.pageMascot} />}
+              {Platform.OS === "web" ? <img src={homeTravelBeanWebUri} alt="豆遊小豆" style={webItineraryMascotStyle as never} /> : <Image source={homeTravelBean} resizeMode="contain" style={styles.pageMascot} />}
               <View style={styles.headerTop}>
                 <View style={styles.headerTitleBlock}>
                   <Text numberOfLines={1} style={styles.eyebrow}>{activeTrip.destination.toUpperCase()} · MY TRIP</Text>
@@ -3851,7 +3853,7 @@ export default function App() {
           <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
             <View style={styles.toolboxHeader}>
               <View><Text style={styles.eyebrow}>TRIP ESSENTIALS</Text><Text style={styles.pageTitle}>旅行工具箱</Text><Text style={styles.pageSubtitle}>訂單、天氣與採買清單都放在同一處。</Text></View>
-              {Platform.OS === "web" ? <img src={homeTravelBeanWebUri} alt="豆遊小豆" style={webPageMascotStyle as never} /> : <Image source={homeTravelBean} resizeMode="contain" style={styles.pageMascot} />}
+              {Platform.OS === "web" ? <img src={homeTravelBeanWebUri} alt="豆遊小豆" style={webToolboxMascotStyle as never} /> : <Image source={homeTravelBean} resizeMode="contain" style={styles.pageMascot} />}
             </View>
             {toolboxItems.map((item) => (
               <Pressable key={item.title} style={styles.toolCard} onPress={() => setSelectedTool(item.title)}>
@@ -3972,7 +3974,7 @@ export default function App() {
         {tab === "expenses" && (
           <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
             <View style={styles.expenseHeader}>
-              {Platform.OS === "web" ? <img src={homeTravelBeanWebUri} alt="豆遊小豆" style={webPageMascotStyle as never} /> : <Image source={homeTravelBean} resizeMode="contain" style={styles.pageMascot} />}
+              {Platform.OS === "web" ? <img src={homeTravelBeanWebUri} alt="豆遊小豆" style={webExpensesMascotStyle as never} /> : <Image source={homeTravelBean} resizeMode="contain" style={styles.pageMascot} />}
               <View>
                 <Text style={styles.eyebrow}>SPLIT TOGETHER</Text>
                 <Text style={styles.pageTitle}>旅行記帳</Text>
@@ -5032,10 +5034,10 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: "#FBFAF7" },
   pageContent: { padding: 22, paddingTop: 36, paddingBottom: 110 },
   homeContent: { padding: 22, paddingTop: 32, paddingBottom: 115 },
-  homeHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", position: "relative", minHeight: 244, marginBottom: 42 },
-  homeHeaderArtwork: { position: "absolute", left: "50%", bottom: -56, width: 158, height: 158, zIndex: 3, transform: [{ translateX: -79 }] },
-  pageMascot: { position: "absolute", right: 18, top: 8, width: 62, height: 62, zIndex: 1 },
-  toolboxHeader: { position: "relative", minHeight: 80, marginBottom: 4 },
+  homeHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", position: "relative", minHeight: 228, marginBottom: 16 },
+  homeHeaderArtwork: { position: "absolute", left: "50%", bottom: -22, width: 174, height: 174, zIndex: 3, transform: [{ translateX: -87 }] },
+  pageMascot: { position: "absolute", right: 68, top: 62, width: 142, height: 142, zIndex: 1 },
+  toolboxHeader: { position: "relative", minHeight: 190, marginBottom: 4 },
   addTripButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: "#536783", alignItems: "center", justifyContent: "center", shadowColor: "#536783", shadowOpacity: .18, shadowRadius: 10 },
   homeHeaderActions: { flexDirection: "row", alignItems: "center", gap: 9, zIndex: 2 },
   accountCard: { backgroundColor: "#FFF", borderRadius: 18, padding: 14, marginTop: 14, marginBottom: 4, borderWidth: 1, borderColor: "#E9E2D9" },
@@ -5222,7 +5224,7 @@ const styles = StyleSheet.create({
   shoppingName: { color: "#302B27", fontWeight: "800", fontSize: 13, lineHeight: 18 },
   shoppingCategory: { color: "#9A9188", fontSize: 10, marginTop: 3 },
   shoppingPrice: { color: "#9A6248", fontWeight: "900", fontSize: 11, maxWidth: 105, textAlign: "right" },
-  expenseHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", position: "relative", minHeight: 86 },
+  expenseHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", position: "relative", minHeight: 196 },
   totalCard: { borderRadius: 24, padding: 21, marginBottom: 18 },
   totalLabel: { color: "rgba(255,255,255,.72)", fontSize: 11, fontWeight: "800" },
   totalAmount: { color: "#FFF", fontSize: 31, fontWeight: "900", marginTop: 7 },
