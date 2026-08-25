@@ -323,6 +323,7 @@ function archiveTrip_(tripId, email) {
   MailApp.sendEmail({
     to: email,
     subject: '豆遊旅行封存｜' + String(trip['名稱'] || trip['目的地'] || tripId),
+    body: '你的豆遊旅行已完成打包，Excel 檔案附在本信。雲端資料將保留 30 天，期間可在豆遊封存區復原。',
     htmlBody: '<p>你的豆遊旅行已完成打包，Excel 檔案附在本信。</p><p>雲端資料將保留 30 天，期間可在豆遊封存區復原；到期後會永久刪除。</p>',
     attachments: [blob],
     name: '豆遊'
@@ -349,6 +350,7 @@ function sendArchiveMailTest_(tripId, email) {
   MailApp.sendEmail({
     to: email,
     subject: '豆遊寄信測試｜' + String(trip['名稱'] || trip['目的地'] || tripId),
+    body: '這是豆遊的寄信測試。這封測試信不會封存或更動任何旅行資料。',
     htmlBody: '<p>這是豆遊的寄信測試。</p><p>若你收到此信，代表打包旅行的寄信權限已正常啟用；這封測試信不會封存或更動任何旅行資料。</p>',
     name: '豆遊'
   });
@@ -386,8 +388,11 @@ function buildTripWorkbook_(tripId) {
       sheet.setFrozenRows(1);
     });
     SpreadsheetApp.flush();
-    const response = UrlFetchApp.fetch('https://docs.google.com/spreadsheets/d/' + book.getId() + '/export?format=xlsx', { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() } });
-    return response.getBlob().setName(fileName + '.xlsx');
+    // Export through Drive directly.  This avoids UrlFetchApp authorization and
+    // CORS/export-token failures that could prevent the archive email from being sent.
+    return DriveApp.getFileById(book.getId())
+      .getAs(MimeType.MICROSOFT_EXCEL)
+      .setName(fileName + '.xlsx');
   } finally {
     DriveApp.getFileById(book.getId()).setTrashed(true);
   }
