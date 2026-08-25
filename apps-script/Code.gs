@@ -388,11 +388,7 @@ function buildTripWorkbook_(tripId) {
       sheet.setFrozenRows(1);
     });
     SpreadsheetApp.flush();
-    // Export through Drive directly.  This avoids UrlFetchApp authorization and
-    // CORS/export-token failures that could prevent the archive email from being sent.
-    return DriveApp.getFileById(book.getId())
-      .getAs(MimeType.MICROSOFT_EXCEL)
-      .setName(fileName + '.xlsx');
+    return exportSpreadsheetAsXlsx_(book.getId(), fileName + '.xlsx');
   } finally {
     DriveApp.getFileById(book.getId()).setTrashed(true);
   }
@@ -412,6 +408,20 @@ function setupArchiveCleanupTrigger() {
   ScriptApp.newTrigger('purgeExpiredArchivedTrips').timeBased().everyDays(1).atHour(3).create();
 }
 
+function exportSpreadsheetAsXlsx_(spreadsheetId, fileName) {
+  const response = UrlFetchApp.fetch(
+    'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?format=xlsx',
+    {
+      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+      muteHttpExceptions: true,
+    }
+  );
+  if (response.getResponseCode() !== 200) {
+    throw new Error('Excel 匯出失敗（HTTP ' + response.getResponseCode() + '）：' + response.getContentText().slice(0, 300));
+  }
+  return response.getBlob().setName(fileName);
+}
+
 // Run this once from the Apps Script editor after saving. It sends a real
 // lightweight message and forces Google to show any missing MailApp approval.
 function 測試豆遊寄信_() {
@@ -425,6 +435,28 @@ function 測試豆遊寄信_() {
     name: '豆遊'
   });
   console.log('豆遊測試信已交給 MailApp；收件人：' + recipient + '；寄信額度餘：' + quota);
+}
+
+function testDouyouExcelAttachment() {
+  const recipient = 'past795@gmail.com';
+  const book = SpreadsheetApp.create('豆遊附件測試');
+  try {
+    book.getSheets()[0].getRange('A1:B2').setValues([
+      ['豆遊 Excel 附件測試', '成功'],
+      ['建立時間', new Date().toISOString()],
+    ]);
+    SpreadsheetApp.flush();
+    const excel = exportSpreadsheetAsXlsx_(book.getId(), '豆遊附件測試.xlsx');
+    MailApp.sendEmail({
+      to: recipient,
+      subject: '豆遊 Excel 附件測試',
+      body: '這封信應有一個 Excel 附件。',
+      attachments: [excel],
+      name: '豆遊',
+    });
+  } finally {
+    DriveApp.getFileById(book.getId()).setTrashed(true);
+  }
 }
 
 function verifyGoogleToken_(idToken) {
