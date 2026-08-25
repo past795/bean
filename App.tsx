@@ -4868,7 +4868,22 @@ function FirebaseGoogleSignInButton({ onPress, loading }: { onPress: () => void;
   );
 }
 
-const styles = StyleSheet.create({
+// React Native Web turns each style into its own generated CSS class.  Apply
+// the selected font while creating those classes, so every sheet/form label
+// gets the same typeface even if a browser ignores a broad CSS selector.
+const createDouyouStyles = (definitions: Record<string, any>) => {
+  if (Platform.OS === "web") {
+    Object.values(definitions).forEach((definition: any) => {
+      if (!definition || typeof definition !== "object") return;
+      if ("fontSize" in definition || "lineHeight" in definition || "letterSpacing" in definition || "fontWeight" in definition) {
+        definition.fontFamily = "Noto Serif TC";
+      }
+    });
+  }
+  return StyleSheet.create(definitions);
+};
+
+const styles = createDouyouStyles({
   safe: { flex: 1, backgroundColor: "#F7F3EC" },
   authGate: { alignItems: "center", justifyContent: "center", padding: 24 },
   authCard: { width: "100%", maxWidth: 430, alignItems: "center", backgroundColor: "#FFF", borderRadius: 32, paddingHorizontal: 28, paddingVertical: 42, borderWidth: 1, borderColor: "#E9E1D7", shadowColor: "#536783", shadowOpacity: 0.12, shadowRadius: 24, shadowOffset: { width: 0, height: 12 } },
