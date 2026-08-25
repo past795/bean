@@ -185,6 +185,15 @@ export const listenFirestoreTrip = (tripId: string, callback: (trip: any, expens
     if (data?.trip) callback(data.trip, Array.isArray(data.expenses) ? data.expenses : []);
   });
 
+export const listenFirestoreMembers = (tripId: string, callback: (members: Array<{ personId: string; displayName: string; role: string }>) => void): Unsubscribe =>
+  onSnapshot(collection(firestoreDb, "trips", tripId, "members"), (snapshot) => {
+    callback(snapshot.docs.map((item) => ({
+      personId: String(item.data()?.personId || item.id),
+      displayName: String(item.data()?.displayName || "旅伴"),
+      role: String(item.data()?.role || "member")
+    })));
+  });
+
 export const listenFirestoreTripLinks = (personId: string, callback: (links: any[]) => void): Unsubscribe =>
   onSnapshot(collection(firestoreDb, "users", personId, "trips"), (snapshot) => {
     callback(snapshot.docs.map((item) => item.data()));

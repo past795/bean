@@ -28,7 +28,7 @@ import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
-import { archiveFirestoreTrip, deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, restoreFirestoreTrip, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreMemberName, updateFirestoreTripState } from "./src/firestoreSync";
+import { archiveFirestoreTrip, deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreMembers, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, restoreFirestoreTrip, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreMemberName, updateFirestoreTripState } from "./src/firestoreSync";
 
 const homeTravelBean = require("./assets/home-travel-bean-transparent.png");
 // This file is copied to dist with a stable name by patch-web-export.mjs.
@@ -934,6 +934,17 @@ export default function App() {
         AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
         return next;
       });
+    });
+  }, [firestoreConnected, activeTrip?.id]);
+
+  // Member chips must come from the same realtime source as the trip itself.
+  // Reading old Apps Script rows here made a renamed user look like a second
+  // person and prevented newly joined companions from appearing.
+  useEffect(() => {
+    if (!firestoreConnected || !activeTrip?.id) return;
+    return listenFirestoreMembers(activeTrip.id, (members) => {
+      const names = members.map((member) => member.displayName.trim()).filter(Boolean);
+      setCloudMembers((current) => ({ ...current, [activeTrip.id]: [...new Set(names)] }));
     });
   }, [firestoreConnected, activeTrip?.id]);
 
@@ -2626,7 +2637,6 @@ export default function App() {
       if (firestoreConnected && googleUser?.firebaseUid) {
         await updateFirestoreMemberName(firestorePersonId(googleUser.email, googleUser.firebaseUid), activeTrip.id, name);
         saveCloudLinks({ ...cloudLinksRef.current, [activeTrip.id]: { ...link, memberName: name, memberId: firestorePersonId(googleUser.email, googleUser.firebaseUid) } });
-        setCloudMembers((current) => ({ ...current, [activeTrip.id]: [...new Set([...(current[activeTrip.id] || []), name])] }));
         setSyncStatus("synced");
         setMyNameDraft("");
         showToast(`名稱已儲存：${name}`);
@@ -3024,10 +3034,9 @@ export default function App() {
   const localMemberAlias = cloudLinks[activeTrip.id]?.memberName;
   const myDisplayName = localMemberAlias || googleUser?.name;
   const checklistOwner = myDisplayName || googleUser?.name || "我";
-  const activeMemberNames = [...new Set([
-    myDisplayName,
-    ...(cloudMembers[activeTrip.id] || [])
-  ].filter((name): name is string => !!name && name !== "我"))];
+  const activeMemberNames = firestoreConnected
+    ? [...new Set((cloudMembers[activeTrip.id] || []).filter((name): name is string => !!name && name !== "我"))]
+    : [...new Set([myDisplayName, ...(cloudMembers[activeTrip.id] || [])].filter((name): name is string => !!name && name !== "我"))];
   const expenseMemberNames = activeMemberNames;
   const openExpenseModal = () => {
     setExpensePayer(expenseMemberNames[0] || "");
