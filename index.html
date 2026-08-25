@@ -17,13 +17,19 @@
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="豆遊｜一起規劃旅行" />
     <meta name="twitter:image" content="https://past795.github.io/bean/apple-touch-icon.png?v=83630ed0dd00" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <style>
-      /* One typeface everywhere: Chinese, English and numbers all use Noto Serif TC. */
+      /* Ship the selected Traditional Chinese typeface with the app instead of
+         depending on a mobile browser being able to reach Google Fonts. */
+      @font-face {
+        font-family: "Douyou Noto Serif TC";
+        src: url("/bean/NotoSerifTC-Variable.ttf") format("truetype");
+        font-style: normal;
+        font-weight: 200 900;
+        font-display: block;
+      }
+      /* One typeface everywhere: Chinese, English and numbers use the same face. */
       html, body, #root, #root *, button, input, textarea, select, [role="button"] {
-        font-family: "Noto Serif TC", serif !important;
+        font-family: "Douyou Noto Serif TC", "Noto Serif TC", "Songti TC", "PMingLiU", serif !important;
       }
     </style>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
