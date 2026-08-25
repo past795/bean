@@ -37,7 +37,7 @@ const homeTravelBean = require("./assets/home-travel-bean-transparent.png");
 const homeTravelBeanWebUri = Platform.OS === "web" && typeof window !== "undefined" && window.location.pathname.startsWith("/bean")
   ? "/bean/home-travel-bean.png"
   : "/home-travel-bean.png";
-const webHomeMascotStyle = { position: "absolute", right: "26px", bottom: "-22px", width: "174px", height: "174px", objectFit: "contain", zIndex: 3, pointerEvents: "none" };
+const webHomeMascotStyle = { position: "absolute", right: "30px", bottom: "-10px", width: "142px", height: "142px", objectFit: "contain", zIndex: 3, pointerEvents: "none" };
 const webItineraryMascotStyle = { position: "absolute", right: "106px", top: "8px", width: "132px", height: "132px", objectFit: "contain", zIndex: 1, pointerEvents: "none" };
 const webToolboxMascotStyle = { position: "absolute", right: "30px", top: "42px", width: "142px", height: "142px", objectFit: "contain", zIndex: 1, pointerEvents: "none" };
 const webExpensesMascotStyle = { position: "absolute", right: "30px", top: "62px", width: "142px", height: "142px", objectFit: "contain", zIndex: 1, pointerEvents: "none" };
@@ -5035,7 +5035,7 @@ const styles = StyleSheet.create({
   pageContent: { padding: 22, paddingTop: 36, paddingBottom: 110 },
   homeContent: { padding: 22, paddingTop: 32, paddingBottom: 115 },
   homeHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", position: "relative", minHeight: 228, marginBottom: 16 },
-  homeHeaderArtwork: { position: "absolute", right: 26, bottom: -22, width: 174, height: 174, zIndex: 3 },
+  homeHeaderArtwork: { position: "absolute", right: 30, bottom: -10, width: 142, height: 142, zIndex: 3 },
   pageMascot: { position: "absolute", right: 68, top: 62, width: 142, height: 142, zIndex: 1 },
   toolboxHeader: { position: "relative", minHeight: 190, marginBottom: 4 },
   addTripButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: "#536783", alignItems: "center", justifyContent: "center", shadowColor: "#536783", shadowOpacity: .18, shadowRadius: 10 },
