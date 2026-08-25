@@ -28,7 +28,7 @@ import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
-import { deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
+import { archiveFirestoreTrip, deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, restoreFirestoreTrip, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
 
 const homeTravelBean = require("./assets/home-travel-bean-transparent.png");
 // This file is copied to dist with a stable name by patch-web-export.mjs.
@@ -945,7 +945,7 @@ export default function App() {
     const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
     const tripStops = new Map<string, () => void>();
     const stopLinks = listenFirestoreTripLinks(personId, (links) => {
-      const validLinks = links.filter((link) => typeof link?.tripId === "string" && link.tripId);
+      const validLinks = links.filter((link) => typeof link?.tripId === "string" && link.tripId && !link.archived);
       const hasRealTrip = validLinks.some((link) => String(link.tripId) !== "local-welcome");
       const linkedIds = new Set(validLinks.map((link) => String(link.tripId)));
       tripStops.forEach((stop, tripId) => {
@@ -1248,7 +1248,11 @@ export default function App() {
     if (!googleUser?.idToken) { Alert.alert("請先登入 Google 帳號"); return; }
     setArchiveBusy(true);
     try {
-      const data = await postCloud({ action: "archiveTrip", tripId: archiveTripTarget.id, email: archiveEmail.trim(), idToken: googleUser.idToken }, 75_000);
+      const payload = tripToCloud(archiveTripTarget, expenses[archiveTripTarget.id] || []);
+      const data = await postCloud({ action: "archiveTrip", tripId: archiveTripTarget.id, email: archiveEmail.trim(), idToken: googleUser.idToken, data: payload }, 75_000);
+      if (firestoreConnected && googleUser?.firebaseUid) {
+        await archiveFirestoreTrip(firestorePersonId(googleUser.email, googleUser.firebaseUid), archiveTripTarget.id, archiveEmail.trim());
+      }
       setArchivedTrips((current) => [data.trip, ...current.filter((trip) => String(trip["旅行ID"]) !== archiveTripTarget.id)]);
       const remaining = trips.filter((trip) => trip.id !== archiveTripTarget.id);
       const fallback: TripPlan = { id: `local-next-${Date.now()}`, title: "我的下一趟旅行", destination: "目的地未設定", period: "日期未定", travelers: 1, flights: [], accommodations: [], shopping: [], checklist: defaultPrepChecklist(), days: [{ id: `local-next-day-${Date.now()}`, label: "DAY 1", date: "日期未定", title: "自由安排", stops: [] }] };
@@ -1266,7 +1270,7 @@ export default function App() {
     if (!googleUser?.idToken) { Alert.alert("請先登入 Google 帳號"); return; }
     setArchiveBusy(true);
     try {
-      const data = await postCloud({ action: "archiveMailTest", tripId: archiveTripTarget.id, email: archiveEmail.trim(), idToken: googleUser.idToken });
+      const data = await postCloud({ action: "archiveMailTest", tripId: archiveTripTarget.id, email: archiveEmail.trim(), idToken: googleUser.idToken, data: tripToCloud(archiveTripTarget, expenses[archiveTripTarget.id] || []) });
       Alert.alert("測試信已送出", `請到 ${data.email} 的收件匣、垃圾郵件與促銷內容搜尋「豆遊寄信測試」。旅行不會受到任何影響。`);
     } catch (error: any) {
       Alert.alert("測試寄信失敗", error?.message || "Apps Script 尚未完成寄信授權。");
@@ -1276,6 +1280,13 @@ export default function App() {
   const restoreArchivedTrip = async (tripId: string) => {
     if (!googleUser?.idToken) return;
     try {
+      if (firestoreConnected && googleUser?.firebaseUid) {
+        await restoreFirestoreTrip(firestorePersonId(googleUser.email, googleUser.firebaseUid), tripId);
+        setArchivedTrips((current) => current.filter((trip) => String(trip["旅行ID"]) !== tripId));
+        setActiveTripId(tripId); setTab("itinerary");
+        showToast("旅行已從封存區復原");
+        return;
+      }
       const data = await postCloud({ action: "restoreArchivedTrip", tripId, idToken: googleUser.idToken });
       const converted = cloudToTrip(data);
       persistTrips([...trips.filter((trip) => trip.id !== converted.trip.id && !trip.id.startsWith("local-next-")), converted.trip]);

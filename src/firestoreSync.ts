@@ -136,6 +136,32 @@ export const updateFirestoreTripState = async (personId: string, trip: any, expe
   }, { merge: true });
 };
 
+// Archiving deliberately keeps the shared trip state in Firestore for 30 days,
+// but removes it from the traveller's active dashboard.  This makes a reload
+// behave exactly like the current screen instead of bringing an archived trip
+// back from the realtime listener.
+export const archiveFirestoreTrip = async (personId: string, tripId: string, email: string) => {
+  const archivedAt = new Date();
+  const deleteAt = new Date(archivedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+  await setDoc(doc(firestoreDb, "users", personId, "trips", tripId), {
+    archived: true,
+    archivedAt: archivedAt.toISOString(),
+    deleteAt: deleteAt.toISOString(),
+    archiveEmail: email,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+};
+
+export const restoreFirestoreTrip = async (personId: string, tripId: string) => {
+  await setDoc(doc(firestoreDb, "users", personId, "trips", tripId), {
+    archived: false,
+    archivedAt: "",
+    deleteAt: "",
+    archiveEmail: "",
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+};
+
 export const listenFirestoreTrip = (tripId: string, callback: (trip: any, expenses: any[]) => void): Unsubscribe =>
   onSnapshot(doc(firestoreDb, "trips", tripId, "state", "current"), (snapshot) => {
     const data = snapshot.data();

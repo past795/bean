@@ -121,15 +121,15 @@ function doPost(e) {
       const tripId = required_(body.tripId, '缺少 tripId');
       const email = required_(body.email, '請輸入收件信箱');
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Email 格式不正確');
-      verifyOwner_(tripId, required_(body.idToken, '請先登入 Google'));
-      return json_({ ok: true, data: archiveTrip_(tripId, email) });
+      verifyArchiveOwner_(tripId, required_(body.idToken, '請先登入 Google'), body.data);
+      return json_({ ok: true, data: archiveTrip_(tripId, email, body.data) });
     }
     if (body.action === 'archiveMailTest') {
       const tripId = required_(body.tripId, '缺少 tripId');
       const email = required_(body.email, '請輸入收件信箱');
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Email 格式不正確');
-      verifyOwner_(tripId, required_(body.idToken, '請先登入 Google'));
-      return json_({ ok: true, data: sendArchiveMailTest_(tripId, email) });
+      verifyArchiveOwner_(tripId, required_(body.idToken, '請先登入 Google'), body.data);
+      return json_({ ok: true, data: sendArchiveMailTest_(tripId, email, body.data) });
     }
     if (body.action === 'restoreArchivedTrip') {
       const tripId = required_(body.tripId, '缺少 tripId');
@@ -314,12 +314,22 @@ function migrateIdentity_(user) {
   return identity;
 }
 
-function archiveTrip_(tripId, email) {
-  const trip = findTrip_(tripId);
+function verifyArchiveOwner_(tripId, idToken, data) {
+  const legacyTrip = findTrip_(tripId);
+  if (legacyTrip) return verifyOwner_(tripId, idToken);
+  const user = verifyGoogleToken_(idToken);
+  const identity = migrateIdentity_(user);
+  if (identity.memberId !== JY_MEMBER_ID) throw new Error('只有建立者可以打包此旅行');
+  if (!data || !data.trip || String(data.trip['旅行ID'] || '') !== String(tripId)) throw new Error('旅行匯出資料不完整，請重新整理後再試');
+}
+
+function archiveTrip_(tripId, email, firebaseData) {
+  const legacyTrip = findTrip_(tripId);
+  const trip = legacyTrip || (firebaseData && firebaseData.trip);
   if (!trip) throw new Error('找不到旅行');
-  if (String(trip['封存狀態']) === 'archived') throw new Error('這趟旅行已經封存');
+  if (legacyTrip && String(trip['封存狀態']) === 'archived') throw new Error('這趟旅行已經封存');
   if (MailApp.getRemainingDailyQuota() < 1) throw new Error('今日寄信額度已用完，請明天再試');
-  const blob = buildTripWorkbook_(tripId);
+  const blob = firebaseData && firebaseData.trip ? buildTripWorkbookFromData_(tripId, firebaseData) : buildTripWorkbook_(tripId);
   MailApp.sendEmail({
     to: email,
     subject: '豆遊旅行封存｜' + String(trip['名稱'] || trip['目的地'] || tripId),
@@ -330,6 +340,9 @@ function archiveTrip_(tripId, email) {
   });
   const archivedAt = new Date();
   const deleteAt = new Date(archivedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+  if (!legacyTrip) {
+    return { trip: { '旅行ID': tripId, '名稱': trip['名稱'] || trip['目的地'] || '豆遊旅行', '封存狀態': 'archived', '封存時間': archivedAt.toISOString(), '預定刪除時間': deleteAt.toISOString(), '封存信箱': email }, email: email };
+  }
   const rows = readObjects_(TABLES.trips);
   const index = rows.findIndex(row => String(row['旅行ID']) === String(tripId));
   rows[index]['封存狀態'] = 'archived';
@@ -343,8 +356,8 @@ function archiveTrip_(tripId, email) {
 
 // A small diagnostic mail distinguishes a Gmail/Apps Script permission problem
 // from an Excel-export problem. It deliberately does not change trip data.
-function sendArchiveMailTest_(tripId, email) {
-  const trip = findTrip_(tripId);
+function sendArchiveMailTest_(tripId, email, firebaseData) {
+  const trip = findTrip_(tripId) || (firebaseData && firebaseData.trip);
   if (!trip) throw new Error('找不到旅行');
   if (MailApp.getRemainingDailyQuota() < 1) throw new Error('今日寄信額度已用完，請明天再試');
   MailApp.sendEmail({
@@ -355,6 +368,46 @@ function sendArchiveMailTest_(tripId, email) {
     name: '豆遊'
   });
   return { email: email };
+}
+
+function buildTripWorkbookFromData_(tripId, data) {
+  const trip = data && data.trip;
+  if (!trip || String(trip['旅行ID'] || '') !== String(tripId)) throw new Error('旅行匯出資料不完整');
+  const fileName = String(trip['名稱'] || trip['目的地'] || '豆遊旅行').replace(/[\\/:*?"<>|]/g, '_');
+  const book = SpreadsheetApp.create('豆遊封存_' + fileName);
+  try {
+    const sheets = [
+      ['旅行總覽', [trip]],
+      ['行程', Array.isArray(data.itinerary) ? data.itinerary : []],
+      ['班機', Array.isArray(data.flights) ? data.flights : []],
+      ['住宿', Array.isArray(data.accommodations) ? data.accommodations : []],
+      ['必買清單', Array.isArray(data.shopping) ? data.shopping : []],
+      ['記帳', Array.isArray(data.expenses) ? data.expenses : []]
+    ];
+    const summary = book.getSheets()[0];
+    sheets.forEach((entry, index) => {
+      const name = entry[0];
+      const rows = entry[1];
+      const sheet = index === 0 ? summary : book.insertSheet(name);
+      sheet.setName(name);
+      const headers = rows.reduce((all, row) => all.concat(Object.keys(row || {}).filter(key => all.indexOf(key) < 0)), []);
+      if (!headers.length) {
+        sheet.getRange(1, 1).setValue('尚無資料');
+        return;
+      }
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#E8EDF6');
+      if (rows.length) sheet.getRange(2, 1, rows.length, headers.length).setValues(rows.map(row => headers.map(header => {
+        const value = row && row[header];
+        return value == null ? '' : (typeof value === 'object' ? JSON.stringify(value) : value);
+      })));
+      sheet.setFrozenRows(1);
+      sheet.autoResizeColumns(1, headers.length);
+    });
+    SpreadsheetApp.flush();
+    return exportSpreadsheetAsXlsx_(book.getId(), fileName + '.xlsx');
+  } finally {
+    DriveApp.getFileById(book.getId()).setTrashed(true);
+  }
 }
 
 function restoreArchivedTrip_(tripId) {
