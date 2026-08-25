@@ -30,13 +30,15 @@ import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWit
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
 import { deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreTripState } from "./src/firestoreSync";
 
-const homeTravelBean = require("./assets/home-travel-bean.jpg");
-// React Native Web occasionally fails to paint a local JPEG inside an absolutely
-// positioned header. Use the exported web asset directly there; native keeps
-// the normal bundled asset.
+const homeTravelBean = require("./assets/home-travel-bean-transparent.png");
+// This file is copied to dist with a stable name by patch-web-export.mjs.
+// A plain DOM image is used on web so the transparent artwork reliably paints
+// above the React Native Web layout.
 const homeTravelBeanWebUri = Platform.OS === "web" && typeof window !== "undefined" && window.location.pathname.startsWith("/bean")
-  ? "/bean/assets/assets/home-travel-bean.a8a5fdcdcd696502504317704d1cb4f8.jpg"
-  : "/assets/assets/home-travel-bean.a8a5fdcdcd696502504317704d1cb4f8.jpg";
+  ? "/bean/home-travel-bean.png"
+  : "/home-travel-bean.png";
+const webHomeMascotStyle = { position: "absolute", left: "50%", bottom: "-56px", transform: "translateX(-50%)", width: "158px", height: "158px", objectFit: "contain", zIndex: 3, pointerEvents: "none" };
+const webPageMascotStyle = { position: "absolute", right: "18px", top: "8px", width: "62px", height: "62px", objectFit: "contain", zIndex: 1, pointerEvents: "none", opacity: 0.98 };
 
 type Tab = "home" | "itinerary" | "favorites" | "toolbox" | "expenses";
 type FavoritePlace = { id: string; name: string; address: string; country: string; city: string; latitude?: number; longitude?: number; note?: string; openingHours?: string };
@@ -3652,6 +3654,7 @@ export default function App() {
         {tab === "itinerary" && (
           <>
             <LinearGradient colors={["#F6EBDD", "#F7F3EC"]} style={styles.header}>
+              {Platform.OS === "web" ? <img src={homeTravelBeanWebUri} alt="豆遊小豆" style={webPageMascotStyle as never} /> : <Image source={homeTravelBean} resizeMode="contain" style={styles.pageMascot} />}
               <View style={styles.headerTop}>
                 <View style={styles.headerTitleBlock}>
                   <Text numberOfLines={1} style={styles.eyebrow}>{activeTrip.destination.toUpperCase()} · MY TRIP</Text>
@@ -3846,9 +3849,10 @@ export default function App() {
 
         {tab === "toolbox" && (
           <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
-            <Text style={styles.eyebrow}>TRIP ESSENTIALS</Text>
-            <Text style={styles.pageTitle}>旅行工具箱</Text>
-            <Text style={styles.pageSubtitle}>訂單、天氣與採買清單都放在同一處。</Text>
+            <View style={styles.toolboxHeader}>
+              <View><Text style={styles.eyebrow}>TRIP ESSENTIALS</Text><Text style={styles.pageTitle}>旅行工具箱</Text><Text style={styles.pageSubtitle}>訂單、天氣與採買清單都放在同一處。</Text></View>
+              {Platform.OS === "web" ? <img src={homeTravelBeanWebUri} alt="豆遊小豆" style={webPageMascotStyle as never} /> : <Image source={homeTravelBean} resizeMode="contain" style={styles.pageMascot} />}
+            </View>
             {toolboxItems.map((item) => (
               <Pressable key={item.title} style={styles.toolCard} onPress={() => setSelectedTool(item.title)}>
                 <View style={[styles.toolIcon, { backgroundColor: item.tint }]}><Text style={styles.toolEmoji}>{item.icon}</Text></View>
@@ -3868,7 +3872,7 @@ export default function App() {
                 <Text style={styles.pageSubtitle}>每次出發，都從這裡開始。</Text>
               </View>
               {Platform.OS === "web" ? (
-                <img src={homeTravelBeanWebUri} alt="豆遊旅行插畫" style={styles.homeHeaderArtwork as never} />
+                <img src={homeTravelBeanWebUri} alt="豆遊旅行插畫" style={webHomeMascotStyle as never} />
               ) : (
                 <Image source={homeTravelBean} resizeMode="contain" style={styles.homeHeaderArtwork} accessibilityLabel="豆遊旅行插畫" />
               )}
@@ -3968,6 +3972,7 @@ export default function App() {
         {tab === "expenses" && (
           <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
             <View style={styles.expenseHeader}>
+              {Platform.OS === "web" ? <img src={homeTravelBeanWebUri} alt="豆遊小豆" style={webPageMascotStyle as never} /> : <Image source={homeTravelBean} resizeMode="contain" style={styles.pageMascot} />}
               <View>
                 <Text style={styles.eyebrow}>SPLIT TOGETHER</Text>
                 <Text style={styles.pageTitle}>旅行記帳</Text>
@@ -4880,7 +4885,7 @@ const styles = StyleSheet.create({
   joinErrorText: { color: "#A5443C", backgroundColor: "#FBECEA", borderRadius: 12, paddingHorizontal: 13, paddingVertical: 10, fontSize: 11, fontWeight: "800", marginTop: 10 },
   webViewport: { height: "100dvh" as never, maxHeight: "100dvh" as never, minHeight: 0, overflow: "hidden" },
   app: { flex: 1, minHeight: 0, overflow: "hidden", position: "relative", backgroundColor: "#FBFAF7", maxWidth: 520, width: "100%", alignSelf: "center" },
-  header: { paddingTop: 18, paddingHorizontal: 22, paddingBottom: 18, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
+  header: { paddingTop: 18, paddingHorizontal: 22, paddingBottom: 18, borderBottomLeftRadius: 32, borderBottomRightRadius: 32, position: "relative" },
   headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   headerTitleBlock: { flex: 1, minWidth: 0, paddingRight: 8 },
   eyebrow: { color: "#9A6A4F", fontSize: 11, fontWeight: "800", letterSpacing: 1.5, fontFamily: "Noto Serif TC" },
@@ -5027,8 +5032,10 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: "#FBFAF7" },
   pageContent: { padding: 22, paddingTop: 36, paddingBottom: 110 },
   homeContent: { padding: 22, paddingTop: 32, paddingBottom: 115 },
-  homeHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", position: "relative", minHeight: 198 },
-  homeHeaderArtwork: { position: "absolute", right: 62, top: -13, width: 205, height: 205, zIndex: 1 },
+  homeHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", position: "relative", minHeight: 244, marginBottom: 42 },
+  homeHeaderArtwork: { position: "absolute", left: "50%", bottom: -56, width: 158, height: 158, zIndex: 3, transform: [{ translateX: -79 }] },
+  pageMascot: { position: "absolute", right: 18, top: 8, width: 62, height: 62, zIndex: 1 },
+  toolboxHeader: { position: "relative", minHeight: 80, marginBottom: 4 },
   addTripButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: "#536783", alignItems: "center", justifyContent: "center", shadowColor: "#536783", shadowOpacity: .18, shadowRadius: 10 },
   homeHeaderActions: { flexDirection: "row", alignItems: "center", gap: 9, zIndex: 2 },
   accountCard: { backgroundColor: "#FFF", borderRadius: 18, padding: 14, marginTop: 14, marginBottom: 4, borderWidth: 1, borderColor: "#E9E2D9" },
@@ -5215,7 +5222,7 @@ const styles = StyleSheet.create({
   shoppingName: { color: "#302B27", fontWeight: "800", fontSize: 13, lineHeight: 18 },
   shoppingCategory: { color: "#9A9188", fontSize: 10, marginTop: 3 },
   shoppingPrice: { color: "#9A6248", fontWeight: "900", fontSize: 11, maxWidth: 105, textAlign: "right" },
-  expenseHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  expenseHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", position: "relative", minHeight: 86 },
   totalCard: { borderRadius: 24, padding: 21, marginBottom: 18 },
   totalLabel: { color: "rgba(255,255,255,.72)", fontSize: 11, fontWeight: "800" },
   totalAmount: { color: "#FFF", fontSize: 31, fontWeight: "900", marginTop: 7 },

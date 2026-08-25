@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 
 const path = new URL("../dist/index.html", import.meta.url);
 const iconPath = new URL("../assets/douyou-icon.png", import.meta.url);
+const homeMascotPath = new URL("../assets/home-travel-bean-transparent.png", import.meta.url);
 const isCloudflare = process.argv.includes("cloudflare");
 const siteUrl = isCloudflare ? (process.env.CF_PAGES_URL || "https://douyou.pages.dev").replace(/\/$/, "") : "https://past795.github.io/bean";
 const basePath = isCloudflare ? "" : "/bean";
@@ -52,3 +53,4 @@ html = html.replace(
 if (isCloudflare) html = html.replaceAll("/bean/", "/");
 await writeFile(path, html);
 await copyFile(iconPath, new URL("../dist/apple-touch-icon.png", import.meta.url));
+await copyFile(homeMascotPath, new URL("../dist/home-travel-bean.png", import.meta.url));
