@@ -124,6 +124,13 @@ function doPost(e) {
       verifyOwner_(tripId, required_(body.idToken, '請先登入 Google'));
       return json_({ ok: true, data: archiveTrip_(tripId, email) });
     }
+    if (body.action === 'archiveMailTest') {
+      const tripId = required_(body.tripId, '缺少 tripId');
+      const email = required_(body.email, '請輸入收件信箱');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Email 格式不正確');
+      verifyOwner_(tripId, required_(body.idToken, '請先登入 Google'));
+      return json_({ ok: true, data: sendArchiveMailTest_(tripId, email) });
+    }
     if (body.action === 'restoreArchivedTrip') {
       const tripId = required_(body.tripId, '缺少 tripId');
       verifyOwner_(tripId, required_(body.idToken, '請先登入 Google'));
@@ -331,6 +338,21 @@ function archiveTrip_(tripId, email) {
   rows[index]['更新時間'] = archivedAt.toISOString();
   replaceObjects_(TABLES.trips, rows);
   return { trip: publicTrip_(rows[index]), email: email };
+}
+
+// A small diagnostic mail distinguishes a Gmail/Apps Script permission problem
+// from an Excel-export problem. It deliberately does not change trip data.
+function sendArchiveMailTest_(tripId, email) {
+  const trip = findTrip_(tripId);
+  if (!trip) throw new Error('找不到旅行');
+  if (MailApp.getRemainingDailyQuota() < 1) throw new Error('今日寄信額度已用完，請明天再試');
+  MailApp.sendEmail({
+    to: email,
+    subject: '豆遊寄信測試｜' + String(trip['名稱'] || trip['目的地'] || tripId),
+    htmlBody: '<p>這是豆遊的寄信測試。</p><p>若你收到此信，代表打包旅行的寄信權限已正常啟用；這封測試信不會封存或更動任何旅行資料。</p>',
+    name: '豆遊'
+  });
+  return { email: email };
 }
 
 function restoreArchivedTrip_(tripId) {

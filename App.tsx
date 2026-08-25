@@ -1206,20 +1206,26 @@ export default function App() {
     AsyncStorage.setItem(CLOUD_LINK_KEY, JSON.stringify(next)).catch(() => undefined);
   };
 
-  const postCloud = async (payload: any) => {
+  const postCloud = async (payload: any, timeoutMs = 30_000) => {
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
         const response = await fetch(SYNC_URL, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: controller.signal
         });
+        clearTimeout(timeout);
         const result = await response.json();
         if (!result.ok) throw new Error(result.error || "同步失敗");
         return result.data;
       } catch (error: any) {
-        lastError = error instanceof Error ? error : new Error(String(error || "同步失敗"));
+        lastError = error?.name === "AbortError"
+          ? new Error("同步服務等待逾時，旅行沒有封存。請先執行「寄送測試信」確認 Apps Script 的寄信權限。")
+          : error instanceof Error ? error : new Error(String(error || "同步失敗"));
         const lockBusy = /鎖定|lock|另一個處理程序|其他處理程序/i.test(lastError.message);
         if (!lockBusy || attempt === 2) throw lastError;
         await new Promise((resolve) => setTimeout(resolve, 900 * (attempt + 1) + Math.floor(Math.random() * 500)));
@@ -1242,7 +1248,7 @@ export default function App() {
     if (!googleUser?.idToken) { Alert.alert("請先登入 Google 帳號"); return; }
     setArchiveBusy(true);
     try {
-      const data = await postCloud({ action: "archiveTrip", tripId: archiveTripTarget.id, email: archiveEmail.trim(), idToken: googleUser.idToken });
+      const data = await postCloud({ action: "archiveTrip", tripId: archiveTripTarget.id, email: archiveEmail.trim(), idToken: googleUser.idToken }, 75_000);
       setArchivedTrips((current) => [data.trip, ...current.filter((trip) => String(trip["旅行ID"]) !== archiveTripTarget.id)]);
       const remaining = trips.filter((trip) => trip.id !== archiveTripTarget.id);
       const fallback: TripPlan = { id: `local-next-${Date.now()}`, title: "我的下一趟旅行", destination: "目的地未設定", period: "日期未定", travelers: 1, flights: [], accommodations: [], shopping: [], checklist: defaultPrepChecklist(), days: [{ id: `local-next-day-${Date.now()}`, label: "DAY 1", date: "日期未定", title: "自由安排", stops: [] }] };
@@ -1252,6 +1258,18 @@ export default function App() {
       Alert.alert("旅行已打包", `Excel 已寄到 ${data.email}。雲端資料將保留 30 天，期間可從封存區復原。`);
     } catch (error: any) {
       Alert.alert("打包失敗，旅行未封存", error?.message || "請稍後再試。原旅行資料仍完整保留。");
+    } finally { setArchiveBusy(false); }
+  };
+
+  const sendArchiveEmailTest = async () => {
+    if (!archiveTripTarget || !archiveEmail.trim()) { Alert.alert("請先輸入收件信箱"); return; }
+    if (!googleUser?.idToken) { Alert.alert("請先登入 Google 帳號"); return; }
+    setArchiveBusy(true);
+    try {
+      const data = await postCloud({ action: "archiveMailTest", tripId: archiveTripTarget.id, email: archiveEmail.trim(), idToken: googleUser.idToken });
+      Alert.alert("測試信已送出", `請到 ${data.email} 的收件匣、垃圾郵件與促銷內容搜尋「豆遊寄信測試」。旅行不會受到任何影響。`);
+    } catch (error: any) {
+      Alert.alert("測試寄信失敗", error?.message || "Apps Script 尚未完成寄信授權。");
     } finally { setArchiveBusy(false); }
   };
 
@@ -4162,6 +4180,7 @@ export default function App() {
             <View style={styles.archiveWarning}><Text style={styles.archiveWarningTitle}>請先確認</Text><Text style={styles.archiveWarningText}>系統會先把完整 Excel 寄到指定信箱；寄送成功後，旅行會移至封存區。雲端資料保留 30 天，之後永久刪除。只有建立者可以操作，寄信失敗不會刪除任何資料。</Text></View>
             <Text style={styles.fieldLabel}>旅行</Text><Text style={styles.archiveTripName}>{archiveTripTarget?.title}</Text>
             <Text style={styles.fieldLabel}>Excel 收件信箱 *</Text><TextInput value={archiveEmail} onChangeText={setArchiveEmail} keyboardType="email-address" autoCapitalize="none" style={styles.fieldInput} placeholder="name@example.com" placeholderTextColor="#A49C90" />
+            <Pressable style={[styles.archiveTestButton, archiveBusy && styles.disabledButton]} disabled={archiveBusy} onPress={sendArchiveEmailTest}><Text style={styles.archiveTestText}>先寄送測試信（不會封存）</Text></Pressable>
             <Pressable style={[styles.primaryButton, archiveBusy && styles.disabledButton]} disabled={archiveBusy} onPress={archiveTripAndEmail}><Text style={styles.primaryButtonText}>{archiveBusy ? "正在產生 Excel 並寄送…" : "確認寄送並封存"}</Text></Pressable>
             <Pressable style={styles.cancelButton} disabled={archiveBusy} onPress={() => setArchiveTripTarget(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
           </View></View>
@@ -5117,6 +5136,8 @@ const styles = createDouyouStyles({
   archiveWarningTitle: { color: "#9C4B42", fontSize: 12, fontWeight: "900" },
   archiveWarningText: { color: "#775D58", fontSize: 10, lineHeight: 17, marginTop: 5 },
   archiveTripName: { color: "#343D50", fontSize: 15, fontWeight: "900", marginBottom: 8 },
+  archiveTestButton: { backgroundColor: "#E9EDF5", borderRadius: 14, paddingVertical: 12, alignItems: "center", marginTop: 13 },
+  archiveTestText: { color: "#536783", fontSize: 12, fontWeight: "900" },
   editTripButton: { backgroundColor: "#E9EDF5", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
   editTripText: { color: "#536783", fontSize: 10, fontWeight: "900" },
   versionLabel: { color: "#AAA198", fontSize: 9, textAlign: "center", marginTop: 16 },
