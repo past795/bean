@@ -92,6 +92,14 @@ export type UnscheduledPlace = {
   openingHours?: string;
 };
 
+export type TripReservationReminder = {
+  id: string;
+  title: string;
+  suggestedDate?: string;
+  note?: string;
+  completed?: boolean;
+};
+
 export type TripPlan = {
   id: string;
   title: string;
@@ -111,4 +119,5 @@ export type TripPlan = {
   shoppingCatalogImported?: boolean;
   checklist: TripChecklistItem[];
   unscheduledPlaces?: UnscheduledPlace[];
+  reservations?: TripReservationReminder[];
 };

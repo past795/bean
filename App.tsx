@@ -395,6 +395,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
       accommodationByNight: trip.accommodationByNight || {},
       shoppingCatalogImported: !!trip.shoppingCatalogImported,
       unscheduledPlaces: trip.unscheduledPlaces || [],
+      reservations: trip.reservations || [],
       days: trip.days.map((day) => ({ id: day.id, date: day.date, title: day.title }))
     }), "已購買": false
   }]).concat((trip.checklist || []).filter((item) => item.scope !== "personal").map((item) => ({
@@ -467,6 +468,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
     })(),
     shoppingCatalogImported: !!tripMeta.shoppingCatalogImported,
     unscheduledPlaces: Array.isArray(tripMeta.unscheduledPlaces) ? tripMeta.unscheduledPlaces : [],
+    reservations: Array.isArray(tripMeta.reservations) ? tripMeta.reservations : [],
     period: startDate
       ? tripPeriodLabel(startDate, endDate)
       : String(cloudTrip["開始日期"] || "日期未定"),
@@ -698,6 +700,10 @@ export default function App() {
   const [placeSuggestionStatus, setPlaceSuggestionStatus] = useState<"idle" | "loading" | "empty">("idle");
   const suppressNextPlaceSearchRef = useRef(false);
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
+  const [addingReservation, setAddingReservation] = useState(false);
+  const [reservationTitleDraft, setReservationTitleDraft] = useState("");
+  const [reservationDateDraft, setReservationDateDraft] = useState("");
+  const [reservationNoteDraft, setReservationNoteDraft] = useState("");
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
   const [addingExpense, setAddingExpense] = useState(false);
   const [expenseTitle, setExpenseTitle] = useState("");
@@ -911,6 +917,15 @@ export default function App() {
   const toggleReservationCompleted = (dayId: string, stopId: string) => {
     updateActiveTrip({ days: activeTrip.days.map((day) => day.id !== dayId ? day : { ...day, stops: day.stops.map((stop) => stop.id !== stopId ? stop : { ...stop, reservationRequired: true, reservationCompleted: !stop.reservationCompleted }) }) });
   };
+  const saveManualReservation = () => {
+    const title = reservationTitleDraft.trim();
+    if (!title) { showToast("請先填寫預約事項名稱"); return; }
+    updateActiveTrip({ reservations: [...(activeTrip.reservations || []), { id: `reservation-${Date.now()}`, title, suggestedDate: reservationDateDraft.trim(), note: reservationNoteDraft.trim(), completed: false }] });
+    setReservationTitleDraft(""); setReservationDateDraft(""); setReservationNoteDraft(""); setAddingReservation(false);
+    showToast("已新增預約提醒，並同步給旅伴");
+  };
+  const toggleManualReservation = (id: string) => updateActiveTrip({ reservations: (activeTrip.reservations || []).map((item) => item.id === id ? { ...item, completed: !item.completed } : item) });
+  const removeManualReservation = (id: string) => updateActiveTrip({ reservations: (activeTrip.reservations || []).filter((item) => item.id !== id) });
   const importBusanBackupsToFavorites = () => {
     const names = new Set(favorites.map((item) => item.name.trim().toLowerCase()));
     const additions = BUSAN_BACKUP_FAVORITES.filter((item) => !names.has(item.name.trim().toLowerCase()));
@@ -3790,8 +3805,7 @@ export default function App() {
                 {days.map((day) => (
                   <Pressable key={day.id} onPress={() => selectDay(day.id)}
                     style={[styles.dayTab, !showingAllDays && day.id === selectedDay.id && styles.dayTabActive]}>
-                    <Text style={[styles.dayLabel, !showingAllDays && day.id === selectedDay.id && styles.dayLabelActive]}>{day.label}</Text>
-                    <Text style={[styles.dayDate, !showingAllDays && day.id === selectedDay.id && styles.dayDateActive]}>{day.date.slice(0,5)}</Text>
+                    <Text style={[styles.dayLabel, !showingAllDays && day.id === selectedDay.id && styles.dayLabelActive]}>{day.date === "日期未定" ? "日期未定" : day.date.slice(0, 5)}</Text>
                   </Pressable>
                 ))}
                 <Pressable onPress={addTripDay} style={[styles.dayTab, styles.addDayTab]}>
@@ -4369,6 +4383,15 @@ export default function App() {
           </View>
         </Modal>
 
+        <Modal visible={addingReservation} animationType="slide" transparent onRequestClose={() => setAddingReservation(false)}>
+          <View style={styles.modalShade}><View style={styles.sheet}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>NEW RESERVATION</Text><Text style={styles.sheetTitle}>新增預約提醒</Text>
+            <Text style={styles.fieldLabel}>預約事項 *</Text><TextInput value={reservationTitleDraft} onChangeText={setReservationTitleDraft} placeholder="例如：天空膠囊、餐廳訂位、租車" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+            <Text style={styles.fieldLabel}>建議預約日</Text><TextInput value={reservationDateDraft} onChangeText={setReservationDateDraft} placeholder="例如：2026-09-06" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+            <Text style={styles.fieldLabel}>備註</Text><TextInput value={reservationNoteDraft} onChangeText={setReservationNoteDraft} placeholder="例如：預約網站、開放時間、訂位代號" placeholderTextColor="#AAA198" multiline style={styles.noteInput} />
+            <Pressable style={styles.primaryButton} onPress={saveManualReservation}><Text style={styles.primaryButtonText}>新增預約提醒</Text></Pressable><Pressable style={styles.cancelButton} onPress={() => setAddingReservation(false)}><Text style={styles.cancelText}>取消</Text></Pressable>
+          </View></View>
+        </Modal>
+
         <Modal visible={!!selectedTool} animationType="slide" transparent onRequestClose={() => setSelectedTool(null)}>
           <View style={styles.modalShade}>
             <View style={[styles.sheet, styles.toolSheet]}>
@@ -4516,8 +4539,7 @@ export default function App() {
               )}
               {selectedTool === "預約提醒" && (
                 <View style={styles.detailBlock}>
-                  <Text style={styles.detailTitle}>這趟旅行的預約提醒</Text>
-                  <Text style={styles.detailHint}>系統會依行程日期提供建議預約日；按下「已完成」後，所有旅伴都會同步看到完成狀態。</Text>
+                  <View style={styles.reservationHeading}><View style={styles.toolText}><Text style={styles.detailTitle}>這趟旅行的預約提醒</Text><Text style={styles.detailHint}>系統會依行程日期提供建議預約日；按下「已完成」後，所有旅伴都會同步看到完成狀態。</Text></View><Pressable style={styles.reservationAddButton} onPress={() => setAddingReservation(true)}><Text style={styles.reservationAddText}>＋ 新增預約</Text></Pressable></View>
                   {reservationStops.map(({ day, stop, info }) => (
                     <View key={stop.id} style={[styles.toolCard, stop.reservationCompleted && styles.reservationCompletedCard]}>
                       <View style={[styles.toolIcon, { backgroundColor: "#FFE7D8" }]}><Text style={styles.toolEmoji}>📌</Text></View>
@@ -4525,7 +4547,8 @@ export default function App() {
                       <Pressable style={[styles.reservationCheckButton, stop.reservationCompleted && styles.reservationCheckButtonDone]} onPress={() => toggleReservationCompleted(day.id, stop.id)}><Text style={[styles.reservationCheckText, stop.reservationCompleted && styles.reservationCheckTextDone]}>{stop.reservationCompleted ? "✓ 已完成" : "○ 待預約"}</Text></Pressable>
                     </View>
                   ))}
-                  {!reservationStops.length && <Text style={styles.emptyListText}>目前沒有預約事項。新增景點時在備註填「需預約」或「預約制」，就會自動出現在這裡。</Text>}
+                  {(activeTrip.reservations || []).map((item) => <View key={item.id} style={[styles.toolCard, item.completed && styles.reservationCompletedCard]}><View style={[styles.toolIcon, { backgroundColor: "#E9EEF8" }]}><Text style={styles.toolEmoji}>🗓️</Text></View><View style={styles.toolText}><Text style={styles.toolTitle}>{item.title}</Text><Text style={styles.toolSub}>建議預約：{item.suggestedDate || "請自行設定"}</Text>{!!item.note && <Text style={styles.toolSub}>{item.note}</Text>}</View><Pressable style={[styles.reservationCheckButton, item.completed && styles.reservationCheckButtonDone]} onPress={() => toggleManualReservation(item.id)}><Text style={[styles.reservationCheckText, item.completed && styles.reservationCheckTextDone]}>{item.completed ? "✓ 已完成" : "○ 待預約"}</Text></Pressable><Pressable style={styles.reservationDeleteButton} onPress={() => removeManualReservation(item.id)}><Text style={styles.reservationDeleteText}>×</Text></Pressable></View>)}
+                  {!reservationStops.length && !(activeTrip.reservations || []).length && <Text style={styles.emptyListText}>目前沒有預約事項。可按右上方「＋ 新增預約」，或在景點備註填「需預約」或「預約制」。</Text>}
                 </View>
               )}
               {selectedTool === "匯率" && (
@@ -5247,10 +5270,15 @@ const styles = createDouyouStyles({
   pageSubtitle: { color: "#817970", lineHeight: 21, marginTop: 6, marginBottom: 22, fontFamily: "Noto Serif TC" },
   toolCard: { flexDirection: "row", backgroundColor: "#FFF", borderRadius: 19, padding: 14, marginBottom: 12, alignItems: "center", borderWidth: 1, borderColor: "#EEE8E0" },
   reservationCompletedCard: { backgroundColor: "#F4FAF6", borderColor: "#CDE3D4" },
+  reservationHeading: { flexDirection: "row", alignItems: "flex-start", marginBottom: 12 },
+  reservationAddButton: { backgroundColor: "#637595", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 9, marginLeft: 10, marginTop: 1 },
+  reservationAddText: { color: "#FFF", fontSize: 11, fontWeight: "900" },
   reservationCheckButton: { borderWidth: 1, borderColor: "#BFC9DA", borderRadius: 12, paddingHorizontal: 9, paddingVertical: 8, alignItems: "center", justifyContent: "center", marginLeft: 8, backgroundColor: "#FFF" },
   reservationCheckButtonDone: { backgroundColor: "#5E7C68", borderColor: "#5E7C68" },
   reservationCheckText: { color: "#536783", fontSize: 11, fontWeight: "900" },
   reservationCheckTextDone: { color: "#FFF" },
+  reservationDeleteButton: { paddingHorizontal: 6, marginLeft: 2 },
+  reservationDeleteText: { color: "#B36E60", fontSize: 22, lineHeight: 24 },
   toolIcon: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   toolEmoji: { fontSize: 23, fontWeight: "800" },
   toolText: { flex: 1, paddingLeft: 13 },
