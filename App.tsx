@@ -76,6 +76,17 @@ const dateDaysBefore = (dateText: string, days: number) => {
   date.setDate(date.getDate() - days);
   return date.toISOString().slice(0, 10);
 };
+const isoDateAtOffset = (startDate: string, offset: number) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return "";
+  const date = new Date(`${startDate}T12:00:00`);
+  date.setDate(date.getDate() + offset);
+  return date.toISOString().slice(0, 10);
+};
+const reservationDateLabel = (dateText: string) => {
+  const iso = String(dateText || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return `${iso[2]}/${iso[3]}`;
+  return String(dateText || "日期未定").match(/^\d{2}\/\d{2}/)?.[0] || String(dateText || "日期未定");
+};
 const reservationInfoForStop = (stop: Stop, dayDate = "") => {
   const suggestedDate = stop.reservationSuggestedDate || (() => {
     const text = `${stop.title} ${stop.note} ${stop.transport}`;
@@ -913,7 +924,10 @@ export default function App() {
   const days = activeTrip.days;
   const selectedDay = days.find((d) => d.id === selectedDayId) ?? days[0]!;
   const showingAllDays = selectedDayId === ALL_DAYS_ID;
-  const reservationStops = useMemo(() => activeTrip.days.flatMap((day) => day.stops.map((stop) => ({ day, stop, info: reservationInfoForStop(stop, day.date) })).filter((item) => item.info.required)), [activeTrip.days]);
+  const reservationStops = useMemo(() => activeTrip.days.flatMap((day, index) => {
+    const itineraryDate = isoDateAtOffset(activeTrip.startDate || "", index) || day.date;
+    return day.stops.map((stop) => ({ day, stop, info: reservationInfoForStop(stop, itineraryDate) })).filter((item) => item.info.required);
+  }), [activeTrip.days, activeTrip.startDate]);
   const toggleReservationCompleted = (dayId: string, stopId: string) => {
     updateActiveTrip({ days: activeTrip.days.map((day) => day.id !== dayId ? day : { ...day, stops: day.stops.map((stop) => stop.id !== stopId ? stop : { ...stop, reservationRequired: true, reservationCompleted: !stop.reservationCompleted }) }) });
   };
@@ -4543,11 +4557,11 @@ export default function App() {
                   {reservationStops.map(({ day, stop, info }) => (
                     <View key={stop.id} style={[styles.toolCard, stop.reservationCompleted && styles.reservationCompletedCard]}>
                       <View style={[styles.toolIcon, { backgroundColor: "#FFE7D8" }]}><Text style={styles.toolEmoji}>📌</Text></View>
-                      <Pressable style={styles.toolText} onPress={() => { setSelectedTool(null); setSelectedDayId(day.id); setTimeout(() => { setEditing(stop); setDraftNote(stop.note); setDraftOpeningHours(stop.openingHours || ""); setDraftDuration(String(stop.durationMinutes || "")); setDraftTransport(stop.transport || ""); }, 120); }}><Text style={styles.toolTitle}>{day.label}・{stop.time} {stopDisplayTitle(stop)}</Text><Text style={styles.toolSub}>建議預約：{info.suggestedDate || "請盡早確認"}</Text><Text style={styles.toolSub}>{info.note}</Text></Pressable>
+                      <Pressable style={styles.toolText} onPress={() => { setSelectedTool(null); setSelectedDayId(day.id); setTimeout(() => { setEditing(stop); setDraftNote(stop.note); setDraftOpeningHours(stop.openingHours || ""); setDraftDuration(String(stop.durationMinutes || "")); setDraftTransport(stop.transport || ""); }, 120); }}><Text style={styles.toolTitle}>{reservationDateLabel(day.date)}・{stop.time} {stopDisplayTitle(stop)}</Text><Text style={styles.toolSub}>{info.suggestedDate ? `建議於 ${reservationDateLabel(info.suggestedDate)} 預約` : "建議盡早確認預約"}</Text><Text style={styles.toolSub}>{info.note}</Text></Pressable>
                       <Pressable style={[styles.reservationCheckButton, stop.reservationCompleted && styles.reservationCheckButtonDone]} onPress={() => toggleReservationCompleted(day.id, stop.id)}><Text style={[styles.reservationCheckText, stop.reservationCompleted && styles.reservationCheckTextDone]}>{stop.reservationCompleted ? "✓ 已完成" : "○ 待預約"}</Text></Pressable>
                     </View>
                   ))}
-                  {(activeTrip.reservations || []).map((item) => <View key={item.id} style={[styles.toolCard, item.completed && styles.reservationCompletedCard]}><View style={[styles.toolIcon, { backgroundColor: "#E9EEF8" }]}><Text style={styles.toolEmoji}>🗓️</Text></View><View style={styles.toolText}><Text style={styles.toolTitle}>{item.title}</Text><Text style={styles.toolSub}>建議預約：{item.suggestedDate || "請自行設定"}</Text>{!!item.note && <Text style={styles.toolSub}>{item.note}</Text>}</View><Pressable style={[styles.reservationCheckButton, item.completed && styles.reservationCheckButtonDone]} onPress={() => toggleManualReservation(item.id)}><Text style={[styles.reservationCheckText, item.completed && styles.reservationCheckTextDone]}>{item.completed ? "✓ 已完成" : "○ 待預約"}</Text></Pressable><Pressable style={styles.reservationDeleteButton} onPress={() => removeManualReservation(item.id)}><Text style={styles.reservationDeleteText}>×</Text></Pressable></View>)}
+                  {(activeTrip.reservations || []).map((item) => <View key={item.id} style={[styles.toolCard, item.completed && styles.reservationCompletedCard]}><View style={[styles.toolIcon, { backgroundColor: "#E9EEF8" }]}><Text style={styles.toolEmoji}>🗓️</Text></View><View style={styles.toolText}><Text style={styles.toolTitle}>{item.title}</Text><Text style={styles.toolSub}>{item.suggestedDate ? `建議於 ${reservationDateLabel(item.suggestedDate)} 預約` : "建議預約日：請自行設定"}</Text>{!!item.note && <Text style={styles.toolSub}>{item.note}</Text>}</View><Pressable style={[styles.reservationCheckButton, item.completed && styles.reservationCheckButtonDone]} onPress={() => toggleManualReservation(item.id)}><Text style={[styles.reservationCheckText, item.completed && styles.reservationCheckTextDone]}>{item.completed ? "✓ 已完成" : "○ 待預約"}</Text></Pressable><Pressable style={styles.reservationDeleteButton} onPress={() => removeManualReservation(item.id)}><Text style={styles.reservationDeleteText}>×</Text></Pressable></View>)}
                   {!reservationStops.length && !(activeTrip.reservations || []).length && <Text style={styles.emptyListText}>目前沒有預約事項。可按右上方「＋ 新增預約」，或在景點備註填「需預約」或「預約制」。</Text>}
                 </View>
               )}
