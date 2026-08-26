@@ -25,6 +25,8 @@ export type Stop = {
   durationMinutes?: number;
   reservationRequired?: boolean;
   reservationNote?: string;
+  reservationSuggestedDate?: string;
+  reservationCompleted?: boolean;
 };
 
 export type TripDay = {

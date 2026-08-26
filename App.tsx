@@ -70,13 +70,25 @@ const BUSAN_BACKUP_FAVORITES: FavoritePlace[] = [
   { id: "busan-backup-cheongsapo", name: "青沙浦海鮮小吃", address: "釜山廣域市海雲臺區青沙浦路一帶", country: "韓國", city: "釜山", latitude: 35.1602, longitude: 129.1919, note: "Nasari 滿位時的午餐備案，可直接就近找海鮮餐廳。" },
   { id: "busan-backup-matwang", name: "味贊王鹽烤肉 西面店", address: "釜山廣域市釜山鎮區西面路一帶", country: "韓國", city: "釜山", latitude: 35.1571, longitude: 129.0578, note: "田浦晚餐滿位時的烤肉備案。" }
 ];
-const reservationInfoForStop = (stop: Stop) => {
-  if (stop.reservationRequired || stop.reservationNote) return { required: true, note: stop.reservationNote || "請於出發前完成預約或確認報到方式。" };
+const dateDaysBefore = (dateText: string, days: number) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) return "";
+  const date = new Date(`${dateText}T12:00:00`);
+  date.setDate(date.getDate() - days);
+  return date.toISOString().slice(0, 10);
+};
+const reservationInfoForStop = (stop: Stop, dayDate = "") => {
+  const suggestedDate = stop.reservationSuggestedDate || (() => {
+    const text = `${stop.title} ${stop.note} ${stop.transport}`;
+    if (/Sky Capsule|天空膠囊/.test(text)) return dateDaysBefore(dayDate, 28);
+    if (/鑽石灣|遊艇/.test(text)) return dateDaysBefore(dayDate, 30);
+    return dateDaysBefore(dayDate, 14);
+  })();
+  if (stop.reservationRequired || stop.reservationNote) return { required: true, note: stop.reservationNote || "請於出發前完成預約或確認報到方式。", suggestedDate };
   const text = `${stop.title} ${stop.note} ${stop.transport}`;
-  if (/Sky Capsule|天空膠囊/.test(text)) return { required: true, note: "建議出發前 4 週開放時預約；可優先選靠海側座位。" };
-  if (/鑽石灣|遊艇/.test(text)) return { required: true, note: "請依預約航班提早報到；建議至少一個月前確認場次。" };
-  if (/Catch Table|預約制/.test(text)) return { required: true, note: "請先確認可訂位時段、入場規則或取票方式。" };
-  return { required: false, note: "" };
+  if (/Sky Capsule|天空膠囊/.test(text)) return { required: true, note: "建議出發前 4 週開放時預約；可優先選靠海側座位。", suggestedDate };
+  if (/鑽石灣|遊艇/.test(text)) return { required: true, note: "請依預約航班提早報到；建議至少一個月前確認場次。", suggestedDate };
+  if (/Catch Table|預約制/.test(text)) return { required: true, note: "請先確認可訂位時段、入場規則或取票方式。", suggestedDate };
+  return { required: false, note: "", suggestedDate: "" };
 };
 const buildInviteMessage = (_tripId: string, inviteCode: string) => `一起編輯豆遊行程 ✈️
 
@@ -270,7 +282,7 @@ const formatCloudDateTime = (value: unknown) => {
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date).replace(" ", " ");
 };
 
-const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string; durationMinutes?: number; reservationRequired?: boolean; reservationNote?: string } => {
+const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string; durationMinutes?: number; reservationRequired?: boolean; reservationNote?: string; reservationSuggestedDate?: string; reservationCompleted?: boolean } => {
   if (!value) return {};
   try {
     const parsed = JSON.parse(String(value));
@@ -280,7 +292,9 @@ const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: 
       openingHoursSource: typeof parsed.openingHoursSource === "string" ? parsed.openingHoursSource : undefined,
       durationMinutes: Number.isFinite(Number(parsed.durationMinutes)) ? Number(parsed.durationMinutes) : undefined,
       reservationRequired: parsed.reservationRequired === true,
-      reservationNote: typeof parsed.reservationNote === "string" ? parsed.reservationNote : undefined
+      reservationNote: typeof parsed.reservationNote === "string" ? parsed.reservationNote : undefined,
+      reservationSuggestedDate: typeof parsed.reservationSuggestedDate === "string" ? parsed.reservationSuggestedDate : undefined,
+      reservationCompleted: parsed.reservationCompleted === true
     };
   } catch {
     return {};
@@ -353,7 +367,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   },
   itinerary: trip.days.flatMap((day) => day.stops.map((stop, index) => ({
     "日期ID": day.id, "景點ID": stop.id, "日期": day.date, "開始時間": stop.time,
-    "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "", durationMinutes: stop.durationMinutes || 0, reservationRequired: !!stop.reservationRequired, reservationNote: stop.reservationNote || "" }), "景點名稱": stop.title, "地址": stop.address,
+    "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "", durationMinutes: stop.durationMinutes || 0, reservationRequired: !!stop.reservationRequired, reservationNote: stop.reservationNote || "", reservationSuggestedDate: stop.reservationSuggestedDate || "", reservationCompleted: !!stop.reservationCompleted }), "景點名稱": stop.title, "地址": stop.address,
     "交通方式": stop.transport, "備註": stop.note, "緯度": stop.latitude ?? "",
     "經度": stop.longitude ?? "", "排序": index
   }))),
@@ -428,7 +442,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
           transport: String(row["交通方式"] || "尚未安排"), transportMode: "其他" as const,
           note: String(row["備註"] || ""), latitude: row["緯度"] === "" ? undefined : Number(row["緯度"]),
           longitude: row["經度"] === "" ? undefined : Number(row["經度"]),
-          routeMode: meta.routeMode || "driving", openingHours: meta.openingHours || "", openingHoursSource: meta.openingHoursSource || "", durationMinutes: meta.durationMinutes || 0, reservationRequired: meta.reservationRequired, reservationNote: meta.reservationNote || ""
+          routeMode: meta.routeMode || "driving", openingHours: meta.openingHours || "", openingHoursSource: meta.openingHoursSource || "", durationMinutes: meta.durationMinutes || 0, reservationRequired: meta.reservationRequired, reservationNote: meta.reservationNote || "", reservationSuggestedDate: meta.reservationSuggestedDate || "", reservationCompleted: meta.reservationCompleted
         };
       })
     };
@@ -893,7 +907,10 @@ export default function App() {
   const days = activeTrip.days;
   const selectedDay = days.find((d) => d.id === selectedDayId) ?? days[0]!;
   const showingAllDays = selectedDayId === ALL_DAYS_ID;
-  const reservationStops = useMemo(() => activeTrip.days.flatMap((day) => day.stops.map((stop) => ({ day, stop, info: reservationInfoForStop(stop) })).filter((item) => item.info.required)), [activeTrip.days]);
+  const reservationStops = useMemo(() => activeTrip.days.flatMap((day) => day.stops.map((stop) => ({ day, stop, info: reservationInfoForStop(stop, day.date) })).filter((item) => item.info.required)), [activeTrip.days]);
+  const toggleReservationCompleted = (dayId: string, stopId: string) => {
+    updateActiveTrip({ days: activeTrip.days.map((day) => day.id !== dayId ? day : { ...day, stops: day.stops.map((stop) => stop.id !== stopId ? stop : { ...stop, reservationRequired: true, reservationCompleted: !stop.reservationCompleted }) }) });
+  };
   const importBusanBackupsToFavorites = () => {
     const names = new Set(favorites.map((item) => item.name.trim().toLowerCase()));
     const additions = BUSAN_BACKUP_FAVORITES.filter((item) => !names.has(item.name.trim().toLowerCase()));
@@ -3648,7 +3665,7 @@ export default function App() {
             ) : <Text style={styles.dragHint}>長按拖曳  ≡</Text>}
           </View>
           <Text style={styles.stopTitle}>{stopDisplayTitle(item)}</Text>
-          {reservationInfoForStop(item).required && <Text style={styles.pass}>📌 需預約｜{reservationInfoForStop(item).note}</Text>}
+          {reservationInfoForStop(item, selectedDay.date).required && <Text style={styles.pass}>{item.reservationCompleted ? "✅ 已完成預約" : "📌 需預約"}｜{reservationInfoForStop(item, selectedDay.date).note}</Text>}
           <Pressable onPress={() => copyAddressAndOpenUber(item)} style={styles.addressButton}>
             <Text style={styles.address} numberOfLines={2}>📍 {item.address}</Text>
             <Text style={styles.addressAction}>複製地址・開啟 Uber ↗</Text>
@@ -4500,12 +4517,13 @@ export default function App() {
               {selectedTool === "預約提醒" && (
                 <View style={styles.detailBlock}>
                   <Text style={styles.detailTitle}>這趟旅行的預約提醒</Text>
-                  <Text style={styles.detailHint}>行程上有標註預約、訂位或需先取票的項目會集中在這裡；完成後可在景點備註寫入訂位代號或確認資訊。</Text>
+                  <Text style={styles.detailHint}>系統會依行程日期提供建議預約日；按下「已完成」後，所有旅伴都會同步看到完成狀態。</Text>
                   {reservationStops.map(({ day, stop, info }) => (
-                    <Pressable key={stop.id} style={styles.toolCard} onPress={() => { setSelectedTool(null); setSelectedDayId(day.id); setTimeout(() => { setEditing(stop); setDraftNote(stop.note); setDraftOpeningHours(stop.openingHours || ""); setDraftDuration(String(stop.durationMinutes || "")); setDraftTransport(stop.transport || ""); }, 120); }}>
+                    <View key={stop.id} style={[styles.toolCard, stop.reservationCompleted && styles.reservationCompletedCard]}>
                       <View style={[styles.toolIcon, { backgroundColor: "#FFE7D8" }]}><Text style={styles.toolEmoji}>📌</Text></View>
-                      <View style={styles.toolText}><Text style={styles.toolTitle}>{day.label}・{stop.time} {stopDisplayTitle(stop)}</Text><Text style={styles.toolSub}>{info.note}</Text></View><Text style={styles.chevron}>›</Text>
-                    </Pressable>
+                      <Pressable style={styles.toolText} onPress={() => { setSelectedTool(null); setSelectedDayId(day.id); setTimeout(() => { setEditing(stop); setDraftNote(stop.note); setDraftOpeningHours(stop.openingHours || ""); setDraftDuration(String(stop.durationMinutes || "")); setDraftTransport(stop.transport || ""); }, 120); }}><Text style={styles.toolTitle}>{day.label}・{stop.time} {stopDisplayTitle(stop)}</Text><Text style={styles.toolSub}>建議預約：{info.suggestedDate || "請盡早確認"}</Text><Text style={styles.toolSub}>{info.note}</Text></Pressable>
+                      <Pressable style={[styles.reservationCheckButton, stop.reservationCompleted && styles.reservationCheckButtonDone]} onPress={() => toggleReservationCompleted(day.id, stop.id)}><Text style={[styles.reservationCheckText, stop.reservationCompleted && styles.reservationCheckTextDone]}>{stop.reservationCompleted ? "✓ 已完成" : "○ 待預約"}</Text></Pressable>
+                    </View>
                   ))}
                   {!reservationStops.length && <Text style={styles.emptyListText}>目前沒有預約事項。新增景點時在備註填「需預約」或「預約制」，就會自動出現在這裡。</Text>}
                 </View>
@@ -5228,6 +5246,11 @@ const styles = createDouyouStyles({
   pageTitle: { color: "#292622", fontSize: 29, fontWeight: "800", marginTop: 7, fontFamily: "Noto Serif TC" },
   pageSubtitle: { color: "#817970", lineHeight: 21, marginTop: 6, marginBottom: 22, fontFamily: "Noto Serif TC" },
   toolCard: { flexDirection: "row", backgroundColor: "#FFF", borderRadius: 19, padding: 14, marginBottom: 12, alignItems: "center", borderWidth: 1, borderColor: "#EEE8E0" },
+  reservationCompletedCard: { backgroundColor: "#F4FAF6", borderColor: "#CDE3D4" },
+  reservationCheckButton: { borderWidth: 1, borderColor: "#BFC9DA", borderRadius: 12, paddingHorizontal: 9, paddingVertical: 8, alignItems: "center", justifyContent: "center", marginLeft: 8, backgroundColor: "#FFF" },
+  reservationCheckButtonDone: { backgroundColor: "#5E7C68", borderColor: "#5E7C68" },
+  reservationCheckText: { color: "#536783", fontSize: 11, fontWeight: "900" },
+  reservationCheckTextDone: { color: "#FFF" },
   toolIcon: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   toolEmoji: { fontSize: 23, fontWeight: "800" },
   toolText: { flex: 1, paddingLeft: 13 },
