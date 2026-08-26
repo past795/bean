@@ -23,6 +23,8 @@ export type Stop = {
   openingHours?: string;
   openingHoursSource?: string;
   durationMinutes?: number;
+  reservationRequired?: boolean;
+  reservationNote?: string;
 };
 
 export type TripDay = {

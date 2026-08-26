@@ -62,6 +62,22 @@ const currentWebBase = currentWebOrigin && currentWebPath
   : "https://past795.github.io/bean/";
 const SHARE_URL = `${currentWebBase}?share=2026080212`;
 const DOUYOU_AI_URL = "https://throbbing-dust-5d68douyou-ai.past795.workers.dev/chat";
+const BUSAN_BACKUP_FAVORITES: FavoritePlace[] = [
+  { id: "busan-backup-film", name: "釜山電影體驗博物館", address: "釜山廣域市中區大廳路126號街12", country: "韓國", city: "釜山", latitude: 35.1017, longitude: 129.0325, note: "Day 1 下雨或炎熱時，可替代太宗台／白淺灘的室內備案。" },
+  { id: "busan-backup-seomyeon", name: "西面地下街", address: "釜山廣域市釜山鎮區西面站一帶", country: "韓國", city: "釜山", latitude: 35.1579, longitude: 129.0590, note: "下雨天適合搭配田浦咖啡街與選物店的室內備案。" },
+  { id: "busan-backup-shinsegae", name: "新世界百貨 Centum City", address: "釜山廣域市海雲臺區Centum南大路35", country: "韓國", city: "釜山", latitude: 35.1689, longitude: 129.1292, note: "Day 3 下雨時的室內備案；也可與 SPA LAND、Museum 1 串聯。" },
+  { id: "busan-backup-star-chicken", name: "明星一隻雞（影島區）", address: "釜山廣域市影島區", country: "韓國", city: "釜山", note: "喉嚨烤肉無法候位時的 Day 1 晚餐備案。" },
+  { id: "busan-backup-cheongsapo", name: "青沙浦海鮮小吃", address: "釜山廣域市海雲臺區青沙浦路一帶", country: "韓國", city: "釜山", latitude: 35.1602, longitude: 129.1919, note: "Nasari 滿位時的午餐備案，可直接就近找海鮮餐廳。" },
+  { id: "busan-backup-matwang", name: "味贊王鹽烤肉 西面店", address: "釜山廣域市釜山鎮區西面路一帶", country: "韓國", city: "釜山", latitude: 35.1571, longitude: 129.0578, note: "田浦晚餐滿位時的烤肉備案。" }
+];
+const reservationInfoForStop = (stop: Stop) => {
+  if (stop.reservationRequired || stop.reservationNote) return { required: true, note: stop.reservationNote || "請於出發前完成預約或確認報到方式。" };
+  const text = `${stop.title} ${stop.note} ${stop.transport}`;
+  if (/Sky Capsule|天空膠囊/.test(text)) return { required: true, note: "建議出發前 4 週開放時預約；可優先選靠海側座位。" };
+  if (/鑽石灣|遊艇/.test(text)) return { required: true, note: "請依預約航班提早報到；建議至少一個月前確認場次。" };
+  if (/Catch Table|預約制/.test(text)) return { required: true, note: "請先確認可訂位時段、入場規則或取票方式。" };
+  return { required: false, note: "" };
+};
 const buildInviteMessage = (_tripId: string, inviteCode: string) => `一起編輯豆遊行程 ✈️
 
 加入步驟：
@@ -254,7 +270,7 @@ const formatCloudDateTime = (value: unknown) => {
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date).replace(" ", " ");
 };
 
-const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string; durationMinutes?: number } => {
+const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string; durationMinutes?: number; reservationRequired?: boolean; reservationNote?: string } => {
   if (!value) return {};
   try {
     const parsed = JSON.parse(String(value));
@@ -262,7 +278,9 @@ const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: 
       routeMode: (["walking", "driving", "transit", "taxi"] as RouteMode[]).includes(parsed.routeMode) ? parsed.routeMode : undefined,
       openingHours: typeof parsed.openingHours === "string" ? parsed.openingHours : undefined,
       openingHoursSource: typeof parsed.openingHoursSource === "string" ? parsed.openingHoursSource : undefined,
-      durationMinutes: Number.isFinite(Number(parsed.durationMinutes)) ? Number(parsed.durationMinutes) : undefined
+      durationMinutes: Number.isFinite(Number(parsed.durationMinutes)) ? Number(parsed.durationMinutes) : undefined,
+      reservationRequired: parsed.reservationRequired === true,
+      reservationNote: typeof parsed.reservationNote === "string" ? parsed.reservationNote : undefined
     };
   } catch {
     return {};
@@ -335,7 +353,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   },
   itinerary: trip.days.flatMap((day) => day.stops.map((stop, index) => ({
     "日期ID": day.id, "景點ID": stop.id, "日期": day.date, "開始時間": stop.time,
-    "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "", durationMinutes: stop.durationMinutes || 0 }), "景點名稱": stop.title, "地址": stop.address,
+    "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "", durationMinutes: stop.durationMinutes || 0, reservationRequired: !!stop.reservationRequired, reservationNote: stop.reservationNote || "" }), "景點名稱": stop.title, "地址": stop.address,
     "交通方式": stop.transport, "備註": stop.note, "緯度": stop.latitude ?? "",
     "經度": stop.longitude ?? "", "排序": index
   }))),
@@ -410,7 +428,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
           transport: String(row["交通方式"] || "尚未安排"), transportMode: "其他" as const,
           note: String(row["備註"] || ""), latitude: row["緯度"] === "" ? undefined : Number(row["緯度"]),
           longitude: row["經度"] === "" ? undefined : Number(row["經度"]),
-          routeMode: meta.routeMode || "driving", openingHours: meta.openingHours || "", openingHoursSource: meta.openingHoursSource || "", durationMinutes: meta.durationMinutes || 0
+          routeMode: meta.routeMode || "driving", openingHours: meta.openingHours || "", openingHoursSource: meta.openingHoursSource || "", durationMinutes: meta.durationMinutes || 0, reservationRequired: meta.reservationRequired, reservationNote: meta.reservationNote || ""
         };
       })
     };
@@ -875,6 +893,35 @@ export default function App() {
   const days = activeTrip.days;
   const selectedDay = days.find((d) => d.id === selectedDayId) ?? days[0]!;
   const showingAllDays = selectedDayId === ALL_DAYS_ID;
+  const reservationStops = useMemo(() => activeTrip.days.flatMap((day) => day.stops.map((stop) => ({ day, stop, info: reservationInfoForStop(stop) })).filter((item) => item.info.required)), [activeTrip.days]);
+  const importBusanBackupsToFavorites = () => {
+    const names = new Set(favorites.map((item) => item.name.trim().toLowerCase()));
+    const additions = BUSAN_BACKUP_FAVORITES.filter((item) => !names.has(item.name.trim().toLowerCase()));
+    if (!additions.length) {
+      showToast("釜山備案已經都在你的收藏中");
+      return;
+    }
+    persistFavorites([...favorites, ...additions]);
+    setSelectedFavoriteIds((current) => [...new Set([...current, ...additions.map((item) => item.id)])]);
+    showToast(`已加入 ${additions.length} 個釜山備案到收藏`);
+  };
+  const applyBusanSheetPlan = () => {
+    if (!/釜山|busan/i.test(`${activeTrip.destination} ${activeTrip.title}`)) return;
+    Alert.alert("套用 08/26 新版釜山行程", "會用新版行程表的日期與景點順序更新目前這趟旅行；你後來自行新增的景點可先加入收藏，避免被覆蓋。", [
+      { text: "取消", style: "cancel" },
+      { text: "套用新版", onPress: () => {
+        updateActiveTrip({
+          destination: "釜山",
+          startDate: "2026-10-04",
+          endDate: "2026-10-08",
+          period: "2026.10.04 – 2026.10.08",
+          days: busanInitialTrip.map((day) => ({ ...day, stops: day.stops.map((stop) => ({ ...stop })) }))
+        });
+        setSelectedDayId(busanInitialTrip[0]?.id || "");
+        showToast("已套用 08/26 新版釜山行程，並同步儲存");
+      }}
+    ]);
+  };
   const selectedFavorites = favorites.filter((place) => selectedFavoriteIds.includes(place.id));
   const favoriteTree = useMemo(() => favorites.reduce((countries, place) => {
     const country = place.country || "未分類國家";
@@ -3526,6 +3573,7 @@ export default function App() {
   const toolboxSubtitle = (title: string, fallback: string) => {
     if (title === "班機") return activeTrip.flights.length ? `${activeTrip.flights.length} 段航班` : "尚未新增航班";
     if (title === "住宿") return activeTrip.accommodations.length ? `${activeTrip.accommodations.length} 筆住宿` : "尚未新增住宿";
+    if (title === "預約提醒") return reservationStops.length ? `${reservationStops.length} 項需要處理` : "目前沒有預約事項";
     if (title === "天氣") return `查看 ${activeTrip.destination} 即時天氣`;
     if (title === "匯率") return `${currencyForTrip.code} → TWD 快速換算`;
     if (title === "必買商品") return isKoreaTrip ? "韓國採買清單" : `${activeTrip.destination} 尚未建立清單`;
@@ -3617,6 +3665,7 @@ export default function App() {
             ) : <Text style={styles.dragHint}>長按拖曳  ≡</Text>}
           </View>
           <Text style={styles.stopTitle}>{stopDisplayTitle(item)}</Text>
+          {reservationInfoForStop(item).required && <Text style={styles.pass}>📌 需預約｜{reservationInfoForStop(item).note}</Text>}
           <Pressable onPress={() => copyAddressAndOpenUber(item)} style={styles.addressButton}>
             <Text style={styles.address} numberOfLines={2}>📍 {item.address}</Text>
             <Text style={styles.addressAction}>複製地址・開啟 Uber ↗</Text>
@@ -3853,7 +3902,7 @@ export default function App() {
 
         {tab === "favorites" && (
           <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
-            <View style={styles.favoriteHeader}><View><Text style={styles.eyebrow}>MY SAVED PLACES</Text><Text style={styles.pageTitle}>景點收藏</Text><Text style={styles.pageSubtitle}>個人收藏會依國家與城市自動整理。</Text></View><View style={styles.favoriteHeaderActions}><Pressable style={styles.favoriteBatchButton} onPress={() => setBatchFavoriteVisible(true)}><Text style={styles.favoriteBatchButtonText}>批次匯入</Text></Pressable><Pressable style={styles.addTripButton} onPress={() => openFavoriteEditor()}><Text style={styles.addTripPlus}>＋</Text></Pressable></View></View>
+            <View style={styles.favoriteHeader}><View><Text style={styles.eyebrow}>MY SAVED PLACES</Text><Text style={styles.pageTitle}>景點收藏</Text><Text style={styles.pageSubtitle}>個人收藏會依國家與城市自動整理。</Text></View><View style={styles.favoriteHeaderActions}><Pressable style={styles.favoriteBatchButton} onPress={importBusanBackupsToFavorites}><Text style={styles.favoriteBatchButtonText}>釜山備案</Text></Pressable><Pressable style={styles.favoriteBatchButton} onPress={() => setBatchFavoriteVisible(true)}><Text style={styles.favoriteBatchButtonText}>批次匯入</Text></Pressable><Pressable style={styles.addTripButton} onPress={() => openFavoriteEditor()}><Text style={styles.addTripPlus}>＋</Text></Pressable></View></View>
             <Pressable disabled={favoriteBulkUpdating} style={[styles.favoriteBulkUpdateButton, favoriteBulkUpdating && styles.buttonDisabled]} onPress={updateAllFavoriteCoordinates}><Text style={styles.favoriteBulkUpdateText}>{favoriteBulkUpdating ? "正在更新全部收藏座標…" : "⌖ 更新全部收藏座標"}</Text></Pressable>
             <View style={styles.favoritePlanner}>
               <Text style={styles.favoritePlannerTitle}>✨ 已選 {selectedFavorites.length} 個景點</Text>
@@ -3908,6 +3957,7 @@ export default function App() {
               <View><Text style={styles.eyebrow}>TRIP ESSENTIALS</Text><Text style={styles.pageTitle}>旅行工具箱</Text><Text style={styles.pageSubtitle}>訂單、天氣與採買清單都放在同一處。</Text></View>
               {Platform.OS === "web" ? <img src={homeTravelBeanWebUri} alt="豆遊小豆" style={webToolboxMascotStyle as never} /> : <Image source={homeTravelBean} resizeMode="contain" style={styles.pageMascot} />}
             </View>
+            {/釜山|busan/i.test(`${activeTrip.destination} ${activeTrip.title}`) && <Pressable style={styles.favoriteBulkUpdateButton} onPress={applyBusanSheetPlan}><Text style={styles.favoriteBulkUpdateText}>↻ 套用 08/26 新版釜山行程</Text></Pressable>}
             {toolboxItems.map((item) => (
               <Pressable key={item.title} style={styles.toolCard} onPress={() => setSelectedTool(item.title)}>
                 <View style={[styles.toolIcon, { backgroundColor: item.tint }]}><Text style={styles.toolEmoji}>{item.icon}</Text></View>
@@ -4463,6 +4513,19 @@ export default function App() {
                     </ScrollView>
                   </View>)}
                   {!!weatherData.length && <Text style={styles.detailHint}>資料來源：Open-Meteo・依這趟旅行出現的城市分別更新；遠期旅行會在進入預報範圍後顯示對應日期。</Text>}
+                </View>
+              )}
+              {selectedTool === "預約提醒" && (
+                <View style={styles.detailBlock}>
+                  <Text style={styles.detailTitle}>這趟旅行的預約提醒</Text>
+                  <Text style={styles.detailHint}>行程上有標註預約、訂位或需先取票的項目會集中在這裡；完成後可在景點備註寫入訂位代號或確認資訊。</Text>
+                  {reservationStops.map(({ day, stop, info }) => (
+                    <Pressable key={stop.id} style={styles.toolCard} onPress={() => { setSelectedTool(null); setSelectedDayId(day.id); setTimeout(() => { setEditing(stop); setDraftNote(stop.note); setDraftOpeningHours(stop.openingHours || ""); setDraftDuration(String(stop.durationMinutes || "")); setDraftTransport(stop.transport || ""); }, 120); }}>
+                      <View style={[styles.toolIcon, { backgroundColor: "#FFE7D8" }]}><Text style={styles.toolEmoji}>📌</Text></View>
+                      <View style={styles.toolText}><Text style={styles.toolTitle}>{day.label}・{stop.time} {stopDisplayTitle(stop)}</Text><Text style={styles.toolSub}>{info.note}</Text></View><Text style={styles.chevron}>›</Text>
+                    </Pressable>
+                  ))}
+                  {!reservationStops.length && <Text style={styles.emptyListText}>目前沒有預約事項。新增景點時在備註填「需預約」或「預約制」，就會自動出現在這裡。</Text>}
                 </View>
               )}
               {selectedTool === "匯率" && (

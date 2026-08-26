@@ -193,7 +193,12 @@ export const listenFirestoreMembers = (tripId: string, callback: (members: Array
   onSnapshot(collection(firestoreDb, "trips", tripId, "members"), (snapshot) => {
     callback(snapshot.docs.map((item) => ({
       personId: String(item.data()?.personId || item.id),
-      displayName: String(item.data()?.displayName || "尚未設定名稱的旅伴"),
+      displayName: (() => {
+        const rawName = String(item.data()?.displayName || "").trim();
+        return rawName === "旅伴" || rawName === "尚未設定名稱的旅伴"
+          ? "未命名旅伴"
+          : rawName || "未命名旅伴";
+      })(),
       role: String(item.data()?.role || "member")
     })));
   });
