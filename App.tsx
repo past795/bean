@@ -905,23 +905,6 @@ export default function App() {
     setSelectedFavoriteIds((current) => [...new Set([...current, ...additions.map((item) => item.id)])]);
     showToast(`已加入 ${additions.length} 個釜山備案到收藏`);
   };
-  const applyBusanSheetPlan = () => {
-    if (!/釜山|busan/i.test(`${activeTrip.destination} ${activeTrip.title}`)) return;
-    Alert.alert("套用 08/26 新版釜山行程", "會用新版行程表的日期與景點順序更新目前這趟旅行；你後來自行新增的景點可先加入收藏，避免被覆蓋。", [
-      { text: "取消", style: "cancel" },
-      { text: "套用新版", onPress: () => {
-        updateActiveTrip({
-          destination: "釜山",
-          startDate: "2026-10-04",
-          endDate: "2026-10-08",
-          period: "2026.10.04 – 2026.10.08",
-          days: busanInitialTrip.map((day) => ({ ...day, stops: day.stops.map((stop) => ({ ...stop })) }))
-        });
-        setSelectedDayId(busanInitialTrip[0]?.id || "");
-        showToast("已套用 08/26 新版釜山行程，並同步儲存");
-      }}
-    ]);
-  };
   const selectedFavorites = favorites.filter((place) => selectedFavoriteIds.includes(place.id));
   const favoriteTree = useMemo(() => favorites.reduce((countries, place) => {
     const country = place.country || "未分類國家";
@@ -3957,7 +3940,6 @@ export default function App() {
               <View><Text style={styles.eyebrow}>TRIP ESSENTIALS</Text><Text style={styles.pageTitle}>旅行工具箱</Text><Text style={styles.pageSubtitle}>訂單、天氣與採買清單都放在同一處。</Text></View>
               {Platform.OS === "web" ? <img src={homeTravelBeanWebUri} alt="豆遊小豆" style={webToolboxMascotStyle as never} /> : <Image source={homeTravelBean} resizeMode="contain" style={styles.pageMascot} />}
             </View>
-            {/釜山|busan/i.test(`${activeTrip.destination} ${activeTrip.title}`) && <Pressable style={styles.favoriteBulkUpdateButton} onPress={applyBusanSheetPlan}><Text style={styles.favoriteBulkUpdateText}>↻ 套用 08/26 新版釜山行程</Text></Pressable>}
             {toolboxItems.map((item) => (
               <Pressable key={item.title} style={styles.toolCard} onPress={() => setSelectedTool(item.title)}>
                 <View style={[styles.toolIcon, { backgroundColor: item.tint }]}><Text style={styles.toolEmoji}>{item.icon}</Text></View>
