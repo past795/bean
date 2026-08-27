@@ -758,6 +758,7 @@ export default function App() {
   const [flightNote, setFlightNote] = useState("");
   const [deletingTrip, setDeletingTrip] = useState<TripPlan | null>(null);
   const [deletingDay, setDeletingDay] = useState<TripDay | null>(null);
+  const [deletingStop, setDeletingStop] = useState<Stop | null>(null);
   const [leavingTrip, setLeavingTrip] = useState<TripPlan | null>(null);
   const [editingTravelers, setEditingTravelers] = useState(false);
   const [travelerDraft, setTravelerDraft] = useState("2");
@@ -2525,10 +2526,16 @@ export default function App() {
 
   const deleteEditingStop = () => {
     if (!editing) return;
-    Alert.alert("刪除此景點？", editing.title, [{ text: "取消", style: "cancel" }, { text: "刪除", style: "destructive", onPress: () => {
-      updateStops(selectedDay.stops.filter((stop) => stop.id !== editing.id));
-      setEditing(null); showToast("景點已刪除");
-    }}]);
+    setDeletingStop(editing);
+  };
+
+  const confirmDeleteStop = () => {
+    if (!deletingStop) return;
+    const stopId = deletingStop.id;
+    updateStops(selectedDay.stops.filter((stop) => stop.id !== stopId));
+    setDeletingStop(null);
+    setEditing(null);
+    showToast("景點已刪除並同步");
   };
 
   const selectTrip = (trip: TripPlan) => {
@@ -4865,6 +4872,19 @@ export default function App() {
               <Text style={styles.sheetAddress}>這一天的所有景點都會刪除，後面的 DAY 與日期會自動往前遞補。</Text>
               <Pressable style={styles.destructiveButton} onPress={confirmDeleteDay}><Text style={styles.primaryButtonText}>確認刪除這一天</Text></Pressable>
               <Pressable style={styles.cancelButton} onPress={() => setDeletingDay(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal visible={!!deletingStop} animationType="fade" transparent onRequestClose={() => setDeletingStop(null)}>
+          <View style={styles.modalShade}>
+            <View style={styles.sheet}>
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetEyebrow}>DELETE A PLACE</Text>
+              <Text style={styles.sheetTitle}>刪除景點？</Text>
+              <Text style={styles.sheetAddress}>「{deletingStop?.title}」會從 {selectedDay.date || "這一天"} 的行程、地圖路線中移除。</Text>
+              <Pressable style={styles.destructiveButton} onPress={confirmDeleteStop}><Text style={styles.primaryButtonText}>確認刪除此景點</Text></Pressable>
+              <Pressable style={styles.cancelButton} onPress={() => setDeletingStop(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
             </View>
           </View>
         </Modal>
