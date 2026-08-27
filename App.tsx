@@ -71,26 +71,29 @@ const BUSAN_BACKUP_FAVORITES: FavoritePlace[] = [
   { id: "busan-backup-matwang", name: "味贊王鹽烤肉 西面店", address: "釜山廣域市釜山鎮區西面路一帶", country: "韓國", city: "釜山", latitude: 35.1571, longitude: 129.0578, note: "田浦晚餐滿位時的烤肉備案。" }
 ];
 const dateDaysBefore = (dateText: string, days: number) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) return "";
-  const date = new Date(`${dateText}T12:00:00`);
+  const normalizedDate = normalizeTripDate(dateText);
+  if (!normalizedDate) return "";
+  const date = new Date(`${normalizedDate}T12:00:00`);
   date.setDate(date.getDate() - days);
   return date.toISOString().slice(0, 10);
 };
 const isoDateAtOffset = (startDate: string, offset: number) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return "";
-  const date = new Date(`${startDate}T12:00:00`);
+  const normalizedDate = normalizeTripDate(startDate);
+  if (!normalizedDate) return "";
+  const date = new Date(`${normalizedDate}T12:00:00`);
   date.setDate(date.getDate() + offset);
   return date.toISOString().slice(0, 10);
 };
 const reservationDateLabel = (dateText: string) => {
-  const iso = String(dateText || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const iso = normalizeTripDate(dateText).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (iso) return `${iso[2]}/${iso[3]}`;
   return String(dateText || "日期未定").match(/^\d{2}\/\d{2}/)?.[0] || String(dateText || "日期未定");
 };
 const reservationGoogleCalendarUrl = (title: string, dateText: string, note = "") => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) return "";
-  const start = dateText.replaceAll("-", "");
-  const end = dateDaysBefore(dateText, -1).replaceAll("-", "");
+  const normalizedDate = normalizeTripDate(dateText);
+  if (!normalizedDate) return "";
+  const start = normalizedDate.replaceAll("-", "");
+  const end = dateDaysBefore(normalizedDate, -1).replaceAll("-", "");
   const params = new URLSearchParams({
     action: "TEMPLATE",
     text: `預約提醒｜${title}`,
@@ -100,9 +103,10 @@ const reservationGoogleCalendarUrl = (title: string, dateText: string, note = ""
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 };
 const reservationIcsDataUrl = (title: string, dateText: string, note = "") => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) return "";
-  const start = dateText.replaceAll("-", "");
-  const end = dateDaysBefore(dateText, -1).replaceAll("-", "");
+  const normalizedDate = normalizeTripDate(dateText);
+  if (!normalizedDate) return "";
+  const start = normalizedDate.replaceAll("-", "");
+  const end = dateDaysBefore(normalizedDate, -1).replaceAll("-", "");
   const escape = (value: string) => value.replace(/\\/g, "\\\\").replace(/,/g, "\\,").replace(/;/g, "\\;").replace(/\n/g, "\\n");
   const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Douyou//Reservation//ZH", "BEGIN:VEVENT", `UID:douyou-${Date.now()}@douyou`, `DTSTART;VALUE=DATE:${start}`, `DTEND;VALUE=DATE:${end}`, `SUMMARY:${escape(`預約提醒｜${title}`)}`, `DESCRIPTION:${escape(note)}`, "BEGIN:VALARM", "TRIGGER:-PT9H", "ACTION:DISPLAY", "DESCRIPTION:豆遊預約提醒", "END:VALARM", "END:VEVENT", "END:VCALENDAR"].join("\r\n");
   return `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
@@ -155,7 +159,9 @@ const inclusiveDayCount = (start: string, end: string) => {
   return Math.floor((endTime - startTime) / 86400000) + 1;
 };
 const tripPeriodLabel = (start: string, end: string) =>
-  start && end ? `${start.replaceAll("-", ".")} – ${end.replaceAll("-", ".")}` : start || end || "日期未定";
+  normalizeTripDate(start) && normalizeTripDate(end)
+    ? `${normalizeTripDate(start).replaceAll("-", ".")} – ${normalizeTripDate(end).replaceAll("-", ".")}`
+    : normalizeTripDate(start) || normalizeTripDate(end) || "日期未定";
 const normalizeTripDate = (value: unknown) => {
   const text = String(value || "").trim();
   if (/^\d{4}-\d{2}-\d{2}T/.test(text)) {
@@ -168,12 +174,18 @@ const normalizeTripDate = (value: unknown) => {
       return `${get("year")}-${get("month")}-${get("day")}`;
     }
   }
-  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
-  return match?.[1] || "";
+  const match = text.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})(?:\s|$)/);
+  if (!match) return "";
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return "";
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 };
 const tripDayDateLabel = (start: string, dayIndex: number) => {
-  if (!isIsoTripDate(start)) return "日期未定";
-  const [year, month, day] = start.split("-").map(Number);
+  const normalizedStart = normalizeTripDate(start);
+  if (!isIsoTripDate(normalizedStart)) return "日期未定";
+  const [year, month, day] = normalizedStart.split("-").map(Number);
   const date = new Date(Date.UTC(year!, month! - 1, day! + dayIndex));
   const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
   return `${String(date.getUTCMonth() + 1).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}（${weekdays[date.getUTCDay()]}）`;
@@ -608,12 +620,22 @@ const verifiedStopLocation = (stop: Stop): Partial<Stop> | undefined => {
   return undefined;
 };
 
-const normalizeTripSchedule = (trip: TripPlan): TripPlan => ({
-  ...trip,
-  days: trip.days.map((day) => ({
-    ...day,
-    title: day.title.replace(/（住宿未完整設定・草稿）/g, ""),
-    stops: day.stops.map((stop) => {
+const normalizeTripSchedule = (trip: TripPlan): TripPlan => {
+  // Older entries created from Google Sheets sometimes use YYYY/MM/DD.
+  // Keep one internal ISO format, so the home-card period and each day tab
+  // are always calculated from exactly the same dates.
+  const startDate = normalizeTripDate(trip.startDate || "");
+  const endDate = normalizeTripDate(trip.endDate || "");
+  return {
+    ...trip,
+    startDate: startDate || trip.startDate,
+    endDate: endDate || trip.endDate,
+    period: startDate ? tripPeriodLabel(startDate, endDate) : trip.period,
+    days: trip.days.map((day, dayIndex) => ({
+      ...day,
+      date: startDate ? tripDayDateLabel(startDate, dayIndex) : day.date,
+      title: day.title.replace(/（住宿未完整設定・草稿）/g, ""),
+      stops: day.stops.map((stop) => {
       const hour = Number(stop.time.match(/^(\d{1,2}):/)?.[1]);
       const verified = verifiedOitaHours(stop.title);
       const verifiedLocation = verifiedStopLocation(stop);
@@ -624,9 +646,10 @@ const normalizeTripSchedule = (trip: TripPlan): TripPlan => ({
         openingHours: stop.openingHours || verified?.hours,
         openingHoursSource: stop.openingHoursSource || verified?.source
       };
-    })
-  }))
-});
+      })
+    }))
+  };
+};
 
 const transportIcon = (mode: Stop["transportMode"]) =>
   ({ 步行: "🚶", 計程車: "🚕", 公車: "🚌", 地鐵: "🚇", 飛機: "✈️", 預約制: "🎫", 百貨內: "🏬", 其他: "↗️" }[mode]);
