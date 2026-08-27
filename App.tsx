@@ -1358,6 +1358,8 @@ export default function App() {
     } catch {}
   };
 
+  const archiveAuthorizationExpired = !googleUser?.idToken || !isGoogleTokenFresh(googleUser.idToken);
+
   const archiveTripAndEmail = async () => {
     if (!archiveTripTarget) return;
     if (!googleUser?.idToken || !isGoogleTokenFresh(googleUser.idToken)) {
@@ -2639,8 +2641,13 @@ export default function App() {
   const handleGoogleCredential = async (credential: string) => {
     try {
       const payload = JSON.parse(decodeURIComponent(Array.prototype.map.call(atob(credential.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")), (char: string) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`).join("")));
+      // Persist the real Google ID token before Firebase auth changes state. This
+      // prevents the auth observer from replacing it with a Firebase token (which
+      // Apps Script cannot use to create the Google Sheet archive).
+      const basicUser = normalizeGoogleUser({ sub: String(payload.sub), name: String(payload.name || payload.email || "Google 使用者"), email: String(payload.email || ""), picture: payload.picture, idToken: credential });
+      await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(basicUser));
       const firebaseResult = await signInWithCredential(firebaseAuth, GoogleAuthProvider.credential(credential));
-      const user = normalizeGoogleUser({ sub: String(payload.sub), name: String(payload.name || payload.email || "Google 使用者"), email: String(payload.email || ""), picture: payload.picture, idToken: credential, firebaseUid: firebaseResult.user.uid });
+      const user = { ...basicUser, firebaseUid: firebaseResult.user.uid };
       const memberId = googleMemberId(user);
       setGoogleUser(user);
       AsyncStorage.setItem(AUTH_KEY, JSON.stringify(user)).catch(() => undefined);
@@ -4336,7 +4343,8 @@ export default function App() {
           <View style={styles.modalShade}><View style={styles.sheet}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>PACK & ARCHIVE</Text><Text style={styles.sheetTitle}>打包旅行</Text>
             <View style={styles.archiveWarning}><Text style={styles.archiveWarningTitle}>請先確認</Text><Text style={styles.archiveWarningText}>系統會在你的 Google 雲端硬碟建立完整的 Google Sheet；建立成功後，旅行會移至封存區。雲端資料保留 30 天，之後永久刪除。只有建立者可以操作。</Text></View>
             <Text style={styles.fieldLabel}>旅行</Text><Text style={styles.archiveTripName}>{archiveTripTarget?.title}</Text>
-            <Pressable style={[styles.primaryButton, archiveBusy && styles.disabledButton]} disabled={archiveBusy} onPress={archiveTripAndEmail}><Text style={styles.primaryButtonText}>{archiveBusy ? "正在建立 Google Sheet…" : "建立 Google Sheet 並封存"}</Text></Pressable>
+            {archiveAuthorizationExpired && <View style={styles.archiveAuthNotice}><Text style={styles.archiveAuthText}>Google 雲端硬碟的打包授權已過期。重新連接後，這個按鈕就會可用；旅行資料不會受影響。</Text><Pressable style={styles.archiveReauthButton} disabled={loginBusy} onPress={signInGoogleWithFirebase}><Text style={styles.archiveReauthText}>{loginBusy ? "正在開啟 Google…" : "重新連接 Google"}</Text></Pressable></View>}
+            <Pressable style={[styles.primaryButton, (archiveBusy || archiveAuthorizationExpired) && styles.disabledButton]} disabled={archiveBusy || archiveAuthorizationExpired} onPress={archiveTripAndEmail}><Text style={styles.primaryButtonText}>{archiveBusy ? "正在建立 Google Sheet…" : "建立 Google Sheet 並封存"}</Text></Pressable>
             <Pressable style={styles.cancelButton} disabled={archiveBusy} onPress={() => setArchiveTripTarget(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
           </View></View>
         </Modal>
@@ -5571,6 +5579,10 @@ const styles = createDouyouStyles({
   formHalf: { flex: 1 },
   favoriteFromStopButton: { marginTop: 12, backgroundColor: "#EDF1F7", borderRadius: 13, paddingVertical: 12, alignItems: "center" },
   favoriteFromStopText: { color: "#536783", fontSize: 12, fontWeight: "900" },
+  archiveAuthNotice: { backgroundColor: "#FFF5DF", borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: "#F1D6A0" },
+  archiveAuthText: { color: "#755B32", fontSize: 11, lineHeight: 17 },
+  archiveReauthButton: { alignSelf: "flex-start", backgroundColor: "#536783", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, marginTop: 9 },
+  archiveReauthText: { color: "#FFF", fontSize: 11, fontWeight: "900" },
   deleteStopButton: { marginTop: 10, backgroundColor: "#FBECEA", borderRadius: 13, paddingVertical: 12, alignItems: "center" },
   deleteStopText: { color: "#A5443C", fontSize: 12, fontWeight: "900" }
 });
