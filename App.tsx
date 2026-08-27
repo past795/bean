@@ -2526,7 +2526,10 @@ export default function App() {
 
   const deleteEditingStop = () => {
     if (!editing) return;
-    setDeletingStop(editing);
+    const stopId = editing.id;
+    updateStops(selectedDay.stops.filter((stop) => stop.id !== stopId));
+    setEditing(null);
+    showToast("景點已刪除並同步");
   };
 
   const confirmDeleteStop = () => {
@@ -3353,6 +3356,26 @@ export default function App() {
     showToast("已刪除一天，後續日期已重新排列");
   };
 
+  const deleteSelectedDay = () => {
+    if (activeTrip.days.length <= 1) {
+      showToast("旅行至少要保留一天");
+      return;
+    }
+    // Use the same direct state transition on web and installed PWA.  This
+    // deliberately avoids a nested Modal whose confirm button can be hidden
+    // behind the browser viewport on iPhone.
+    const removedIndex = activeTrip.days.findIndex((day) => day.id === selectedDay.id);
+    const days = activeTrip.days.filter((day) => day.id !== selectedDay.id).map((day, index) => ({
+      ...day,
+      label: `DAY ${index + 1}`,
+      date: tripDayDateLabel(activeTrip.startDate || "", index)
+    }));
+    updateActiveTrip({ days });
+    setSelectedDayId(days[Math.min(Math.max(0, removedIndex), days.length - 1)]!.id);
+    setTimeout(() => itineraryListRef.current?.scrollToOffset?.({ offset: 0, animated: false }), 0);
+    showToast("這一天已刪除，後續日期已重新排列");
+  };
+
   const createAccommodation = () => {
     if (!hotelName.trim() || !hotelPeriod.trim()) {
       Alert.alert("請填寫住宿名稱與入住日期");
@@ -3945,7 +3968,7 @@ export default function App() {
                         <Pressable disabled={days.findIndex((day) => day.id === selectedDay.id) === days.length - 1} style={styles.dayMoveButton} onPress={() => moveWholeDay(1)}>
                           <Text style={[styles.dayMoveText, days.findIndex((day) => day.id === selectedDay.id) === days.length - 1 && styles.reorderDisabled]}>整天後移 →</Text>
                         </Pressable>
-                        {days.length > 1 && <Pressable style={styles.dayDeleteButton} onPress={() => setDeletingDay(selectedDay)}>
+                        {days.length > 1 && <Pressable style={styles.dayDeleteButton} onPress={deleteSelectedDay}>
                           <Text style={styles.dayDeleteText}>刪除這一天</Text>
                         </Pressable>}
                         <Pressable accessibilityLabel="新增景點" style={styles.smallAddButton} onPress={() => setAddingStop(true)}>
