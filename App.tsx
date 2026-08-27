@@ -308,6 +308,98 @@ type CloudLink = { inviteCode: string; memberName?: string; memberId?: string; r
 type CloudLinks = Record<string, CloudLink>;
 
 type RouteMode = "driving" | "walking" | "transit" | "taxi";
+const buildOitaTripTemplate = (id = `trip-oita-${Date.now()}`): TripPlan => {
+  const stop = (day: number, sequence: number, time: string, title: string, address: string, transport: string, note: string, durationMinutes: number, routeMode: RouteMode = "transit", reservation?: Partial<Stop>): Stop => ({
+    id: `${id}-d${day}-${sequence}`,
+    time, title, address, transport,
+    transportMode: routeMode === "walking" ? "步行" : routeMode === "taxi" ? "計程車" : routeMode === "transit" ? "公車" : "其他",
+    routeMode, note, durationMinutes, ...reservation
+  });
+  const day = (number: number, title: string, stops: Stop[]): TripDay => ({
+    id: `${id}-day-${number}`,
+    label: `DAY ${number}`,
+    date: tripDayDateLabel("2026-11-28", number - 1),
+    title,
+    stops
+  });
+  return {
+    id,
+    title: "大分之旅",
+    destination: "大分・由布院・別府・九重",
+    startDate: "2026-11-28",
+    endDate: "2026-12-02",
+    period: "2026.11.28 – 2026.12.02",
+    travelers: 2,
+    flights: [
+      { id: `${id}-arrival`, route: "抵達大分空港", flightNumber: "待補", departure: "", arrival: "2026-11-28 15:00", note: "預計 15:00 抵達大分機場" },
+      { id: `${id}-departure`, route: "大分空港 → 回程", flightNumber: "待補", departure: "2026-12-02 16:30", arrival: "", note: "請於起飛前預留報到時間" }
+    ],
+    accommodations: [
+      { id: `${id}-hotel-oita`, name: "大分駅周邊飯店（未定）", period: "11/28 入住・11/29 退房", address: "大分駅周邊", checkIn: "16:30", checkOut: "09:00", facilities: "待確認", frontDesk: "待確認", note: "Day 1 抵達後入住。" },
+      { id: `${id}-hotel-yufuin`, name: "由布院旅館（未定）", period: "11/29 入住・12/02 退房", address: "由布院駅／湯之坪街道周邊", checkIn: "16:00", checkOut: "09:00", facilities: "待確認（溫泉、晚餐、接駁）", frontDesk: "待確認", note: "Day 2 至 Day 5 的住宿基地。" }
+    ],
+    accommodationByNight: {
+      "1": `${id}-hotel-oita`, "2": `${id}-hotel-yufuin`, "3": `${id}-hotel-yufuin`, "4": `${id}-hotel-yufuin`
+    },
+    shopping: [],
+    checklist: defaultPrepChecklist(),
+    reservations: [
+      { id: `${id}-reservation-kokonoe-bus`, title: "確認豊後中村駅 ↔ 九重夢大吊橋社區巴士班次", suggestedDate: "2026-11-14", note: "Day 3 使用九重町社區巴士縦断線；請事先確認時刻、停駛日及是否需預約。", completed: false }
+    ],
+    days: [
+      day(1, "大分・抵達與市區", [
+        stop(1, 1, "15:00", "抵達大分機場", "大分県国東市安岐町下原（大分空港）", "入境、領行李", "抵達後完成入境與領取行李。", 30, "walking", { latitude: 33.479444, longitude: 131.737222 }),
+        stop(1, 2, "15:30", "大分空港 → 大分駅", "大分空港 → 大分駅前", "大分交通空港特急巴士「エアライナー」，約60分鐘", "可於機場巴士站搭乘空港特急巴士。", 60),
+        stop(1, 3, "16:30", "飯店 Check-in", "大分駅周邊（飯店未定）", "步行", "寄放行李或辦理入住。", 30, "walking"),
+        stop(1, 4, "17:00", "大分縣立美術館 OPAM", "大分県大分市寿町2番1号", "大分駅步行約15分鐘，或搭巴士至「オアシスひろば前」", "坂茂設計的現代美術館；請出發前再次確認展覽及休館日。", 90, "walking"),
+        stop(1, 5, "19:00", "AMU PLAZA 大分 晚餐", "大分県大分市要町（JR大分駅直通）", "步行5分鐘", "晚餐與採買。", 90, "walking"),
+        stop(1, 6, "21:00", "返回飯店", "大分市區飯店", "步行", "第一晚住宿。", 20, "walking")
+      ]),
+      day(2, "大分・由布院", [
+        stop(2, 1, "09:00", "大分縣護國神社", "大分県大分市牧（松栄山）", "大分駅前搭市內循環巴士，約10–15分鐘", "參拜與短暫散步。", 40),
+        stop(2, 2, "10:00", "Park Place 大分", "大分県大分市公園通り西", "大分駅前搭路線巴士，約20–25分鐘", "購物中心；含午餐時間。", 90),
+        stop(2, 3, "11:30", "Park Place 大分 午餐", "Park Place 大分內餐廳", "步行", "午餐備案可依現場選擇。", 60, "walking"),
+        stop(2, 4, "13:00", "驚安殿堂 唐吉訶德 大分中央町店", "大分県大分市中央町2-3-4", "由 Park Place 搭路線巴士，約10–15分鐘", "採買。", 60),
+        stop(2, 5, "14:30", "返回大分駅", "大分県大分市要町", "巴士約15–20分鐘", "前往由布院前預留候車時間。", 25),
+        stop(2, 6, "15:16", "大分駅 → 由布院駅", "大分県大分市要町 → 大分県由布市湯布院町", "JR久大本線特急ゆふ，約50分鐘", "請以實際車次為準（15:16 或 16:01）。", 55),
+        stop(2, 7, "16:30", "由布院旅館 Check-in", "由布院旅館（未定）", "步行或飯店接駁", "辦理入住、放行李。", 30, "walking"),
+        stop(2, 8, "17:00", "金鱗湖＋湯之坪街道", "大分県由布市湯布院町川上（金鱗湖）／川南（湯之坪街道）", "由布院駅步行約20分鐘", "傍晚散步與逛街。", 90, "walking"),
+        stop(2, 9, "19:00", "由布院晚餐", "湯之坪街道周邊", "步行", "可依旅館晚餐或周邊餐廳調整。", 90, "walking")
+      ]),
+      day(3, "九重夢大吊橋", [
+        stop(3, 1, "08:00", "早餐後出發", "由布院旅館 → 由布院駅", "步行", "前往九重前請再次確認社區巴士班次。", 45, "walking"),
+        stop(3, 2, "09:00", "由布院駅 → 豊後中村駅", "大分県玖珠郡九重町", "JR久大本線普通車，約20–30分鐘", "以當日實際車次為準。", 30),
+        stop(3, 3, "09:30", "豊後中村駅 → 九重夢大吊橋", "大分県玖珠郡九重町大字田野1208番地", "九重町社區巴士「縦断線」，約15–20分鐘", "務必事先確認班次／是否需預約。", 20, "transit", { reservationRequired: true, reservationNote: "請確認九重町社區巴士縦断線的時刻、停駛日與是否需預約。", reservationSuggestedDate: "2026-11-14" }),
+        stop(3, 4, "10:00", "九重夢大吊橋", "大分県玖珠郡九重町大字田野1208番地", "步行遊覽", "日本大型行人吊橋；山區天候多變，建議保暖並確認營業狀況。", 120, "walking"),
+        stop(3, 5, "12:30", "九重夢大吊橋周邊午餐", "大吊橋周邊或豊後中村駅周邊", "步行", "依巴士與火車時刻彈性調整。", 60, "walking"),
+        stop(3, 6, "13:30", "大吊橋 → 豊後中村駅", "大分県玖珠郡九重町 → 豊後中村駅", "九重町社區巴士", "請配合回程班次。", 25),
+        stop(3, 7, "14:00", "豊後中村駅 → 由布院駅", "大分県玖珠郡九重町 → 大分県由布市湯布院町", "JR久大本線", "回由布院。", 45),
+        stop(3, 8, "15:00", "自由活動／溫泉休息", "由布院旅館", "步行", "預留休息與泡湯時間。", 150, "walking"),
+        stop(3, 9, "18:00", "晚餐＋溫泉", "由布院旅館周邊", "步行", "旅館晚餐或周邊餐廳。", 90, "walking")
+      ]),
+      day(4, "別府地獄巡禮＋纜車", [
+        stop(4, 1, "08:30", "由布院駅前 → 海地獄前", "大分県由布市湯布院町 → 大分県別府市鉄輪559-1", "亀の井バス36系統，約45–50分鐘", "前往別府鐵輪。", 50),
+        stop(4, 2, "09:20", "別府地獄めぐり", "大分県別府市鉄輪（海地獄、鬼石坊主地獄等）", "步行遊覽", "依現場票券與動線安排海地獄、鬼石坊主地獄等。", 100, "walking"),
+        stop(4, 3, "11:15", "地獄蒸し工房鉄輪 午餐", "大分県別府市風呂本5組", "步行", "體驗溫泉蒸氣料理。", 75, "walking"),
+        stop(4, 4, "13:00", "鉄輪 → 別府纜車山麓駅", "大分県別府市大字南立石", "亀の井巴士，約15–20分鐘", "前往鶴見岳。", 25),
+        stop(4, 5, "13:30", "別府纜車・鶴見岳", "大分県別府市（鶴見岳山頂駅）", "纜車約10分鐘", "山頂風大且溫度低，請確認纜車營運與天候。", 90, "transit", { reservationRequired: true, reservationNote: "建議前一天確認鶴見岳纜車是否因天候停駛。", reservationSuggestedDate: "2026-11-30" }),
+        stop(4, 6, "15:00", "別府 → 由布院", "大分県別府市 → 大分県由布市湯布院町", "亀の井巴士36系統，約50分鐘", "回由布院。", 50),
+        stop(4, 7, "16:30", "湯之坪街道／金鱗湖 自由活動", "大分県由布市湯布院町", "步行", "視天候與體力自由調整。", 90, "walking"),
+        stop(4, 8, "18:30", "由布院晚餐", "由布院旅館周邊", "步行", "晚餐。", 90, "walking")
+      ]),
+      day(5, "由布院・回程", [
+        stop(5, 1, "08:00", "早餐＋退房", "由布院旅館", "步行", "退房後可寄放行李。", 60, "walking"),
+        stop(5, 2, "09:15", "Yufuin Floral Village", "大分県由布市湯布院町川上", "由布院駅步行約15分鐘", "逛街拍照。", 45, "walking"),
+        stop(5, 3, "10:10", "COMICO ART MUSEUM YUFUIN", "大分県由布市湯布院町川上", "步行5分鐘", "緊鄰 Floral Village；建議先確認開館與預約規則。", 60, "walking", { reservationRequired: true, reservationNote: "請先確認 COMICO ART MUSEUM YUFUIN 入館規則及是否需要預約。", reservationSuggestedDate: "2026-11-02" }),
+        stop(5, 4, "11:15", "湯之坪街道最後採買", "大分県由布市湯布院町川南", "步行", "最後採買與午間點心。", 75, "walking"),
+        stop(5, 5, "12:45", "返回旅館取行李", "由布院旅館", "步行", "取回行李、前往車站。", 30, "walking"),
+        stop(5, 6, "13:40", "由布院駅前 → 大分空港", "大分県由布市湯布院町 → 大分県国東市安岐町下原", "湯布院ライナー空港直達巴士，約55分鐘", "請以當日實際班次為準。", 55),
+        stop(5, 7, "14:35", "抵達大分空港", "大分県国東市安岐町下原（大分空港）", "步行", "預留報到、安檢與購物時間。", 100, "walking", { latitude: 33.479444, longitude: 131.737222 }),
+        stop(5, 8, "16:30", "班機起飛，行程結束", "大分空港", "登機", "回程班機。", 0, "walking")
+      ])
+    ]
+  };
+};
 type GoogleUser = { sub: string; name: string; email: string; picture?: string; idToken: string; firebaseUid?: string };
 const JY_EMAILS = new Set(["allison@taiwanbar.cc", "past795@gmail.com"]);
 const normalizeGoogleUser = (user: GoogleUser): GoogleUser =>
@@ -728,6 +820,7 @@ export default function App() {
   const [archiveEmail, setArchiveEmail] = useState("");
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [editing, setEditing] = useState<Stop | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
   const [draftNote, setDraftNote] = useState("");
   const [draftOpeningHours, setDraftOpeningHours] = useState("");
   const [draftDuration, setDraftDuration] = useState("");
@@ -1866,6 +1959,11 @@ export default function App() {
 
   const saveNote = () => {
     if (!editing) return;
+    const title = draftTitle.trim();
+    if (!title) {
+      showToast("景點名稱不能留白");
+      return;
+    }
     const durationMinutes = Math.max(0, Number.parseInt(draftDuration, 10) || 0);
     const transport = draftTransport.trim() || "尚未安排";
     const transportMode: Stop["transportMode"] =
@@ -1873,7 +1971,7 @@ export default function App() {
       draftRouteMode === "transit" ? (/公車/.test(transport) ? "公車" : "地鐵") :
       draftRouteMode === "taxi" ? "計程車" : "其他";
     const next = selectedDay.stops.map((stop) =>
-      stop.id === editing.id ? { ...stop, note: draftNote, openingHours: draftOpeningHours.trim(), durationMinutes, transport, transportMode, routeMode: draftRouteMode } : stop
+      stop.id === editing.id ? { ...stop, title, note: draftNote, openingHours: draftOpeningHours.trim(), durationMinutes, transport, transportMode, routeMode: draftRouteMode } : stop
     );
     const index = next.findIndex((stop) => stop.id === editing.id);
     const current = next[index];
@@ -3003,6 +3101,55 @@ export default function App() {
     }
   };
 
+  const createOitaTripTemplate = async () => {
+    if (!googleUser?.firebaseUid) {
+      Alert.alert("請先登入 Google", "登入後才能把「大分之旅」建立在你的帳號並同步給旅伴。");
+      return;
+    }
+    const trip = buildOitaTripTemplate();
+    const inviteCode = String(Math.floor(100000 + Math.random() * 900000));
+    const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
+    const next = [...trips.filter((item) => item.id !== trip.id), trip];
+
+    // Persist locally first, then explicitly create the Firebase trip.  This
+    // avoids the generic delayed sync attempting to save the previously active
+    // trip while the newly imported itinerary is being selected.
+    localMutationAtRef.current = Date.now();
+    setTrips(next);
+    AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
+    setExpenses((current) => {
+      const updated = { ...current, [trip.id]: current[trip.id] || [] };
+      AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(updated)).catch(() => undefined);
+      return updated;
+    });
+    setActiveTripId(trip.id);
+    setSelectedDayId(trip.days[0]?.id || "");
+    setTab("itinerary");
+    setCreatingTrip(false);
+    setSyncStatus("syncing");
+    setSyncErrorMessage("");
+
+    try {
+      await saveFirestoreTrip(personId, "owner", trip, [], inviteCode);
+      await updateFirestoreTripState(personId, trip, []);
+      firestoreSeededTripsRef.current.add(trip.id);
+      saveCloudLinks({
+        ...cloudLinksRef.current,
+        [trip.id]: { inviteCode, memberName: googleUser.name || "JY", memberId: personId, role: "owner" }
+      });
+      setSyncStatus("synced");
+      Alert.alert(
+        "大分之旅已建立",
+        `已建立 2026/11/28–12/02 的 5 日行程，含班機、住宿區間、交通及預約提醒。\n\n專屬邀請碼：${inviteCode}`
+      );
+      showToast("大分之旅已建立並同步");
+    } catch (error: any) {
+      setSyncStatus("error");
+      setSyncErrorMessage(`Firebase 建立旅行失敗：${error?.message || "請稍後重試"}`);
+      Alert.alert("大分之旅已暫存本機", "Firebase 尚未完成同步；請確認網路後再按右上角同步。旅行內容沒有被刪除。");
+    }
+  };
+
   const joinCloudTrip = async () => {
     const legacyTripId = joinTripId.trim();
     const inviteCode = joinInviteCode.trim();
@@ -3781,6 +3928,7 @@ export default function App() {
           style={styles.stopCard}
           onPress={() => {
             setEditing(item);
+            setDraftTitle(item.title);
             setDraftNote(item.note);
             setDraftOpeningHours(item.openingHours || "");
             setDraftDuration(String(item.durationMinutes || ""));
@@ -4407,7 +4555,15 @@ export default function App() {
             <View style={styles.sheet}>
               <View style={styles.sheetHandle} />
               <Text style={styles.sheetEyebrow}>景點備註</Text>
-              <Text style={styles.sheetTitle}>{editing?.title}</Text>
+              <Text style={styles.sheetTitle}>修改景點</Text>
+              <Text style={styles.fieldLabel}>景點名稱</Text>
+              <TextInput
+                value={draftTitle}
+                onChangeText={setDraftTitle}
+                placeholder="輸入景點名稱"
+                placeholderTextColor="#A49C90"
+                style={styles.fieldInput}
+              />
               <Text style={styles.sheetAddress}>{editing?.address}</Text>
               <Pressable style={styles.aiInlineButton} onPress={() => editing && openAiAssistant(editing)}>
                 <Text style={styles.aiInlineText}>✦ AI 說說這裡：問交通、最佳抵達時間或備案</Text>
@@ -4840,6 +4996,10 @@ export default function App() {
                 <Text style={styles.sheetEyebrow}>NEW JOURNEY</Text>
                 <Text style={styles.sheetTitle}>建立一趟新旅行</Text>
                 <Text style={styles.sheetAddress}>建立後可逐日新增景點、交通與備註。</Text>
+                <Pressable style={styles.addressLookupButton} onPress={createOitaTripTemplate}>
+                  <Text style={styles.addressLookupText}>✦ 一鍵建立「大分之旅」五日行程</Text>
+                </Pressable>
+                <Text style={styles.sourceHint}>已預先帶入 11/28 15:00 抵達、12/02 16:30 起飛、由布院住宿與 5 天景點安排。</Text>
                 <Text style={styles.fieldLabel}>目的地 *</Text>
                 <TextInput value={newDestination} onChangeText={setNewDestination} placeholder="例如：沖繩" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                 <Text style={styles.fieldLabel}>旅行名稱</Text>
