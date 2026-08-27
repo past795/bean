@@ -97,6 +97,7 @@ export type TripReservationReminder = {
   title: string;
   suggestedDate?: string;
   note?: string;
+  website?: string;
   completed?: boolean;
 };
 
