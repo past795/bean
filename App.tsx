@@ -1766,13 +1766,22 @@ export default function App() {
     persistTrips(next);
   };
 
+  const selectedDayGeocodeSignature = selectedDay
+    ? selectedDay.stops.map((stop) => [stop.id, stop.title, stop.address, stop.latitude ?? "", stop.longitude ?? "", stop.openingHours ?? ""].join("~")).join("|")
+    : "";
+
   useEffect(() => {
-    if (!selectedDay || geocodedDaysRef.current.has(`${activeTrip.id}:${selectedDay.id}`)) return;
+    if (!selectedDay) return;
+    // A day can receive more stops through batch import after it was first
+    // visited.  Keep the actual stop state in the key so new address rows are
+    // still geocoded instead of being skipped as an already-visited day.
+    const geocodeKey = `${activeTrip.id}:${selectedDay.id}:${selectedDayGeocodeSignature}`;
+    if (geocodedDaysRef.current.has(geocodeKey)) return;
     const needsEnrichment = selectedDay.stops.some((stop) =>
       stop.latitude == null || stop.longitude == null || (!!VERIFIED_OPENING_HOURS[stop.id] && !stop.openingHours)
     );
     if (!needsEnrichment) return;
-    geocodedDaysRef.current.add(`${activeTrip.id}:${selectedDay.id}`);
+    geocodedDaysRef.current.add(geocodeKey);
     let cancelled = false;
     (async () => {
       const resolved: Stop[] = [];
@@ -1786,22 +1795,41 @@ export default function App() {
         if (known) { resolved.push({ ...enriched, latitude: known[0], longitude: known[1] }); continue; }
         const cleanTitle = enriched.title.replace(/^[^A-Za-z0-9\u3400-\u9fff\uac00-\ud7af]+/, "");
         try {
-          const query = enriched.address && enriched.address !== "地址待補" ? enriched.address : `${cleanTitle} ${activeTrip.destination}`;
-          const countryCode = /日本|大分|別府|由布|日田|九重|宇佐|國東|中津|竹田/.test(`${activeTrip.destination} ${query}`) ? "&countrycodes=jp" : /韓國|釜山|首爾|濟州/.test(`${activeTrip.destination} ${query}`) ? "&countrycodes=kr" : "";
+          const hasAddress = enriched.address && enriched.address !== "地址待補";
+          const query = hasAddress ? enriched.address : `${cleanTitle} ${activeTrip.destination}`;
+          const japanQuery = /日本|大分|別府|由布|日田|九重|宇佐|國東|中津|竹田/.test(`${activeTrip.destination} ${query}`);
+          const countryCode = japanQuery ? "&countrycodes=jp" : /韓國|釜山|首爾|濟州/.test(`${activeTrip.destination} ${query}`) ? "&countrycodes=kr" : "";
+
+          // Full Japanese postal addresses are more reliably resolved by the
+          // Geospatial Information Authority of Japan than a place-name search.
+          if (japanQuery && hasAddress) {
+            const japaneseAddress = query.replace(/\s+\d+F\b.*$/i, "").replace(/\s*\/.*$/, "").trim();
+            const gsiResponse = await fetch(`https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(japaneseAddress)}`);
+            const feature = gsiResponse.ok ? (await gsiResponse.json())?.[0] : null;
+            const coordinates = feature?.geometry?.coordinates;
+            if (Array.isArray(coordinates) && Number.isFinite(Number(coordinates[0])) && Number.isFinite(Number(coordinates[1]))) {
+              resolved.push({ ...enriched, longitude: Number(coordinates[0]), latitude: Number(coordinates[1]) });
+              continue;
+            }
+          }
+
           const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryCode}`);
           const data = response.ok ? await response.json() : [];
           const match = data?.[0];
-          resolved.push(match ? { ...enriched, latitude: Number(match.lat), longitude: Number(match.lon), address: enriched.address === "地址待補" ? String(match.display_name || enriched.address) : enriched.address } : enriched);
+          resolved.push(match && Number.isFinite(Number(match.lat)) && Number.isFinite(Number(match.lon))
+            ? { ...enriched, latitude: Number(match.lat), longitude: Number(match.lon), address: enriched.address === "地址待補" ? String(match.display_name || enriched.address) : enriched.address }
+            : enriched);
         } catch {
           resolved.push(enriched);
         }
-        await new Promise((resolve) => setTimeout(resolve, 180));
+        // Nominatim asks public clients to avoid rapid-fire requests.
+        await new Promise((resolve) => setTimeout(resolve, 1050));
       }
       if (!cancelled && resolved.some((stop, index) => stop !== selectedDay.stops[index])) updateStops(resolved);
-      if (resolved.some((stop) => stop.latitude == null || stop.longitude == null)) geocodedDaysRef.current.delete(`${activeTrip.id}:${selectedDay.id}`);
+      if (resolved.some((stop) => stop.latitude == null || stop.longitude == null)) geocodedDaysRef.current.delete(geocodeKey);
     })();
     return () => { cancelled = true; };
-  }, [activeTrip.id, selectedDay?.id]);
+  }, [activeTrip.id, selectedDay?.id, selectedDayGeocodeSignature]);
 
   const updateActiveTrip = (changes: Partial<TripPlan>) => {
     persistTrips(trips.map((trip) => trip.id === activeTrip.id ? { ...trip, ...changes } : trip));
