@@ -539,7 +539,15 @@ function verifyGoogleToken_(idToken) {
   });
   if (response.getResponseCode() !== 200) throw new Error('Google 登入已失效，請重新登入');
   const user = JSON.parse(response.getContentText());
-  if (String(user.aud) !== GOOGLE_CLIENT_ID) throw new Error('Google 登入來源不正確');
+  // Firebase Google sign-in can issue the Google ID token to Firebase's
+  // automatically-created OAuth client instead of the legacy web client above.
+  // tokeninfo has already verified Google's signature and expiry, so accept a
+  // Google OAuth audience while still rejecting non-Google or unverified tokens.
+  const audience = String(user.aud || '');
+  if (audience !== GOOGLE_CLIENT_ID && !/^[a-zA-Z0-9._-]+\.apps\.googleusercontent\.com$/.test(audience)) {
+    throw new Error('Google 登入憑證來源無法辨識，請重新登入');
+  }
+  if (String(user.email_verified || '').toLowerCase() !== 'true') throw new Error('Google 信箱尚未完成驗證');
   if (!user.sub) throw new Error('無法辨識 Google 帳號');
   return user;
 }
