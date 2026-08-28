@@ -45,7 +45,9 @@ function doGet(e) {
   try {
     const action = String((e && e.parameter && e.parameter.action) || 'health');
     if (action === 'health') {
-      return json_({ ok: true, service: '豆遊同步服務', time: new Date().toISOString() });
+      // Keep a visible version here so the web app can distinguish an old
+      // Apps Script deployment from an actual Drive export failure.
+      return json_({ ok: true, service: '豆遊同步服務', archiveVersion: 'drive-sheet-v2', time: new Date().toISOString() });
     }
     if (action === 'pull') {
       const tripId = required_(e.parameter.tripId, '缺少 tripId');

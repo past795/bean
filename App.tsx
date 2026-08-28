@@ -1386,6 +1386,19 @@ export default function App() {
 
   const archiveAuthorizationExpired = !googleUser?.idToken || !isGoogleTokenFresh(googleUser.idToken);
 
+  const confirmArchiveService = async () => {
+    try {
+      const response = await fetch(`${SYNC_URL}?action=health&t=${Date.now()}`);
+      const result = await response.json();
+      if (!result?.ok || result?.archiveVersion !== "drive-sheet-v2") {
+        throw new Error("Apps Script 尚未部署最新版。請到 Apps Script 的「部署 → 管理部署 → 編輯」選擇最新版本後重新部署，再回來打包。");
+      }
+    } catch (error: any) {
+      if (String(error?.message || "").includes("Apps Script 尚未部署")) throw error;
+      throw new Error("無法確認 Google Sheet 打包服務。請確認網路後再試；旅行尚未封存。");
+    }
+  };
+
   const archiveTripAndEmail = async () => {
     if (!archiveTripTarget) return;
     if (!googleUser?.idToken || !isGoogleTokenFresh(googleUser.idToken)) {
@@ -1394,6 +1407,7 @@ export default function App() {
     }
     setArchiveBusy(true);
     try {
+      await confirmArchiveService();
       const payload = tripToCloud(archiveTripTarget, expenses[archiveTripTarget.id] || []);
       const data = await postCloud({ action: "archiveTrip", tripId: archiveTripTarget.id, idToken: googleUser.idToken, data: payload }, 75_000);
       if (!data?.sheetUrl) throw new Error("打包服務沒有回傳 Google Sheet 連結。請確認 Apps Script 已重新部署最新版後再試。 ");
