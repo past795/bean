@@ -1390,7 +1390,7 @@ export default function App() {
     try {
       const response = await fetch(`${SYNC_URL}?action=health&t=${Date.now()}`);
       const result = await response.json();
-      if (!result?.ok || result?.archiveVersion !== "drive-sheet-v2") {
+      if (!result?.ok || result?.archiveVersion !== "drive-sheet-v3") {
         throw new Error("Apps Script 尚未部署最新版。請到 Apps Script 的「部署 → 管理部署 → 編輯」選擇最新版本後重新部署，再回來打包。");
       }
     } catch (error: any) {
