@@ -729,6 +729,7 @@ export default function App() {
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [editing, setEditing] = useState<Stop | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
+  const [draftAddress, setDraftAddress] = useState("");
   const [draftNote, setDraftNote] = useState("");
   const [draftOpeningHours, setDraftOpeningHours] = useState("");
   const [draftDuration, setDraftDuration] = useState("");
@@ -1955,6 +1956,8 @@ export default function App() {
       showToast("景點名稱不能留白");
       return;
     }
+    const address = draftAddress.trim() || "地址待補";
+    const addressChanged = address !== editing.address;
     const durationMinutes = Math.max(0, Number.parseInt(draftDuration, 10) || 0);
     const transport = draftTransport.trim() || "尚未安排";
     const transportMode: Stop["transportMode"] =
@@ -1962,7 +1965,20 @@ export default function App() {
       draftRouteMode === "transit" ? (/公車/.test(transport) ? "公車" : "地鐵") :
       draftRouteMode === "taxi" ? "計程車" : "其他";
     const next = selectedDay.stops.map((stop) =>
-      stop.id === editing.id ? { ...stop, title, note: draftNote, openingHours: draftOpeningHours.trim(), durationMinutes, transport, transportMode, routeMode: draftRouteMode } : stop
+      stop.id === editing.id ? {
+        ...stop,
+        title,
+        address,
+        // 地址變更後不沿用舊座標，讓既有的定位流程重新查詢正確位置。
+        latitude: addressChanged ? undefined : stop.latitude,
+        longitude: addressChanged ? undefined : stop.longitude,
+        note: draftNote,
+        openingHours: draftOpeningHours.trim(),
+        durationMinutes,
+        transport,
+        transportMode,
+        routeMode: draftRouteMode
+      } : stop
     );
     const index = next.findIndex((stop) => stop.id === editing.id);
     const current = next[index];
@@ -3871,6 +3887,7 @@ export default function App() {
           onPress={() => {
             setEditing(item);
             setDraftTitle(item.title);
+            setDraftAddress(item.address === "地址待補" ? "" : item.address);
             setDraftNote(item.note);
             setDraftOpeningHours(item.openingHours || "");
             setDraftDuration(String(item.durationMinutes || ""));
@@ -4506,7 +4523,15 @@ export default function App() {
                 placeholderTextColor="#A49C90"
                 style={styles.fieldInput}
               />
-              <Text style={styles.sheetAddress}>{editing?.address}</Text>
+              <Text style={styles.fieldLabel}>地址</Text>
+              <TextInput
+                value={draftAddress}
+                onChangeText={setDraftAddress}
+                placeholder="輸入完整地址或景點地址"
+                placeholderTextColor="#A49C90"
+                style={styles.fieldInput}
+              />
+              <Text style={styles.routeFieldHint}>修改地址後，地圖座標會自動重新取得。</Text>
               <Pressable style={styles.aiInlineButton} onPress={() => editing && openAiAssistant(editing)}>
                 <Text style={styles.aiInlineText}>✦ AI 說說這裡：問交通、最佳抵達時間或備案</Text>
               </Pressable>
