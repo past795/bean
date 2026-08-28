@@ -1831,6 +1831,61 @@ export default function App() {
     return () => { cancelled = true; };
   }, [activeTrip.id, selectedDay?.id, selectedDayGeocodeSignature]);
 
+  // Finish repairing the rest of a trip in the background as well.  Previously
+  // only the day currently on screen was enriched, which left older imported
+  // days with an empty map until the user opened every single tab.
+  const tripCoordinateSignature = activeTrip.days.map((day) =>
+    `${day.id}:${day.stops.map((stop) => `${stop.id}:${stop.address}:${stop.latitude ?? ""}:${stop.longitude ?? ""}`).join(",")}`
+  ).join("|");
+  useEffect(() => {
+    const nextDay = activeTrip.days.find((day) => day.id !== selectedDay?.id && day.stops.some((stop) => stop.latitude == null || stop.longitude == null));
+    if (!nextDay) return;
+    const repairKey = `background:${activeTrip.id}:${nextDay.id}:${tripCoordinateSignature}`;
+    if (geocodedDaysRef.current.has(repairKey)) return;
+    geocodedDaysRef.current.add(repairKey);
+    let cancelled = false;
+
+    (async () => {
+      const repairedStops: Stop[] = [];
+      for (const stop of nextDay.stops) {
+        if (stop.latitude != null && stop.longitude != null) { repairedStops.push(stop); continue; }
+        const known = KNOWN_COORDINATES[stop.id];
+        if (known) { repairedStops.push({ ...stop, latitude: known[0], longitude: known[1] }); continue; }
+        const query = stop.address && stop.address !== "地址待補" ? stop.address : `${stop.title} ${activeTrip.destination}`;
+        const isJapan = /日本|大分|別府|由布|日田|九重|宇佐|國東|中津|竹田/.test(`${activeTrip.destination} ${query}`);
+        const countryCode = isJapan ? "&countrycodes=jp" : /韓國|釜山|首爾|濟州/.test(`${activeTrip.destination} ${query}`) ? "&countrycodes=kr" : "";
+        let repaired = stop;
+        try {
+          if (isJapan && stop.address && stop.address !== "地址待補") {
+            const address = stop.address.replace(/\s+\d+F\b.*$/i, "").replace(/\s*\/.*$/, "").trim();
+            const gsiResponse = await fetch(`https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(address)}`);
+            const feature = gsiResponse.ok ? (await gsiResponse.json())?.[0] : null;
+            const point = feature?.geometry?.coordinates;
+            if (Array.isArray(point) && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1]))) {
+              repaired = { ...stop, longitude: Number(point[0]), latitude: Number(point[1]) };
+            }
+          }
+          if (repaired.latitude == null || repaired.longitude == null) {
+            const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryCode}`);
+            const match = response.ok ? (await response.json())?.[0] : null;
+            if (match && Number.isFinite(Number(match.lat)) && Number.isFinite(Number(match.lon))) {
+              repaired = { ...stop, latitude: Number(match.lat), longitude: Number(match.lon) };
+            }
+          }
+        } catch { /* Keep the stop unchanged; it will retry later. */ }
+        repairedStops.push(repaired);
+        await new Promise((resolve) => setTimeout(resolve, 1050));
+      }
+      if (!cancelled && repairedStops.some((stop, index) => stop !== nextDay.stops[index])) {
+        persistTrips(trips.map((trip) => trip.id === activeTrip.id
+          ? { ...trip, days: trip.days.map((day) => day.id === nextDay.id ? { ...day, stops: repairedStops } : day) }
+          : trip));
+      }
+      if (repairedStops.some((stop) => stop.latitude == null || stop.longitude == null)) geocodedDaysRef.current.delete(repairKey);
+    })();
+    return () => { cancelled = true; };
+  }, [activeTrip.id, selectedDay?.id, tripCoordinateSignature]);
+
   const updateActiveTrip = (changes: Partial<TripPlan>) => {
     persistTrips(trips.map((trip) => trip.id === activeTrip.id ? { ...trip, ...changes } : trip));
   };
