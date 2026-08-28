@@ -4247,7 +4247,13 @@ export default function App() {
               {googleUser ? (
                 <>
                   <View style={styles.accountIdentity}>
-                    {googleUser.picture ? <Image source={{ uri: googleUser.picture }} style={styles.accountAvatar} /> : <View style={styles.accountAvatarFallback}><Text>●</Text></View>}
+                    {googleUser.picture ? (
+                      <Image source={{ uri: googleUser.picture }} style={styles.accountAvatar} />
+                    ) : (
+                      <View style={styles.accountAvatarFallback}>
+                        <Text style={styles.accountAvatarInitials}>{(googleUser.name || "豆遊").trim().slice(0, 2).toUpperCase()}</Text>
+                      </View>
+                    )}
                     <View style={styles.accountText}><Text style={styles.accountName}>{googleUser.name}</Text><Text style={styles.accountEmail}>{googleUser.email}</Text></View>
                     <Pressable onPress={signOutGoogle}><Text style={styles.signOutText}>登出</Text></Pressable>
                   </View>
@@ -5477,6 +5483,7 @@ const styles = createDouyouStyles({
   accountIdentity: { flexDirection: "row", alignItems: "center", gap: 10 },
   accountAvatar: { width: 38, height: 38, borderRadius: 19 },
   accountAvatarFallback: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#E9EDF5", alignItems: "center", justifyContent: "center" },
+  accountAvatarInitials: { color: "#536783", fontSize: 12, fontWeight: "900" },
   accountText: { flex: 1 },
   accountName: { color: "#343D50", fontSize: 13, fontWeight: "900" },
   accountEmail: { color: "#8C837A", fontSize: 10, marginTop: 2 },
