@@ -4511,7 +4511,12 @@ export default function App() {
 
         <Modal visible={!!editing} animationType="slide" transparent onRequestClose={() => setEditing(null)}>
           <View style={styles.modalShade}>
-            <View style={styles.sheet}>
+            <ScrollView
+              style={[styles.sheet, styles.editingSheet]}
+              contentContainerStyle={styles.editingSheetContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator
+            >
               <View style={styles.sheetHandle} />
               <Text style={styles.sheetEyebrow}>景點備註</Text>
               <Text style={styles.sheetTitle}>修改景點</Text>
@@ -4593,7 +4598,7 @@ export default function App() {
               <Pressable style={styles.primaryButton} onPress={saveNote}><Text style={styles.primaryButtonText}>儲存景點資料</Text></Pressable>
               <Pressable style={styles.deleteStopButton} onPress={deleteEditingStop}><Text style={styles.deleteStopText}>刪除此景點</Text></Pressable>
               <Pressable style={styles.cancelButton} onPress={() => setEditing(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
-            </View>
+            </ScrollView>
           </View>
         </Modal>
 
@@ -5551,6 +5556,8 @@ const styles = createDouyouStyles({
   emptyPage: { flex: 1, padding: 24, paddingTop: 45 },
   modalShade: { flex: 1, backgroundColor: "rgba(20,18,16,.35)", justifyContent: "flex-end" },
   sheet: { backgroundColor: "#FBFAF7", borderTopLeftRadius: 30, borderTopRightRadius: 30, padding: 22, paddingBottom: 34 },
+  editingSheet: { maxHeight: "92%" },
+  editingSheetContent: { paddingBottom: 34 },
   createSheetWrap: { flexGrow: 1, justifyContent: "flex-end" },
   sheetHandle: { width: 42, height: 5, borderRadius: 3, backgroundColor: "#D8D2CA", alignSelf: "center", marginBottom: 20 },
   sheetEyebrow: { fontSize: 11, letterSpacing: 1.4, color: "#9A6A4F", fontWeight: "800", fontFamily: "Noto Serif TC" },
