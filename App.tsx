@@ -774,6 +774,7 @@ export default function App() {
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [editing, setEditing] = useState<Stop | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
+  const [draftTime, setDraftTime] = useState("");
   const [draftAddress, setDraftAddress] = useState("");
   const [draftNote, setDraftNote] = useState("");
   const [draftOpeningHours, setDraftOpeningHours] = useState("");
@@ -1944,8 +1945,8 @@ export default function App() {
       const index = selectedDay.stops.findIndex((item) => item.id === stop.id);
       const previous = index > 0 ? selectedDay.stops[index - 1] : null;
       setAiPrompt(previous
-        ? `從「${previous.title}」前往「${stop.title}」怎麼走？請比較大眾運輸、步行與計程車，並提醒我適合的抵達時間與時間風險。`
-        : `我正在安排「${stop.title}」，請建議適合抵達時間、預計停留時間、交通方式與注意事項。`);
+        ? `從「${previous.title}」前往「${stop.title}」怎麼走？請只依豆遊目前儲存的旅行資料回答；沒有的即時路線、票價或營業時間請標示「尚未查證」，不要猜測。`
+        : `我正在安排「${stop.title}」，請依豆遊目前儲存的旅行資料建議抵達時間、停留時間與注意事項；沒有的最新資料請標示「尚未查證」，不要自行編造。`);
     } else {
       setAiPrompt("");
     }
@@ -1961,8 +1962,35 @@ export default function App() {
     setAiLoading(true);
     setAiError("");
     try {
+      const tripContext = {
+        title: activeTrip.title,
+        destination: activeTrip.destination,
+        startDate: activeTrip.startDate,
+        endDate: activeTrip.endDate,
+        days: activeTrip.days.map((day) => ({
+          label: day.label,
+          date: day.date,
+          title: day.title,
+          stops: day.stops.map((stop) => ({
+            title: stop.title, address: stop.address, time: stop.time,
+            transport: stop.transport, openingHours: stop.openingHours,
+            openingHoursSource: stop.openingHoursSource, note: stop.note
+          }))
+        })),
+        accommodations: (activeTrip.accommodations || []).map((hotel: any) => ({
+          name: hotel.name, address: hotel.address, period: hotel.period,
+          checkIn: hotel.checkIn, checkOut: hotel.checkOut
+        }))
+      };
+      const groundedMessage = [
+        "你是豆遊小助手。以下 JSON 是使用者 App 內的唯一可信旅行資料。",
+        "規則：優先引用 JSON；不得把模型記憶當成最新事實；JSON 沒有的營業時間、票價、班次、地址與即時路線，一律寫『尚未查證』；不可捏造來源或網址；資訊不足時先說明缺少什麼。",
+        `使用者問題：${message}`,
+        `豆遊旅行資料：${JSON.stringify(tripContext)}`
+      ].join("\n\n");
       const payload = {
-        message,
+        message: groundedMessage,
+        policy: "grounded-trip-data-only",
         trip: {
           title: activeTrip.title,
           destination: activeTrip.destination,
@@ -2003,6 +2031,11 @@ export default function App() {
     const address = draftAddress.trim() || "地址待補";
     const addressChanged = address !== editing.address;
     const durationMinutes = Math.max(0, Number.parseInt(draftDuration, 10) || 0);
+    const normalizedTime = draftTime.trim();
+    if (normalizedTime && normalizedTime !== "彈性" && !/^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(normalizedTime)) {
+      showToast("時間請輸入 00:00～23:59，或填寫「彈性」");
+      return;
+    }
     const transport = draftTransport.trim() || "尚未安排";
     const transportMode: Stop["transportMode"] =
       draftRouteMode === "walking" ? "步行" :
@@ -2011,6 +2044,7 @@ export default function App() {
     const next = selectedDay.stops.map((stop) =>
       stop.id === editing.id ? {
         ...stop,
+        time: normalizedTime || "彈性",
         title,
         address,
         // 地址變更後不沿用舊座標，讓既有的定位流程重新查詢正確位置。
@@ -2274,7 +2308,7 @@ export default function App() {
     showToast(wasEditing ? "收藏景點已更新" : "收藏景點已新增並自動分類");
   };
 
-  const importFavoriteBatch = () => {
+  const importFavoriteBatch = async () => {
     const lines = batchFavoriteText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     if (!lines.length) { Alert.alert("請貼上景點清單"); return; }
     const parsed = lines.map((line, index) => {
@@ -2295,11 +2329,26 @@ export default function App() {
         || imported.some((favorite) => favorite.name === item.name && favorite.address === item.address);
       if (!duplicate) imported.push({ id: `favorite-${Date.now()}-${item.index}`, name: item.name, address: item.address, country: item.country, city: item.city, note: item.note });
     });
-    persistFavorites([...withoutLegacyBrokenRows, ...imported]);
-    setBatchFavoriteStatus("");
-    setBatchFavoriteVisible(false);
-    setBatchFavoriteText("");
-    showToast(`已匯入 ${imported.length} 個收藏景點`);
+    const nextFavorites = [...withoutLegacyBrokenRows, ...imported];
+    if (!imported.length) {
+      Alert.alert("沒有新增景點", `讀到 ${parsed.length} 行，但全部已存在或格式不完整。`);
+      return;
+    }
+    setBatchFavoriteStatus(`正在儲存 ${imported.length} 個景點…`);
+    setFavorites(nextFavorites);
+    await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(nextFavorites));
+    try {
+      if (firestoreConnected && googleUser?.firebaseUid) {
+        await saveFirestoreFavorites(firestorePersonId(googleUser.email, googleUser.firebaseUid), nextFavorites);
+      }
+      setBatchFavoriteVisible(false);
+      setBatchFavoriteText("");
+      showToast(`已匯入 ${imported.length} 個景點${parsed.length > imported.length ? `，略過 ${parsed.length - imported.length} 個重複項目` : ""}`);
+    } catch (error: any) {
+      Alert.alert("景點已存到此裝置，但雲端同步失敗", error?.message || "請確認網路後再試一次");
+    } finally {
+      setBatchFavoriteStatus("");
+    }
   };
 
   const toggleFavoriteSelection = (ids: string[]) => {
@@ -3931,6 +3980,7 @@ export default function App() {
           onPress={() => {
             setEditing(item);
             setDraftTitle(item.title);
+            setDraftTime(item.time || "");
             setDraftAddress(item.address === "地址待補" ? "" : item.address);
             setDraftNote(item.note);
             setDraftOpeningHours(item.openingHours || "");
@@ -4578,6 +4628,15 @@ export default function App() {
                 placeholderTextColor="#A49C90"
                 style={styles.fieldInput}
               />
+              <Text style={styles.fieldLabel}>抵達／開始時間</Text>
+              <TextInput
+                value={draftTime}
+                onChangeText={setDraftTime}
+                placeholder="例如：09:30；不固定可填彈性"
+                placeholderTextColor="#A49C90"
+                style={styles.fieldInput}
+              />
+              <Text style={styles.routeFieldHint}>儲存後會顯示在行程卡片；有填停留時間時，也會接續計算下一站時間。</Text>
               <Text style={styles.fieldLabel}>地址</Text>
               <TextInput
                 value={draftAddress}
