@@ -112,14 +112,32 @@ const reservationGoogleCalendarUrl = (title: string, dateText: string, note = ""
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 };
-const reservationIcsDataUrl = (title: string, dateText: string, note = "") => {
+const reservationIcsContent = (title: string, dateText: string, note = "") => {
   const normalizedDate = normalizeTripDate(dateText);
   if (!normalizedDate) return "";
   const start = normalizedDate.replaceAll("-", "");
   const end = dateDaysBefore(normalizedDate, -1).replaceAll("-", "");
   const escape = (value: string) => value.replace(/\\/g, "\\\\").replace(/,/g, "\\,").replace(/;/g, "\\;").replace(/\n/g, "\\n");
-  const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Douyou//Reservation//ZH", "BEGIN:VEVENT", `UID:douyou-${Date.now()}@douyou`, `DTSTART;VALUE=DATE:${start}`, `DTEND;VALUE=DATE:${end}`, `SUMMARY:${escape(`預約提醒｜${title}`)}`, `DESCRIPTION:${escape(note)}`, "BEGIN:VALARM", "TRIGGER:-PT9H", "ACTION:DISPLAY", "DESCRIPTION:豆遊預約提醒", "END:VALARM", "END:VEVENT", "END:VCALENDAR"].join("\r\n");
-  return `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "PRODID:-//Douyou//Reservation//ZH", "BEGIN:VEVENT", `UID:douyou-${start}-${Date.now()}@douyou`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")}`, `DTSTART;VALUE=DATE:${start}`, `DTEND;VALUE=DATE:${end}`, `SUMMARY:${escape(`預約提醒｜${title}`)}`, `DESCRIPTION:${escape(note || "豆遊預約提醒")}`, "BEGIN:VALARM", "TRIGGER:-PT9H", "ACTION:DISPLAY", "DESCRIPTION:豆遊預約提醒", "END:VALARM", "END:VEVENT", "END:VCALENDAR", ""].join("\r\n");
+};
+const openReservationIphoneCalendar = async (title: string, dateText: string, note = "") => {
+  const normalizedDate = normalizeTripDate(dateText);
+  const ics = reservationIcsContent(title, dateText, note);
+  if (!normalizedDate || !ics) throw new Error("INVALID_RESERVATION_DATE");
+  if (Platform.OS === "web" && typeof document !== "undefined") {
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = `douyou-reservation-${normalizedDate}.ics`;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+    return;
+  }
+  await Linking.openURL(`data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`);
 };
 const reservationWebsiteUrl = (value = "") => {
   const matched = String(value).match(/https?:\/\/[^\s)]+/i);
@@ -5084,11 +5102,11 @@ export default function App() {
                   <View style={styles.reservationHeading}><View style={styles.toolText}><Text style={styles.detailTitle}>這趟旅行的預約提醒</Text><Text style={styles.detailHint}>系統會依行程日期提供建議預約日；按下「已完成」後，所有旅伴都會同步看到完成狀態。</Text></View><Pressable style={styles.reservationAddButton} onPress={() => { setSelectedTool(null); setAddingReservation(true); }}><Text style={styles.reservationAddText}>＋ 新增預約</Text></Pressable></View>
                   {reservationStops.map(({ day, stop, info }) => (
                     <View key={stop.id} style={[styles.toolCard, stop.reservationCompleted && styles.reservationCompletedCard]}>
-                      <View style={styles.toolText}><Text style={styles.toolTitle}>{reservationDateLabel(day.date)}・{stop.time} {stopDisplayTitle(stop)}</Text><Text style={styles.toolSub}>{info.suggestedDate ? `建議於 ${reservationDateLabel(info.suggestedDate)} 預約` : "建議盡早確認預約"}</Text><Text style={styles.toolSub}>{info.note}</Text>{!!reservationWebsiteUrl(stop.note) && <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(reservationWebsiteUrl(stop.note))}><Text style={styles.reservationWebsiteText}>開啟預約網站 ↗</Text></Pressable>}{!!info.suggestedDate && <View style={styles.calendarActions}><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationGoogleCalendarUrl(stopDisplayTitle(stop), info.suggestedDate || "", info.note))}><Text style={styles.calendarButtonText}>Google 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationIcsDataUrl(stopDisplayTitle(stop), info.suggestedDate || "", info.note)).catch(() => showToast("無法開啟行事曆檔，請改用 Google 行事曆。"))}><Text style={styles.calendarButtonText}>iPhone 行事曆</Text></Pressable></View>}</View>
+                      <View style={styles.toolText}><Text style={styles.toolTitle}>{reservationDateLabel(day.date)}・{stop.time} {stopDisplayTitle(stop)}</Text><Text style={styles.toolSub}>{info.suggestedDate ? `建議於 ${reservationDateLabel(info.suggestedDate)} 預約` : "建議盡早確認預約"}</Text><Text style={styles.toolSub}>{info.note}</Text>{!!reservationWebsiteUrl(stop.note) && <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(reservationWebsiteUrl(stop.note))}><Text style={styles.reservationWebsiteText}>開啟預約網站 ↗</Text></Pressable>}{!!info.suggestedDate && <View style={styles.calendarActions}><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationGoogleCalendarUrl(stopDisplayTitle(stop), info.suggestedDate || "", info.note))}><Text style={styles.calendarButtonText}>Google 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => openReservationIphoneCalendar(stopDisplayTitle(stop), info.suggestedDate || "", info.note).catch(() => showToast("無法建立 iPhone 行事曆檔，請確認建議預約日期。"))}><Text style={styles.calendarButtonText}>iPhone 行事曆</Text></Pressable></View>}</View>
                       <Pressable style={[styles.reservationCheckButton, stop.reservationCompleted && styles.reservationCheckButtonDone]} onPress={() => toggleReservationCompleted(day.id, stop.id)}><Text style={[styles.reservationCheckText, stop.reservationCompleted && styles.reservationCheckTextDone]}>{stop.reservationCompleted ? "✓ 已完成" : "○ 待預約"}</Text></Pressable>
                     </View>
                   ))}
-                  {(activeTrip.reservations || []).map((item) => <View key={item.id} style={[styles.toolCard, item.completed && styles.reservationCompletedCard]}><View style={styles.toolText}><Text style={styles.toolTitle}>{item.title}</Text><Text style={styles.toolSub}>{item.suggestedDate ? `建議於 ${reservationDateLabel(item.suggestedDate)} 預約` : "建議預約日：請自行設定"}</Text>{!!item.note && <Text style={styles.toolSub}>{item.note}</Text>}{!!item.website && <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(item.website || "")}><Text style={styles.reservationWebsiteText}>開啟預約網站 ↗</Text></Pressable>}{!!item.suggestedDate && <View style={styles.calendarActions}><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationGoogleCalendarUrl(item.title, item.suggestedDate || "", item.note || ""))}><Text style={styles.calendarButtonText}>Google 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationIcsDataUrl(item.title, item.suggestedDate || "", item.note || "")).catch(() => showToast("無法開啟行事曆檔，請改用 Google 行事曆。"))}><Text style={styles.calendarButtonText}>iPhone 行事曆</Text></Pressable></View>}</View><Pressable style={[styles.reservationCheckButton, item.completed && styles.reservationCheckButtonDone]} onPress={() => toggleManualReservation(item.id)}><Text style={[styles.reservationCheckText, item.completed && styles.reservationCheckTextDone]}>{item.completed ? "✓ 已完成" : "○ 待預約"}</Text></Pressable><Pressable style={styles.reservationDeleteButton} onPress={() => removeManualReservation(item.id)}><Text style={styles.reservationDeleteText}>×</Text></Pressable></View>)}
+                  {(activeTrip.reservations || []).map((item) => <View key={item.id} style={[styles.toolCard, item.completed && styles.reservationCompletedCard]}><View style={styles.toolText}><Text style={styles.toolTitle}>{item.title}</Text><Text style={styles.toolSub}>{item.suggestedDate ? `建議於 ${reservationDateLabel(item.suggestedDate)} 預約` : "建議預約日：請自行設定"}</Text>{!!item.note && <Text style={styles.toolSub}>{item.note}</Text>}{!!item.website && <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(item.website || "")}><Text style={styles.reservationWebsiteText}>開啟預約網站 ↗</Text></Pressable>}{!!item.suggestedDate && <View style={styles.calendarActions}><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationGoogleCalendarUrl(item.title, item.suggestedDate || "", item.note || ""))}><Text style={styles.calendarButtonText}>Google 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => openReservationIphoneCalendar(item.title, item.suggestedDate || "", item.note || "").catch(() => showToast("無法建立 iPhone 行事曆檔，請確認建議預約日期。"))}><Text style={styles.calendarButtonText}>iPhone 行事曆</Text></Pressable></View>}</View><Pressable style={[styles.reservationCheckButton, item.completed && styles.reservationCheckButtonDone]} onPress={() => toggleManualReservation(item.id)}><Text style={[styles.reservationCheckText, item.completed && styles.reservationCheckTextDone]}>{item.completed ? "✓ 已完成" : "○ 待預約"}</Text></Pressable><Pressable style={styles.reservationDeleteButton} onPress={() => removeManualReservation(item.id)}><Text style={styles.reservationDeleteText}>×</Text></Pressable></View>)}
                   {!reservationStops.length && !(activeTrip.reservations || []).length && <Text style={styles.emptyListText}>目前沒有預約事項。可按右上方「＋ 新增預約」，或在景點備註填「需預約」或「預約制」。</Text>}
                 </View>
               )}
