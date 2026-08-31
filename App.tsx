@@ -374,7 +374,7 @@ const formatCloudDateTime = (value: unknown) => {
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date).replace(" ", " ");
 };
 
-const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string; durationMinutes?: number; reservationRequired?: boolean; reservationNote?: string; reservationSuggestedDate?: string; reservationCompleted?: boolean } => {
+const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string; durationMinutes?: number; transitMinutes?: number; reservationRequired?: boolean; reservationNote?: string; reservationSuggestedDate?: string; reservationCompleted?: boolean } => {
   if (!value) return {};
   try {
     const parsed = JSON.parse(String(value));
@@ -383,6 +383,7 @@ const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: 
       openingHours: typeof parsed.openingHours === "string" ? parsed.openingHours : undefined,
       openingHoursSource: typeof parsed.openingHoursSource === "string" ? parsed.openingHoursSource : undefined,
       durationMinutes: Number.isFinite(Number(parsed.durationMinutes)) ? Number(parsed.durationMinutes) : undefined,
+      transitMinutes: Number.isFinite(Number(parsed.transitMinutes)) ? Number(parsed.transitMinutes) : undefined,
       reservationRequired: parsed.reservationRequired === true,
       reservationNote: typeof parsed.reservationNote === "string" ? parsed.reservationNote : undefined,
       reservationSuggestedDate: typeof parsed.reservationSuggestedDate === "string" ? parsed.reservationSuggestedDate : undefined,
@@ -459,7 +460,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   },
   itinerary: trip.days.flatMap((day) => day.stops.map((stop, index) => ({
     "日期ID": day.id, "景點ID": stop.id, "日期": day.date, "開始時間": stop.time,
-    "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "", durationMinutes: stop.durationMinutes || 0, reservationRequired: !!stop.reservationRequired, reservationNote: stop.reservationNote || "", reservationSuggestedDate: stop.reservationSuggestedDate || "", reservationCompleted: !!stop.reservationCompleted }), "景點名稱": stop.title, "地址": stop.address,
+    "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "", durationMinutes: stop.durationMinutes || 0, transitMinutes: stop.transitMinutes || 0, reservationRequired: !!stop.reservationRequired, reservationNote: stop.reservationNote || "", reservationSuggestedDate: stop.reservationSuggestedDate || "", reservationCompleted: !!stop.reservationCompleted }), "景點名稱": stop.title, "地址": stop.address,
     "交通方式": stop.transport, "備註": stop.note, "緯度": stop.latitude ?? "",
     "經度": stop.longitude ?? "", "排序": index
   }))),
@@ -486,6 +487,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
       homeBaseByDay: trip.homeBaseByDay || {},
       accommodationByNight: trip.accommodationByNight || {},
       shoppingCatalogImported: !!trip.shoppingCatalogImported,
+      oitaDay3TransitVersion: trip.oitaDay3TransitVersion || 0,
       unscheduledPlaces: trip.unscheduledPlaces || [],
       reservations: trip.reservations || [],
       days: trip.days.map((day) => ({ id: day.id, date: day.date, title: day.title }))
@@ -535,7 +537,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
           transport: String(row["交通方式"] || "尚未安排"), transportMode: "其他" as const,
           note: String(row["備註"] || ""), latitude: row["緯度"] === "" ? undefined : Number(row["緯度"]),
           longitude: row["經度"] === "" ? undefined : Number(row["經度"]),
-          routeMode: meta.routeMode || "driving", openingHours: meta.openingHours || "", openingHoursSource: meta.openingHoursSource || "", durationMinutes: meta.durationMinutes || 0, reservationRequired: meta.reservationRequired, reservationNote: meta.reservationNote || "", reservationSuggestedDate: meta.reservationSuggestedDate || "", reservationCompleted: meta.reservationCompleted
+          routeMode: meta.routeMode || "driving", openingHours: meta.openingHours || "", openingHoursSource: meta.openingHoursSource || "", durationMinutes: meta.durationMinutes || 0, transitMinutes: meta.transitMinutes || 0, reservationRequired: meta.reservationRequired, reservationNote: meta.reservationNote || "", reservationSuggestedDate: meta.reservationSuggestedDate || "", reservationCompleted: meta.reservationCompleted
         };
       })
     };
@@ -559,6 +561,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
       try { return JSON.parse(String(row?.["備註"] || "{}")).accommodationByNight || {}; } catch { return {}; }
     })(),
     shoppingCatalogImported: !!tripMeta.shoppingCatalogImported,
+    oitaDay3TransitVersion: Number(tripMeta.oitaDay3TransitVersion || 0),
     unscheduledPlaces: Array.isArray(tripMeta.unscheduledPlaces) ? tripMeta.unscheduledPlaces : [],
     reservations: Array.isArray(tripMeta.reservations) ? tripMeta.reservations : [],
     period: startDate
@@ -779,6 +782,7 @@ export default function App() {
   const [draftNote, setDraftNote] = useState("");
   const [draftOpeningHours, setDraftOpeningHours] = useState("");
   const [draftDuration, setDraftDuration] = useState("");
+  const [draftTransitMinutes, setDraftTransitMinutes] = useState("");
   const [draftTransport, setDraftTransport] = useState("");
   const [draftRouteMode, setDraftRouteMode] = useState<RouteMode>("driving");
   const [creatingTrip, setCreatingTrip] = useState(false);
@@ -790,6 +794,7 @@ export default function App() {
   const [newDayCount, setNewDayCount] = useState("5");
   const [newTravelers, setNewTravelers] = useState("2");
   const [addingStop, setAddingStop] = useState(false);
+  const [dayOrganizerVisible, setDayOrganizerVisible] = useState(false);
   const [newStopTitle, setNewStopTitle] = useState("");
   const [newStopTime, setNewStopTime] = useState("");
   const [newStopAddress, setNewStopAddress] = useState("");
@@ -798,6 +803,7 @@ export default function App() {
   const [newStopNote, setNewStopNote] = useState("");
   const [newStopOpeningHours, setNewStopOpeningHours] = useState("");
   const [newStopDuration, setNewStopDuration] = useState("");
+  const [newStopTransitMinutes, setNewStopTransitMinutes] = useState("");
   const [newStopLatitude, setNewStopLatitude] = useState<number | undefined>();
   const [newStopLongitude, setNewStopLongitude] = useState<number | undefined>();
   const [addressLookupStatus, setAddressLookupStatus] = useState<"idle" | "loading" | "found" | "error">("idle");
@@ -1812,6 +1818,88 @@ export default function App() {
     persistTrips(next);
   };
 
+  useEffect(() => {
+    if (!tripsLoaded) return;
+    const oitaTrip = trips.find((trip) => trip.id === "trip-1786446683379");
+    if (!oitaTrip || oitaTrip.oitaDay3TransitVersion === 3 || !oitaTrip.days[2]) return;
+
+    const dayThreeStops: Stop[] = [
+      {
+        id: "oita-d3-odan-1", time: "09:10", title: "九州橫斷巴士 1號｜由布院→九重登山口",
+        address: "大分県由布市湯布院町川北3-1（Yufuin Bus Terminal）", transport: "九州橫斷巴士 1號｜由布院站前 → 九重登山口",
+        transportMode: "公車", routeMode: "transit", transitMinutes: 52, openingHours: "09:10-10:02",
+        reservationRequired: true, reservationSuggestedDate: "2026-11-02", reservationNote: "全座位預約制；搭乘日前 1 個月開放，紅葉季建議提早 2～4 週。可用 Japan Bus Online、發車オーライネット或 SUNQ Pass 官網劃位。",
+        note: "09:10 由布院站前發車，10:02 抵達九重登山口。參考票價約 ¥1,000～1,200。"
+      },
+      {
+        id: "oita-d3-transfer-out", time: "10:02", title: "九重登山口｜轉乘候車",
+        address: "大分県玖珠郡九重町田野（Kuju Tozan Road 站牌）", transport: "步行／原地候車",
+        transportMode: "步行", routeMode: "walking", transitMinutes: 18, openingHours: "10:02-10:20",
+        note: "兩線站牌位於同一區域（長者原花山醉周邊）；10:20 轉乘九重町社區巴士。"
+      },
+      {
+        id: "oita-d3-community-b", time: "10:20", title: "九重町社區巴士 班次 B｜前往大吊橋",
+        address: "大分県玖珠郡九重町田野260-1（九重登山口 花山醉前站牌）", transport: "九重町社區巴士 班次 B｜九重登山口花山醉 → 大吊橋中村口",
+        transportMode: "公車", routeMode: "transit", transitMinutes: 49, openingHours: "10:20-11:09",
+        note: "免預約、後付款；上車抽整理券，下車依運賃表投現。參考票價約 ¥500。"
+      },
+      {
+        id: "oita-d3-bridge", time: "11:09", title: "九重夢大吊橋｜園區、展望台與午餐",
+        address: "大分県玖珠郡九重町田野1228", transport: "園區內步行",
+        transportMode: "步行", routeMode: "walking", durationMinutes: 201, openingHours: "11:09-14:30",
+        note: "停留約 3.5 小時；吊橋園區、展望台與周邊美食。門票參考 ¥500，14:30 前往中村口站牌。"
+      },
+      {
+        id: "oita-d3-community-5", time: "14:41", title: "九重町社區巴士 班次 5｜返回九重登山口",
+        address: "大分県玖珠郡九重町田野1215（大吊橋中村口站牌／停車場旁乘車處）", transport: "九重町社區巴士 班次 5｜大吊橋中村口 → 九重登山口花山醉",
+        transportMode: "公車", routeMode: "transit", transitMinutes: 49, openingHours: "14:41-15:30",
+        note: "免預約、後付款；15:30 抵達九重登山口花山醉，銜接 15:41 九州橫斷巴士 6號。"
+      },
+      {
+        id: "oita-d3-transfer-return", time: "15:30", title: "九重登山口｜回程轉乘候車",
+        address: "大分県玖珠郡九重町田野（Kuju Tozan Road 站牌）", transport: "步行／原地候車",
+        transportMode: "步行", routeMode: "walking", transitMinutes: 11, openingHours: "15:30-15:41",
+        note: "轉乘等候 11 分鐘；請精準掌握 15:41 九州橫斷巴士 6號。"
+      },
+      {
+        id: "oita-d3-odan-6", time: "15:41", title: "九州橫斷巴士 6號｜九重登山口→由布院",
+        address: "大分県玖珠郡九重町田野（Kuju Tozan Road 站牌）", transport: "九州橫斷巴士 6號｜九重登山口 → 由布院站前",
+        transportMode: "公車", routeMode: "transit", transitMinutes: 52, openingHours: "15:41-16:33",
+        reservationRequired: true, reservationSuggestedDate: "2026-11-02", reservationNote: "全座位預約制；建議與去程一起完成預約。可用 Japan Bus Online、發車オーライネット或 SUNQ Pass 官網劃位。",
+        note: "15:41 九重登山口發車，16:33 抵達由布院站前。參考票價約 ¥1,000～1,200。"
+      },
+      {
+        id: "oita-d3-yufuin-arrival", time: "16:33", title: "抵達由布院站前",
+        address: "大分県由布市湯布院町川北3-1（Yufuin Bus Terminal）", transport: "步行返回旅館",
+        transportMode: "步行", routeMode: "walking", transitMinutes: 15, openingHours: "16:33",
+        note: "黃金一日遊接駁完成；下車後步行或依住宿安排返回旅館。"
+      }
+    ];
+
+    const updatedTrip: TripPlan = {
+      ...oitaTrip,
+      oitaDay3TransitVersion: 3,
+      days: oitaTrip.days.map((day, index) => index === 2 ? {
+        ...day,
+        title: "九重夢大吊橋｜黃金接駁一日遊",
+        stops: dayThreeStops
+      } : {
+        ...day,
+        stops: day.stops.map((stop) => /地獄蒸(?:し|工房)|地獄蒸工房.*鉄輪|地獄蒸工房.*鐵輪/i.test(stop.title) ? {
+          ...stop,
+          address: "〒874-0044 大分県別府市風呂本5組（いでゆ坂沿い）",
+          latitude: 33.3152,
+          longitude: 131.4764
+        } : stop)
+      })
+    };
+    const next = trips.map((trip) => trip.id === updatedTrip.id ? updatedTrip : trip);
+    localMutationAtRef.current = Date.now();
+    setTrips(next);
+    AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
+    queueFirestoreState(updatedTrip, expenses[updatedTrip.id] ?? []);
+  }, [tripsLoaded, trips, firestoreConnected, googleUser?.firebaseUid]);
+
   const selectedDayGeocodeSignature = selectedDay
     ? selectedDay.stops.map((stop) => [stop.id, stop.title, stop.address, stop.latitude ?? "", stop.longitude ?? "", stop.openingHours ?? ""].join("~")).join("|")
     : "";
@@ -2031,6 +2119,7 @@ export default function App() {
     const address = draftAddress.trim() || "地址待補";
     const addressChanged = address !== editing.address;
     const durationMinutes = Math.max(0, Number.parseInt(draftDuration, 10) || 0);
+    const transitMinutes = Math.max(0, Number.parseInt(draftTransitMinutes, 10) || 0);
     const normalizedTime = draftTime.trim();
     if (normalizedTime && normalizedTime !== "彈性" && !/^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(normalizedTime)) {
       showToast("時間請輸入 00:00～23:59，或填寫「彈性」");
@@ -2053,6 +2142,7 @@ export default function App() {
         note: draftNote,
         openingHours: draftOpeningHours.trim(),
         durationMinutes,
+        transitMinutes,
         transport,
         transportMode,
         routeMode: draftRouteMode
@@ -2209,6 +2299,7 @@ export default function App() {
   };
 
   const estimatedLegMinutes = (from: Stop, to: Stop, mode: RouteMode) => {
+    if ((from.transitMinutes || 0) > 0) return from.transitMinutes!;
     const distance = distanceBetween(from, to);
     if (!Number.isFinite(distance)) return null;
     const minutes =
@@ -3035,18 +3126,20 @@ export default function App() {
       const title = parts[1] || "";
       const address = parts[2] || "地址待補";
       const transport = parts[3] || "尚未安排";
-      const note = parts[4] || "";
+      const hasSeparateTransitMinutes = parts.length >= 6 && /^\d+$/.test(parts[4] || "");
+      const transitMinutes = hasSeparateTransitMinutes ? Math.max(0, Number.parseInt(parts[4]!, 10) || 0) : 0;
+      const note = hasSeparateTransitMinutes ? parts.slice(5).join("｜") : parts.slice(4).join("｜");
       if (!title || /^(時間|time)$/i.test(time)) return;
       nextDays[dayIndex]!.stops.push({
         id: `${nextDays[dayIndex]!.id}-bulk-${Date.now()}-${added}`,
-        time: time || "彈性", title, address, transport, note,
+        time: time || "彈性", title, address, transport, transitMinutes, note,
         transportMode: transport.includes("步行") ? "步行" : transport.includes("地鐵") ? "地鐵" : transport.includes("公車") ? "公車" : transport.includes("計程車") ? "計程車" : "其他",
         routeMode: transport.includes("步行") ? "walking" : transport.includes("地鐵") || transport.includes("公車") ? "transit" : transport.includes("計程車") ? "taxi" : "driving"
       });
       added += 1;
     });
     if (!added) {
-      Alert.alert("沒有讀到景點", "請使用：時間｜景點｜地址｜交通｜備註；不同天可用 DAY 1、DAY 2 分隔。");
+      Alert.alert("沒有讀到景點", "請使用：時間｜景點｜地址｜交通班次／路線｜交通分鐘｜備註；不同天可用 DAY 1、DAY 2 分隔。");
       return;
     }
     persistTrips(trips.map((trip) => trip.id === activeTrip.id ? { ...trip, days: nextDays } : trip));
@@ -3313,6 +3406,7 @@ export default function App() {
       latitude: newStopLatitude,
       longitude: newStopLongitude,
       durationMinutes: Math.max(0, Number.parseInt(newStopDuration, 10) || 0),
+      transitMinutes: Math.max(0, Number.parseInt(newStopTransitMinutes, 10) || 0),
       routeMode: newStopRouteMode
     };
     setAddingStop(false);
@@ -3326,6 +3420,7 @@ export default function App() {
     setNewStopNote("");
     setNewStopOpeningHours("");
     setNewStopDuration("");
+    setNewStopTransitMinutes("");
     setNewStopLatitude(undefined);
     setNewStopLongitude(undefined);
     setAddressLookupStatus("idle");
@@ -3985,6 +4080,7 @@ export default function App() {
             setDraftNote(item.note);
             setDraftOpeningHours(item.openingHours || "");
             setDraftDuration(String(item.durationMinutes || ""));
+            setDraftTransitMinutes(String(item.transitMinutes || ""));
             setDraftTransport(item.transport || "");
             setDraftRouteMode(item.routeMode || (item.transport.includes("步行") ? "walking" : item.transport.includes("地鐵") || item.transport.includes("公車") ? "transit" : item.transport.includes("計程車") ? "taxi" : "driving"));
           }}
@@ -4007,8 +4103,9 @@ export default function App() {
           <View style={styles.transportRow}>
             <Text style={styles.transportIcon}>{transportIcon(item.transportMode)}</Text>
             <View>
-              <Text style={styles.transportLabel}>原行程安排的交通</Text>
+              <Text style={styles.transportLabel}>交通班次／路線</Text>
               <Text style={styles.transportText}>{item.transport || "尚未安排"}</Text>
+              {!!item.transitMinutes && <Text style={styles.transportLabel}>預計交通時間｜約 {item.transitMinutes} 分鐘</Text>}
             </View>
           </View>
           {nextStop && (
@@ -4186,6 +4283,9 @@ export default function App() {
                     <View style={styles.dayHeadingActions}>
                       <Text style={styles.dayCount}>{selectedDay.stops.length} 個安排</Text>
                       <View style={styles.dayActionRow}>
+                        <Pressable style={styles.dayMoveButton} onPress={() => setDayOrganizerVisible(true)}>
+                          <Text style={styles.dayMoveText}>≡ 整日編排</Text>
+                        </Pressable>
                         <Pressable disabled={days.findIndex((day) => day.id === selectedDay.id) === 0} style={styles.dayMoveButton} onPress={() => moveWholeDay(-1)}>
                           <Text style={[styles.dayMoveText, days.findIndex((day) => day.id === selectedDay.id) === 0 && styles.reorderDisabled]}>← 整天前移</Text>
                         </Pressable>
@@ -4609,6 +4709,35 @@ export default function App() {
           </View></View>
         </Modal>
 
+        <Modal visible={dayOrganizerVisible} animationType="slide" transparent onRequestClose={() => setDayOrganizerVisible(false)}>
+          <Pressable style={styles.modalShade} onPress={() => setDayOrganizerVisible(false)}>
+            <Pressable style={[styles.sheet, styles.organizerSheet]} onPress={(event) => event.stopPropagation()}>
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetEyebrow}>DAY ORGANIZER</Text>
+              <Text style={styles.sheetTitle}>{selectedDay.date}｜整日編排</Text>
+              <Text style={styles.routeFieldHint}>長按右側「≡」後直接拖曳；放開就會儲存新順序。</Text>
+              <DraggableFlatList
+                data={selectedDay.stops}
+                keyExtractor={(item) => item.id}
+                onDragEnd={({ data }) => updateStops(data)}
+                contentContainerStyle={styles.organizerList}
+                renderItem={({ item, drag, isActive, getIndex }) => (
+                  <Pressable onLongPress={drag} delayLongPress={120} style={[styles.organizerRow, isActive && styles.dragging]}>
+                    <Text style={styles.organizerIndex}>{(getIndex() ?? 0) + 1}</Text>
+                    <View style={styles.organizerBody}>
+                      <Text style={styles.organizerTime}>{item.time}</Text>
+                      <Text style={styles.organizerTitle}>{stopDisplayTitle(item)}</Text>
+                      <Text style={styles.organizerTransport}>{item.transport || "尚未安排"}{item.transitMinutes ? `｜${item.transitMinutes} 分鐘` : ""}</Text>
+                    </View>
+                    <Text style={styles.organizerHandle}>≡</Text>
+                  </Pressable>
+                )}
+              />
+              <Pressable style={styles.primaryButton} onPress={() => setDayOrganizerVisible(false)}><Text style={styles.primaryButtonText}>完成</Text></Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         <Modal visible={!!editing} animationType="slide" transparent onRequestClose={() => setEditing(null)}>
           <View style={styles.modalShade}>
             <ScrollView
@@ -4668,10 +4797,20 @@ export default function App() {
                   </Pressable>
                 ))}
               </View>
+              <Text style={styles.fieldLabel}>交通班次／路線</Text>
               <TextInput
                 value={draftTransport}
                 onChangeText={setDraftTransport}
-                placeholder="例如：地鐵約 20 分鐘（不是預約制）"
+                placeholder="例如：九州橫斷巴士 1號"
+                placeholderTextColor="#A49C90"
+                style={styles.fieldInput}
+              />
+              <Text style={styles.fieldLabel}>預計交通時間（分鐘）</Text>
+              <TextInput
+                value={draftTransitMinutes}
+                onChangeText={setDraftTransitMinutes}
+                keyboardType="number-pad"
+                placeholder="例如：52"
                 placeholderTextColor="#A49C90"
                 style={styles.fieldInput}
               />
@@ -5261,12 +5400,12 @@ export default function App() {
                 </Pressable>
                 {bulkImportVisible && (
                   <View style={styles.bulkImportBox}>
-                    <Text style={styles.bulkHelp}>每行格式：時間｜景點｜地址｜交通｜備註{"\n"}不同天請插入 DAY 1、DAY 2…</Text>
+                    <Text style={styles.bulkHelp}>每行格式：時間｜景點｜地址｜交通班次／路線｜交通分鐘｜備註{"\n"}不同天請插入 DAY 1、DAY 2…</Text>
                     <TextInput
                       value={bulkItineraryText}
                       onChangeText={setBulkItineraryText}
                       multiline
-                      placeholder={"DAY 1\n09:00｜海雲台｜地址｜地鐵｜吃早餐\n10:30｜藍線公園｜地址｜步行｜已訂票"}
+                      placeholder={"DAY 1\n09:00｜海雲台｜地址｜地鐵 2號線｜20｜吃早餐\n10:30｜藍線公園｜地址｜步行｜10｜已訂票"}
                       placeholderTextColor="#AAA198"
                       style={styles.bulkInput}
                     />
@@ -5322,7 +5461,10 @@ export default function App() {
                         </Pressable>
                       ))}
                     </View>
-                    <TextInput value={newStopTransport} onChangeText={setNewStopTransport} placeholder="地鐵約 20 分鐘" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                    <Text style={styles.fieldLabel}>交通班次／路線</Text>
+                    <TextInput value={newStopTransport} onChangeText={setNewStopTransport} placeholder="例如：九州橫斷巴士 1號" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                    <Text style={styles.fieldLabel}>預計交通時間（分鐘）</Text>
+                    <TextInput value={newStopTransitMinutes} onChangeText={setNewStopTransitMinutes} keyboardType="number-pad" placeholder="例如：52" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                   </View>
                 </View>
                 <Text style={styles.fieldLabel}>地址</Text>
@@ -5473,6 +5615,15 @@ const styles = createDouyouStyles({
   dayHeadingTitle: { fontSize: 21, lineHeight: 27, fontWeight: "900", color: "#252D29", letterSpacing: -.4 },
   dayHeadingActions: { width: "100%", alignItems: "flex-end", gap: 7 },
   dayActionRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", gap: 7 },
+  organizerSheet: { maxHeight: "86%" },
+  organizerList: { gap: 9, paddingVertical: 12 },
+  organizerRow: { flexDirection: "row", alignItems: "center", gap: 11, padding: 13, borderRadius: 18, borderWidth: 1, borderColor: "#E5DED5", backgroundColor: "#FFFEFC" },
+  organizerIndex: { width: 28, height: 28, borderRadius: 14, overflow: "hidden", textAlign: "center", paddingTop: 4, color: "#FFFFFF", backgroundColor: "#5F708E", fontWeight: "800" },
+  organizerBody: { flex: 1, gap: 2 },
+  organizerTime: { color: "#9B6549", fontSize: 13, fontWeight: "800" },
+  organizerTitle: { color: "#202825", fontSize: 16, fontWeight: "800" },
+  organizerTransport: { color: "#7D7871", fontSize: 12 },
+  organizerHandle: { color: "#5F708E", fontSize: 28, fontWeight: "700", paddingHorizontal: 6 },
   dayMoveButton: { backgroundColor: "#EEEAE4", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 8 },
   dayMoveText: { color: "#536783", fontSize: 9, fontWeight: "900" },
   dayDeleteButton: { backgroundColor: "#F5E6E1", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 8 },

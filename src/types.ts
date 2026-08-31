@@ -23,6 +23,7 @@ export type Stop = {
   openingHours?: string;
   openingHoursSource?: string;
   durationMinutes?: number;
+  transitMinutes?: number;
   reservationRequired?: boolean;
   reservationNote?: string;
   reservationSuggestedDate?: string;
@@ -121,4 +122,5 @@ export type TripPlan = {
   checklist: TripChecklistItem[];
   unscheduledPlaces?: UnscheduledPlace[];
   reservations?: TripReservationReminder[];
+  oitaDay3TransitVersion?: number;
 };
