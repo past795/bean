@@ -318,6 +318,51 @@ const googleMemberId = (user: GoogleUser) =>
 // logo URL from the current site so the sign-in mark works on either host.
 const WEB_APP_ICON = { uri: `${currentWebBase}apple-touch-icon.png?v=83630ed0dd00` };
 
+const escapeExportText = (value: unknown) => String(value ?? "")
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;")
+  .replace(/\"/g, "&quot;")
+  .replace(/'/g, "&#39;");
+
+const safeExportName = (value: string) => (value || "豆遊旅行")
+  .replace(/[\\/:*?\"<>|]/g, "-")
+  .replace(/\s+/g, " ")
+  .trim();
+
+const tripExportSheets = (trip: TripPlan, tripExpenses: Expense[]) => {
+  const itinerary = [["日期", "天數", "時間", "景點／行程", "地址", "交通", "營業時間", "停留時間（分鐘）", "備註"]];
+  trip.days.forEach((day, index) => day.stops.forEach((stop) => itinerary.push([
+    day.date || "日期未定", day.label || `第 ${index + 1} 天`, stop.time, stop.title, stop.address,
+    stop.transport, stop.openingHours || "", stop.durationMinutes ? String(stop.durationMinutes) : "", stop.note
+  ])));
+  const overview = [
+    ["旅行名稱", trip.title], ["目的地", trip.destination], ["期間", trip.period],
+    ["開始日期", trip.startDate || ""], ["結束日期", trip.endDate || ""], ["同行人數", String(trip.travelers)]
+  ];
+  const flights = [["航線", "航班編號", "出發", "抵達", "航廈", "備註"], ...trip.flights.map((item) => [item.route, item.flightNumber, item.departure, item.arrival, item.terminal || "", item.note || ""])];
+  const stays = [["住宿", "住宿期間", "地址", "入住", "退房", "設施", "櫃檯", "備註"], ...trip.accommodations.map((item) => [item.name, item.period, item.address || "", item.checkIn || "", item.checkOut || "", item.facilities || "", item.frontDesk || "", item.note || ""])];
+  const shopping = [["商品", "價格", "幣別", "分類", "已購買", "範圍", "擁有者"], ...trip.shopping.map((item) => [item.name, item.price || "", item.currency || "", item.category || "", item.purchased ? "是" : "否", item.scope === "shared" ? "共享" : "個人", item.owner || ""])];
+  const accounting = [["品項", "金額", "幣別", "付款人", "分帳成員"], ...tripExpenses.map((item) => [item.title, String(item.amount), item.currency || "", item.payer, (item.splitBetween || []).join("、")])];
+  return [{ name: "旅行資訊", rows: overview }, { name: "每日行程", rows: itinerary }, { name: "班機", rows: flights }, { name: "住宿", rows: stays }, { name: "必買清單", rows: shopping }, { name: "記帳", rows: accounting }];
+};
+
+const spreadsheetXml = (trip: TripPlan, tripExpenses: Expense[]) => {
+  const worksheets = tripExportSheets(trip, tripExpenses).map(({ name, rows }) => {
+    const table = rows.map((row) => `<Row>${row.map((value) => {
+      const isNumber = typeof value === "number" && Number.isFinite(value);
+      return `<Cell><Data ss:Type="${isNumber ? "Number" : "String"}">${escapeExportText(value)}</Data></Cell>`;
+    }).join("")}</Row>`).join("");
+    return `<Worksheet ss:Name="${escapeExportText(name)}"><Table>${table}</Table></Worksheet>`;
+  }).join("");
+  return `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">${worksheets}</Workbook>`;
+};
+
+const printableTripHtml = (trip: TripPlan, tripExpenses: Expense[]) => {
+  const sections = tripExportSheets(trip, tripExpenses).map(({ name, rows }) => `<section><h2>${escapeExportText(name)}</h2><table>${rows.map((row, index) => `<tr>${row.map((value) => `${index === 0 ? "<th>" : "<td>"}${escapeExportText(value)}${index === 0 ? "</th>" : "</td>"}`).join("")}</tr>`).join("")}</table></section>`).join("");
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeExportText(trip.title)}</title><style>@page{size:A4;margin:14mm}body{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC",sans-serif;color:#202522;margin:0}h1{font-size:26px;margin:0 0 6px}h2{font-size:18px;margin:24px 0 8px;color:#5d6f91}p{color:#706b65}table{width:100%;border-collapse:collapse;font-size:11px;page-break-inside:auto}tr{page-break-inside:avoid}th,td{border:1px solid #ddd7cf;padding:6px;text-align:left;vertical-align:top}th{background:#edf1f9}section{page-break-inside:auto}</style></head><body><h1>${escapeExportText(trip.title)}</h1><p>${escapeExportText(trip.destination)}｜${escapeExportText(trip.period)}</p>${sections}<script>setTimeout(function(){window.print()},400)<\/script></body></html>`;
+};
+
 const formatCloudDateTime = (value: unknown) => {
   const text = String(value || "");
   if (!/^\d{4}-\d\d-\d\dT/.test(text)) return text;
@@ -1401,44 +1446,29 @@ export default function App() {
 
   const archiveTripAndEmail = async () => {
     if (!archiveTripTarget) return;
-    if (!googleUser?.idToken || !isGoogleTokenFresh(googleUser.idToken)) {
-      Alert.alert("需要重新授權 Google", "你仍是登入狀態，但 Google 的打包授權憑證約一小時會過期。請先在首頁按「登出」，再按「使用 Google 帳戶登入」一次；旅行資料不會消失。");
+    if (Platform.OS !== "web" || typeof document === "undefined") {
+      Alert.alert("請使用瀏覽器匯出", "目前的手機版是 Web App，請在 Safari 或 Chrome 開啟豆遊後下載 Excel。");
       return;
     }
-    setArchiveBusy(true);
-    try {
-      await confirmArchiveService();
-      const payload = tripToCloud(archiveTripTarget, expenses[archiveTripTarget.id] || []);
-      const data = await postCloud({ action: "archiveTrip", tripId: archiveTripTarget.id, idToken: googleUser.idToken, data: payload }, 75_000);
-      if (!data?.sheetUrl) throw new Error("打包服務沒有回傳 Google Sheet 連結。請確認 Apps Script 已重新部署最新版後再試。 ");
-      if (firestoreConnected && googleUser?.firebaseUid) {
-        try {
-          await archiveFirestoreTrip(firestorePersonId(googleUser.email, googleUser.firebaseUid), archiveTripTarget.id, "");
-        } catch (firestoreError) {
-          // The Drive export has already succeeded.  Never present a successful
-          // archive as failed just because the optional dashboard marker failed.
-          console.warn("Firestore archive marker failed", firestoreError);
-        }
-      }
-      setArchivedTrips((current) => [data.trip, ...current.filter((trip) => String(trip["旅行ID"]) !== archiveTripTarget.id)]);
-      const remaining = trips.filter((trip) => trip.id !== archiveTripTarget.id);
-      const fallback: TripPlan = { id: `local-next-${Date.now()}`, title: "我的下一趟旅行", destination: "目的地未設定", period: "日期未定", travelers: 1, flights: [], accommodations: [], shopping: [], checklist: defaultPrepChecklist(), days: [{ id: `local-next-day-${Date.now()}`, label: "DAY 1", date: "日期未定", title: "自由安排", stops: [] }] };
-      const next = remaining.length ? remaining : [fallback];
-      persistTrips(next); setActiveTripId(next[0]!.id); setSelectedDayId(next[0]!.days[0]?.id || "");
-      setArchiveTripTarget(null); setArchiveEmail(""); setTab("home");
-      const message = "完整 Google Sheet 已建立在你的雲端硬碟。旅行會保留 30 天，期間可從封存區復原。";
-      if (data.sheetUrl) {
-        Linking.openURL(String(data.sheetUrl)).catch(() => showToast("Google Sheet 已建立，請按下方按鈕開啟。"));
-        Alert.alert("旅行已打包", message, [
-          { text: "稍後開啟" },
-          { text: "開啟 Google Sheet", onPress: () => Linking.openURL(String(data.sheetUrl)).catch(() => showToast("無法開啟 Google Sheet")) }
-        ]);
-      } else Alert.alert("旅行已打包", message);
-    } catch (error: any) {
-      const detail = error?.message || "請稍後再試。原旅行資料仍完整保留。";
-      showToast(`打包失敗：${detail}`);
-      Alert.alert("打包失敗，旅行未封存", detail);
-    } finally { setArchiveBusy(false); }
+    const xml = spreadsheetXml(archiveTripTarget, expenses[archiveTripTarget.id] || []);
+    const blob = new Blob(["\ufeff", xml], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${safeExportName(archiveTripTarget.title)}.xls`;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    showToast("Excel 已下載；旅行資料仍完整保留");
+  };
+
+  const exportTripPdf = () => {
+    if (!archiveTripTarget || Platform.OS !== "web" || typeof window === "undefined") return;
+    const popup = window.open("", "_blank");
+    if (!popup) { Alert.alert("瀏覽器阻擋了 PDF 視窗", "請允許豆遊開啟新視窗後再試一次。"); return; }
+    popup.document.open();
+    popup.document.write(printableTripHtml(archiveTripTarget, expenses[archiveTripTarget.id] || []));
+    popup.document.close();
+    showToast("請在列印畫面選擇「儲存為 PDF」");
   };
 
   const sendArchiveEmailTest = async () => {
@@ -4307,7 +4337,7 @@ export default function App() {
                     >
                       <Text style={styles.editTripText}>編輯旅行</Text>
                     </Pressable>
-                    <Pressable style={styles.archiveTripButton} onPress={(event) => { event.stopPropagation?.(); setArchiveTripTarget(trip); setArchiveEmail(googleUser?.email || ""); }}><Text style={styles.archiveTripText}>打包</Text></Pressable>
+                    <Pressable style={styles.archiveTripButton} onPress={(event) => { event.stopPropagation?.(); setArchiveTripTarget(trip); }}><Text style={styles.archiveTripText}>匯出</Text></Pressable>
                     <Pressable
                       accessibilityLabel={`刪除 ${trip.title}`}
                       style={styles.deleteTripButton}
@@ -4324,7 +4354,7 @@ export default function App() {
                 </View>
               </Pressable>
             ))}
-            {!!archivedTrips.length && <View style={styles.archiveSection}><Text style={styles.archiveSectionTitle}>封存區</Text><Text style={styles.archiveSectionHint}>Excel 已寄出；到期前可復原，30 天後永久刪除雲端資料。</Text>{archivedTrips.map((trip) => { const daysLeft = Math.max(0, Math.ceil((Date.parse(String(trip["預定刪除時間"] || "")) - Date.now()) / 86400000)); return <View key={String(trip["旅行ID"])} style={styles.archiveCard}><View style={styles.archiveCardText}><Text style={styles.archiveCardTitle}>{String(trip["名稱"] || trip["目的地"] || "已封存旅行")}</Text><Text style={styles.archiveCardSub}>剩餘 {daysLeft} 天永久刪除 · 已寄至 {String(trip["封存信箱"] || "指定信箱")}</Text></View><Pressable style={styles.restoreArchiveButton} onPress={() => restoreArchivedTrip(String(trip["旅行ID"]))}><Text style={styles.restoreArchiveText}>復原</Text></Pressable></View>; })}</View>}
+            {!!archivedTrips.length && <View style={styles.archiveSection}><Text style={styles.archiveSectionTitle}>舊版封存區</Text><Text style={styles.archiveSectionHint}>這裡只保留以前使用雲端封存的旅行；新版匯出不會移動或刪除旅行。</Text>{archivedTrips.map((trip) => { const daysLeft = Math.max(0, Math.ceil((Date.parse(String(trip["預定刪除時間"] || "")) - Date.now()) / 86400000)); return <View key={String(trip["旅行ID"])} style={styles.archiveCard}><View style={styles.archiveCardText}><Text style={styles.archiveCardTitle}>{String(trip["名稱"] || trip["目的地"] || "已封存旅行")}</Text><Text style={styles.archiveCardSub}>舊版資料 · 剩餘 {daysLeft} 天</Text></View><Pressable style={styles.restoreArchiveButton} onPress={() => restoreArchivedTrip(String(trip["旅行ID"]))}><Text style={styles.restoreArchiveText}>復原</Text></Pressable></View>; })}</View>}
             <Pressable style={styles.newTripCard} onPress={() => setCreatingTrip(true)}>
               <Text style={styles.newTripIcon}>＋</Text>
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
@@ -4519,13 +4549,13 @@ export default function App() {
           </View></View>
         </Modal>
 
-        <Modal visible={!!archiveTripTarget} animationType="slide" transparent onRequestClose={() => !archiveBusy && setArchiveTripTarget(null)}>
-          <View style={styles.modalShade}><View style={styles.sheet}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>PACK & ARCHIVE</Text><Text style={styles.sheetTitle}>打包旅行</Text>
-            <View style={styles.archiveWarning}><Text style={styles.archiveWarningTitle}>請先確認</Text><Text style={styles.archiveWarningText}>系統會在你的 Google 雲端硬碟建立完整的 Google Sheet；建立成功後，旅行會移至封存區。雲端資料保留 30 天，之後永久刪除。只有建立者可以操作。</Text></View>
+        <Modal visible={!!archiveTripTarget} animationType="slide" transparent onRequestClose={() => setArchiveTripTarget(null)}>
+          <View style={styles.modalShade}><View style={styles.sheet}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>EXPORT TRIP</Text><Text style={styles.sheetTitle}>匯出旅行</Text>
+            <View style={styles.archiveWarning}><Text style={styles.archiveWarningTitle}>直接存到目前裝置</Text><Text style={styles.archiveWarningText}>不寄信、不建立 Google Sheet，也不會刪除或封存旅行。Excel 會直接下載；PDF 會開啟系統列印畫面，請選擇「儲存為 PDF」。</Text></View>
             <Text style={styles.fieldLabel}>旅行</Text><Text style={styles.archiveTripName}>{archiveTripTarget?.title}</Text>
-            {archiveAuthorizationExpired && <View style={styles.archiveAuthNotice}><Text style={styles.archiveAuthText}>Google 雲端硬碟的打包授權已過期。重新連接後，這個按鈕就會可用；旅行資料不會受影響。</Text><Pressable style={styles.archiveReauthButton} disabled={loginBusy} onPress={signInGoogleWithFirebase}><Text style={styles.archiveReauthText}>{loginBusy ? "正在開啟 Google…" : "重新連接 Google"}</Text></Pressable></View>}
-            <Pressable style={[styles.primaryButton, (archiveBusy || archiveAuthorizationExpired) && styles.disabledButton]} disabled={archiveBusy || archiveAuthorizationExpired} onPress={archiveTripAndEmail}><Text style={styles.primaryButtonText}>{archiveBusy ? "正在建立 Google Sheet…" : "建立 Google Sheet 並封存"}</Text></Pressable>
-            <Pressable style={styles.cancelButton} disabled={archiveBusy} onPress={() => setArchiveTripTarget(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
+            <Pressable style={styles.primaryButton} onPress={archiveTripAndEmail}><Text style={styles.primaryButtonText}>下載 Excel</Text></Pressable>
+            <Pressable style={styles.secondaryAction} onPress={exportTripPdf}><Text style={styles.secondaryActionText}>匯出 PDF</Text></Pressable>
+            <Pressable style={styles.cancelButton} onPress={() => setArchiveTripTarget(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
           </View></View>
         </Modal>
 
@@ -5606,6 +5636,8 @@ const styles = createDouyouStyles({
   primaryButton: { backgroundColor: "#536783", height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginTop: 16 },
   checklistAddButton: { position: "relative", zIndex: 12, elevation: 12 },
   primaryButtonText: { color: "#FFF", fontWeight: "800", fontSize: 15 },
+  secondaryAction: { backgroundColor: "#EDF1F9", height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginTop: 10, borderWidth: 1, borderColor: "#D6DDEA" },
+  secondaryActionText: { color: "#536783", fontWeight: "800", fontSize: 15 },
   destructiveButton: { backgroundColor: "#A85445", height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginTop: 20 },
   cancelButton: { height: 44, alignItems: "center", justifyContent: "center" },
   cancelText: { color: "#8A8178", fontWeight: "700" },
