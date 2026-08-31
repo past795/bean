@@ -31,6 +31,16 @@ import { firebaseAuth, googleAuthProvider } from "./src/firebase";
 import { archiveFirestoreTrip, deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreMembers, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, restoreFirestoreTrip, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreMemberName, updateFirestoreTripState } from "./src/firestoreSync";
 
 const homeTravelBean = require("./assets/home-travel-bean-transparent.png");
+const JIGOKU_STEAM_COORDINATES = { latitude: 33.31542873, longitude: 131.47623155 };
+const isJigokuSteamWorkshop = (stop: Pick<Stop, "title" | "address">) =>
+  /地獄蒸(?:し|工房)|地獄蒸工房.*鉄輪|地獄蒸工房.*鐵輪/i.test(`${stop.title} ${stop.address}`);
+const normalizeKnownStopCoordinates = (stop: Stop): Stop => isJigokuSteamWorkshop(stop)
+  ? {
+      ...stop,
+      address: "〒874-0044 大分県別府市風呂本5組（いでゆ坂沿い）",
+      ...JIGOKU_STEAM_COORDINATES
+    }
+  : stop;
 // This file is copied to dist with a stable name by patch-web-export.mjs.
 // A plain DOM image is used on web so the transparent artwork reliably paints
 // above the React Native Web layout.
@@ -1388,6 +1398,7 @@ export default function App() {
   }, [selectedTool, activeTrip.id, activeTrip.destination, activeTrip.title, activeTrip.days]);
   const routeStops = useMemo(
     () => selectedDay?.stops
+      .map(normalizeKnownStopCoordinates)
       .filter((s) => s.latitude != null && s.longitude != null)
       .map((s) => ({ ...s, title: stopDisplayTitle(s) })) ?? [],
     [selectedDay]
@@ -1899,6 +1910,35 @@ export default function App() {
     AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
     queueFirestoreState(updatedTrip, expenses[updatedTrip.id] ?? []);
   }, [tripsLoaded, trips, firestoreConnected, googleUser?.firebaseUid]);
+
+  useEffect(() => {
+    if (!tripsLoaded) return;
+    let changed = false;
+    const repairedTrips = trips.map((trip) => {
+      let tripChanged = false;
+      const days = trip.days.map((day) => {
+        const stops = day.stops.map((stop) => {
+          if (!isJigokuSteamWorkshop(stop)) return stop;
+          const wrongAddress = stop.address !== "〒874-0044 大分県別府市風呂本5組（いでゆ坂沿い）";
+          const wrongLatitude = !Number.isFinite(Number(stop.latitude)) || Math.abs(Number(stop.latitude) - JIGOKU_STEAM_COORDINATES.latitude) > 0.000001;
+          const wrongLongitude = !Number.isFinite(Number(stop.longitude)) || Math.abs(Number(stop.longitude) - JIGOKU_STEAM_COORDINATES.longitude) > 0.000001;
+          if (!wrongAddress && !wrongLatitude && !wrongLongitude) return stop;
+          tripChanged = true;
+          changed = true;
+          return normalizeKnownStopCoordinates(stop);
+        });
+        return tripChanged ? { ...day, stops } : day;
+      });
+      return tripChanged ? { ...trip, days } : trip;
+    });
+    if (!changed) return;
+    localMutationAtRef.current = Date.now();
+    setTrips(repairedTrips);
+    AsyncStorage.setItem(STORE_KEY, JSON.stringify(repairedTrips)).catch(() => undefined);
+    repairedTrips.forEach((trip, index) => {
+      if (trip !== trips[index]) queueFirestoreState(trip, expenses[trip.id] ?? []);
+    });
+  }, [tripsLoaded, trips]);
 
   const selectedDayGeocodeSignature = selectedDay
     ? selectedDay.stops.map((stop) => [stop.id, stop.title, stop.address, stop.latitude ?? "", stop.longitude ?? "", stop.openingHours ?? ""].join("~")).join("|")
@@ -4239,7 +4279,7 @@ export default function App() {
                   <Text style={styles.dayCount}>{days.reduce((sum, day) => sum + day.stops.length, 0)} 個安排</Text>
                 </View>
                 <View style={styles.mapCard}>
-                  <RouteMap stops={days.flatMap((day) => day.stops)} dayId={ALL_DAYS_ID} days={days.map((day, index) => ({ dayId: day.id, label: day.label, color: DAY_ROUTE_COLORS[index % DAY_ROUTE_COLORS.length]!, stops: day.stops }))} />
+                  <RouteMap stops={days.flatMap((day) => day.stops).map(normalizeKnownStopCoordinates)} dayId={ALL_DAYS_ID} days={days.map((day, index) => ({ dayId: day.id, label: day.label, color: DAY_ROUTE_COLORS[index % DAY_ROUTE_COLORS.length]!, stops: day.stops.map(normalizeKnownStopCoordinates) }))} />
                   <View style={styles.mapFooter}>
                     <Text style={styles.mapFooterTitle}>全部天數移動路線</Text>
                     <Text style={styles.mapFooterText}>每一天使用不同顏色；點下方日期即可進入單日拖曳與編輯。</Text>
@@ -4717,9 +4757,13 @@ export default function App() {
               <Text style={styles.sheetTitle}>{selectedDay.date}｜整日編排</Text>
               <Text style={styles.routeFieldHint}>長按右側「≡」後直接拖曳；放開就會儲存新順序。</Text>
               <DraggableFlatList
+                style={styles.organizerListView}
+                containerStyle={styles.organizerListView}
                 data={selectedDay.stops}
                 keyExtractor={(item) => item.id}
                 onDragEnd={({ data }) => updateStops(data)}
+                activationDistance={12}
+                showsVerticalScrollIndicator
                 contentContainerStyle={styles.organizerList}
                 renderItem={({ item, drag, isActive, getIndex }) => (
                   <Pressable onLongPress={drag} delayLongPress={120} style={[styles.organizerRow, isActive && styles.dragging]}>
@@ -5615,8 +5659,9 @@ const styles = createDouyouStyles({
   dayHeadingTitle: { fontSize: 21, lineHeight: 27, fontWeight: "900", color: "#252D29", letterSpacing: -.4 },
   dayHeadingActions: { width: "100%", alignItems: "flex-end", gap: 7 },
   dayActionRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", gap: 7 },
-  organizerSheet: { maxHeight: "86%" },
-  organizerList: { gap: 9, paddingVertical: 12 },
+  organizerSheet: { height: "86%", maxHeight: "86%" },
+  organizerListView: { flex: 1, minHeight: 0 },
+  organizerList: { gap: 9, paddingVertical: 12, paddingBottom: 28 },
   organizerRow: { flexDirection: "row", alignItems: "center", gap: 11, padding: 13, borderRadius: 18, borderWidth: 1, borderColor: "#E5DED5", backgroundColor: "#FFFEFC" },
   organizerIndex: { width: 28, height: 28, borderRadius: 14, overflow: "hidden", textAlign: "center", paddingTop: 4, color: "#FFFFFF", backgroundColor: "#5F708E", fontWeight: "800" },
   organizerBody: { flex: 1, gap: 2 },
