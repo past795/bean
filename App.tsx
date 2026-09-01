@@ -832,6 +832,10 @@ export default function App() {
   const [newStopOpeningHours, setNewStopOpeningHours] = useState("");
   const [newStopDuration, setNewStopDuration] = useState("");
   const [newStopTransitMinutes, setNewStopTransitMinutes] = useState("");
+  const [newStopReservationRequired, setNewStopReservationRequired] = useState(false);
+  const [newStopReservationLeadDays, setNewStopReservationLeadDays] = useState("14");
+  const [newStopReservationNote, setNewStopReservationNote] = useState("");
+  const [newStopReservationWebsite, setNewStopReservationWebsite] = useState("");
   const [newStopLatitude, setNewStopLatitude] = useState<number | undefined>();
   const [newStopLongitude, setNewStopLongitude] = useState<number | undefined>();
   const [addressLookupStatus, setAddressLookupStatus] = useState<"idle" | "loading" | "found" | "error">("idle");
@@ -3451,6 +3455,15 @@ export default function App() {
       newStopRouteMode === "walking" ? "步行" :
       newStopRouteMode === "transit" ? (/公車/.test(transport) ? "公車" : "地鐵") :
       newStopRouteMode === "taxi" ? "計程車" : "其他";
+    const reservationLeadDays = Math.max(0, Number.parseInt(newStopReservationLeadDays, 10) || 0);
+    const rawReservationWebsite = newStopReservationWebsite.trim();
+    const reservationWebsite = rawReservationWebsite && !/^https?:\/\//i.test(rawReservationWebsite)
+      ? `https://${rawReservationWebsite}`
+      : rawReservationWebsite;
+    const reservationNote = [
+      newStopReservationNote.trim(),
+      reservationWebsite ? `預約網站：${reservationWebsite}` : ""
+    ].filter(Boolean).join("\n");
     const nextStop: Stop = {
       id: `${selectedDay.id}-stop-${Date.now()}`,
       time: newStopTime.trim() || "彈性",
@@ -3465,7 +3478,13 @@ export default function App() {
       longitude: newStopLongitude,
       durationMinutes: Math.max(0, Number.parseInt(newStopDuration, 10) || 0),
       transitMinutes: Math.max(0, Number.parseInt(newStopTransitMinutes, 10) || 0),
-      routeMode: newStopRouteMode
+      routeMode: newStopRouteMode,
+      reservationRequired: newStopReservationRequired,
+      reservationNote: newStopReservationRequired ? reservationNote : "",
+      reservationSuggestedDate: newStopReservationRequired && selectedDay.date
+        ? dateDaysBefore(selectedDay.date, reservationLeadDays)
+        : "",
+      reservationCompleted: false
     };
     setAddingStop(false);
     setPlaceSuggestions([]);
@@ -3479,6 +3498,10 @@ export default function App() {
     setNewStopOpeningHours("");
     setNewStopDuration("");
     setNewStopTransitMinutes("");
+    setNewStopReservationRequired(false);
+    setNewStopReservationLeadDays("14");
+    setNewStopReservationNote("");
+    setNewStopReservationWebsite("");
     setNewStopLatitude(undefined);
     setNewStopLongitude(undefined);
     setAddressLookupStatus("idle");
@@ -5113,7 +5136,7 @@ export default function App() {
                   <View style={styles.reservationHeading}><View style={styles.toolText}><Text style={styles.detailTitle}>這趟旅行的預約提醒</Text><Text style={styles.detailHint}>系統會依行程日期提供建議預約日；按下「已完成」後，所有旅伴都會同步看到完成狀態。</Text></View><Pressable style={styles.reservationAddButton} onPress={() => { setSelectedTool(null); setAddingReservation(true); }}><Text style={styles.reservationAddText}>＋ 新增預約</Text></Pressable></View>
                   {reservationStops.map(({ day, stop, info }) => (
                     <View key={stop.id} style={[styles.toolCard, stop.reservationCompleted && styles.reservationCompletedCard]}>
-                      <View style={styles.toolText}><Text style={styles.toolTitle}>{reservationDateLabel(day.date)}・{stop.time} {stopDisplayTitle(stop)}</Text><Text style={styles.toolSub}>{info.suggestedDate ? `建議於 ${reservationDateLabel(info.suggestedDate)} 預約` : "建議盡早確認預約"}</Text><Text style={styles.toolSub}>{info.note}</Text>{!!reservationWebsiteUrl(stop.note) && <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(reservationWebsiteUrl(stop.note))}><Text style={styles.reservationWebsiteText}>開啟預約網站 ↗</Text></Pressable>}{!!info.suggestedDate && <View style={styles.calendarActions}><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationGoogleCalendarUrl(stopDisplayTitle(stop), info.suggestedDate || "", info.note))}><Text style={styles.calendarButtonText}>Google 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => openReservationIphoneCalendar(stopDisplayTitle(stop), info.suggestedDate || "", info.note).catch(() => showToast("無法建立 iPhone 行事曆檔，請確認建議預約日期。"))}><Text style={styles.calendarButtonText}>iPhone 行事曆</Text></Pressable></View>}</View>
+                      <View style={styles.toolText}><Text style={styles.toolTitle}>{reservationDateLabel(day.date)}・{stop.time} {stopDisplayTitle(stop)}</Text><Text style={styles.toolSub}>{info.suggestedDate ? `建議於 ${reservationDateLabel(info.suggestedDate)} 預約` : "建議盡早確認預約"}</Text><Text style={styles.toolSub}>{info.note}</Text>{!!reservationWebsiteUrl(`${stop.reservationNote || ""} ${stop.note || ""}`) && <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(reservationWebsiteUrl(`${stop.reservationNote || ""} ${stop.note || ""}`))}><Text style={styles.reservationWebsiteText}>開啟預約網站 ↗</Text></Pressable>}{!!info.suggestedDate && <View style={styles.calendarActions}><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationGoogleCalendarUrl(stopDisplayTitle(stop), info.suggestedDate || "", info.note))}><Text style={styles.calendarButtonText}>Google 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => openReservationIphoneCalendar(stopDisplayTitle(stop), info.suggestedDate || "", info.note).catch(() => showToast("無法建立 iPhone 行事曆檔，請確認建議預約日期。"))}><Text style={styles.calendarButtonText}>iPhone 行事曆</Text></Pressable></View>}</View>
                       <Pressable style={[styles.reservationCheckButton, stop.reservationCompleted && styles.reservationCheckButtonDone]} onPress={() => toggleReservationCompleted(day.id, stop.id)}><Text style={[styles.reservationCheckText, stop.reservationCompleted && styles.reservationCheckTextDone]}>{stop.reservationCompleted ? "✓ 已完成" : "○ 待預約"}</Text></Pressable>
                     </View>
                   ))}
@@ -5548,6 +5571,29 @@ export default function App() {
                 {!!addressLookupMessage && <Text style={addressLookupStatus === "error" ? styles.placeSearchError : styles.addressFoundText}>{addressLookupStatus === "found" ? "✓ " : ""}{addressLookupMessage}</Text>}
                 <Text style={styles.fieldLabel}>預計停留時間（分鐘）</Text>
                 <TextInput value={newStopDuration} onChangeText={setNewStopDuration} keyboardType="number-pad" placeholder="例如：90" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                <Pressable
+                  style={[styles.reservationToggle, newStopReservationRequired && styles.reservationToggleActive]}
+                  onPress={() => setNewStopReservationRequired((value) => !value)}
+                >
+                  <View style={[styles.reservationToggleBox, newStopReservationRequired && styles.reservationToggleBoxActive]}>
+                    <Text style={styles.reservationToggleCheck}>{newStopReservationRequired ? "✓" : ""}</Text>
+                  </View>
+                  <View style={styles.reservationToggleText}>
+                    <Text style={styles.reservationToggleTitle}>需要提前預約</Text>
+                    <Text style={styles.reservationToggleSub}>勾選後會自動加入工具箱的預約提醒</Text>
+                  </View>
+                </Pressable>
+                {newStopReservationRequired && (
+                  <View style={styles.reservationFields}>
+                    <Text style={styles.fieldLabel}>建議提前幾天預約</Text>
+                    <TextInput value={newStopReservationLeadDays} onChangeText={setNewStopReservationLeadDays} keyboardType="number-pad" placeholder="例如：28" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                    {!!selectedDay.date && <Text style={styles.reservationDatePreview}>建議預約日：{reservationDateLabel(dateDaysBefore(selectedDay.date, Math.max(0, Number.parseInt(newStopReservationLeadDays, 10) || 0)))}</Text>}
+                    <Text style={styles.fieldLabel}>預約網站（可留空）</Text>
+                    <TextInput value={newStopReservationWebsite} onChangeText={setNewStopReservationWebsite} autoCapitalize="none" keyboardType="url" placeholder="https://..." placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                    <Text style={styles.fieldLabel}>預約補充資訊（可留空）</Text>
+                    <TextInput value={newStopReservationNote} onChangeText={setNewStopReservationNote} multiline placeholder="例如：開放後先搶海側座位、需信用卡付款" placeholderTextColor="#AAA198" style={[styles.noteInput, styles.compactNoteInput]} />
+                  </View>
+                )}
                 <Text style={styles.fieldLabel}>備註</Text>
                 <TextInput value={newStopNote} onChangeText={setNewStopNote} multiline placeholder="預約、營業時間、想買的東西……" placeholderTextColor="#AAA198" style={[styles.noteInput, styles.compactNoteInput]} />
                 <Pressable style={styles.primaryButton} onPress={createStop}><Text style={styles.primaryButtonText}>加入這一天</Text></Pressable>
@@ -5921,6 +5967,16 @@ const styles = createDouyouStyles({
   fieldInput: { height: 48, backgroundColor: "#FFF", borderWidth: 1, borderColor: "#E5DED5", borderRadius: 14, paddingHorizontal: 13, color: "#38332E", fontSize: 16 },
   fieldInputError: { borderColor: "#C96A5B", borderWidth: 1.5 },
   fieldRow: { flexDirection: "row", gap: 10 },
+  reservationToggle: { marginTop: 18, flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: "#DDD6CB", borderRadius: 18, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: "#FAF8F4" },
+  reservationToggleActive: { borderColor: "#637493", backgroundColor: "#EEF2F8" },
+  reservationToggleBox: { width: 28, height: 28, borderRadius: 9, borderWidth: 1.5, borderColor: "#AAA198", alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" },
+  reservationToggleBoxActive: { borderColor: "#637493", backgroundColor: "#637493" },
+  reservationToggleCheck: { color: "#FFFFFF", fontSize: 17, fontWeight: "800" },
+  reservationToggleText: { flex: 1 },
+  reservationToggleTitle: { color: "#24312E", fontSize: 16, fontWeight: "800" },
+  reservationToggleSub: { color: "#817A72", fontSize: 13, marginTop: 3 },
+  reservationFields: { marginTop: 12, borderRadius: 18, backgroundColor: "#F3F6FA", padding: 14 },
+  reservationDatePreview: { color: "#5D6F8F", fontSize: 14, fontWeight: "700", marginTop: 8, marginBottom: 2 },
   fieldHalf: { flex: 1 },
   dayCountField: { width: 90 },
   primaryButton: { backgroundColor: "#536783", height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginTop: 16 },
