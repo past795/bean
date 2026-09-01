@@ -4773,25 +4773,36 @@ export default function App() {
               <View style={styles.sheetHandle} />
               <Text style={styles.sheetEyebrow}>DAY ORGANIZER</Text>
               <Text style={styles.sheetTitle}>{selectedDay.date}｜整日編排</Text>
-              <Text style={styles.routeFieldHint}>長按右側「≡」後直接拖曳；放開就會儲存新順序。</Text>
+              <View style={styles.organizerToolbar}>
+                <Text style={styles.routeFieldHint}>按住右側把手直接拖曳；放開就會儲存新順序。</Text>
+                <Pressable disabled={!previousStops} onPress={undoSmartSort} style={[styles.organizerUndoButton, !previousStops && styles.organizerUndoDisabled]}>
+                  <Text style={[styles.organizerUndoText, !previousStops && styles.organizerUndoTextDisabled]}>↶ 上一步</Text>
+                </Pressable>
+              </View>
               <DraggableFlatList
                 style={styles.organizerListView}
                 containerStyle={styles.organizerListView}
                 data={selectedDay.stops}
                 keyExtractor={(item) => item.id}
+                onDragBegin={() => setPreviousStops([...selectedDay.stops])}
                 onDragEnd={({ data }) => updateStops(data)}
-                activationDistance={12}
+                activationDistance={4}
+                autoscrollThreshold={90}
+                autoscrollSpeed={140}
+                dragItemOverflow
                 showsVerticalScrollIndicator
                 contentContainerStyle={styles.organizerList}
                 renderItem={({ item, drag, isActive, getIndex }) => (
-                  <Pressable onLongPress={drag} delayLongPress={120} style={[styles.organizerRow, isActive && styles.dragging]}>
+                  <Pressable onLongPress={drag} delayLongPress={80} style={[styles.organizerRow, isActive && styles.dragging]}>
                     <Text style={styles.organizerIndex}>{(getIndex() ?? 0) + 1}</Text>
                     <View style={styles.organizerBody}>
                       <Text style={styles.organizerTime}>{item.time}</Text>
                       <Text style={styles.organizerTitle}>{stopDisplayTitle(item)}</Text>
                       <Text style={styles.organizerTransport}>{item.transport || "尚未安排"}{item.transitMinutes ? `｜${item.transitMinutes} 分鐘` : ""}</Text>
                     </View>
-                    <Text style={styles.organizerHandle}>≡</Text>
+                    <Pressable accessibilityLabel={`拖曳 ${stopDisplayTitle(item)}`} hitSlop={18} onPressIn={drag} style={styles.organizerHandleButton}>
+                      <Text style={styles.organizerHandle}>≡</Text>
+                    </Pressable>
                   </Pressable>
                 )}
               />
@@ -5678,6 +5689,11 @@ const styles = createDouyouStyles({
   dayHeadingActions: { width: "100%", alignItems: "flex-end", gap: 7 },
   dayActionRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", gap: 7 },
   organizerSheet: { height: "86%", maxHeight: "86%" },
+  organizerToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 4 },
+  organizerUndoButton: { flexShrink: 0, borderRadius: 12, backgroundColor: "#F3E8DE", paddingHorizontal: 13, paddingVertical: 10 },
+  organizerUndoDisabled: { backgroundColor: "#F1EFEC" },
+  organizerUndoText: { color: "#9C613F", fontSize: 12, fontWeight: "900" },
+  organizerUndoTextDisabled: { color: "#B9B4AD" },
   organizerListView: { flex: 1, minHeight: 0 },
   organizerList: { gap: 9, paddingVertical: 12, paddingBottom: 28 },
   organizerRow: { flexDirection: "row", alignItems: "center", gap: 11, padding: 13, borderRadius: 18, borderWidth: 1, borderColor: "#E5DED5", backgroundColor: "#FFFEFC" },
@@ -5686,7 +5702,8 @@ const styles = createDouyouStyles({
   organizerTime: { color: "#9B6549", fontSize: 13, fontWeight: "800" },
   organizerTitle: { color: "#202825", fontSize: 16, fontWeight: "800" },
   organizerTransport: { color: "#7D7871", fontSize: 12 },
-  organizerHandle: { color: "#5F708E", fontSize: 28, fontWeight: "700", paddingHorizontal: 6 },
+  organizerHandleButton: { width: 54, minHeight: 58, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#EDF1F8" },
+  organizerHandle: { color: "#5F708E", fontSize: 32, lineHeight: 34, fontWeight: "700" },
   dayMoveButton: { backgroundColor: "#EEEAE4", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 8 },
   dayMoveText: { color: "#536783", fontSize: 9, fontWeight: "900" },
   dayDeleteButton: { backgroundColor: "#F5E6E1", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 8 },
