@@ -1165,13 +1165,13 @@ export default function App() {
     setBackupWebsiteDraft("");
   };
   const openNewBackupPlan = () => {
-    // Close the toolbox sheet first so the editor modal is always on top.
+    // Let the toolbox sheet finish closing before mounting the editor.
     setSelectedTool(null);
     resetBackupPlanDraft();
-    setAddingBackupPlan(true);
+    setTimeout(() => setAddingBackupPlan(true), 380);
   };
   const openBackupPlanEditor = (item: TripBackupPlan) => {
-    // Close the toolbox sheet first so the editor modal is always on top.
+    // Let the toolbox sheet finish closing before mounting the editor.
     setSelectedTool(null);
     setEditingBackupPlanId(item.id);
     setBackupDateDraft(item.date || "");
@@ -1180,7 +1180,7 @@ export default function App() {
     setBackupAlternativeDraft(item.alternative || "");
     setBackupReminderDraft(item.reminder || "");
     setBackupWebsiteDraft(item.website || "");
-    setAddingBackupPlan(true);
+    setTimeout(() => setAddingBackupPlan(true), 380);
   };
   const saveBackupPlan = () => {
     const alternative = backupAlternativeDraft.trim();
