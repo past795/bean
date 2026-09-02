@@ -1165,14 +1165,10 @@ export default function App() {
     setBackupWebsiteDraft("");
   };
   const openNewBackupPlan = () => {
-    // Let the toolbox sheet finish closing before mounting the editor.
-    setSelectedTool(null);
     resetBackupPlanDraft();
-    setTimeout(() => setAddingBackupPlan(true), 380);
+    setAddingBackupPlan(true);
   };
   const openBackupPlanEditor = (item: TripBackupPlan) => {
-    // Let the toolbox sheet finish closing before mounting the editor.
-    setSelectedTool(null);
     setEditingBackupPlanId(item.id);
     setBackupDateDraft(item.date || "");
     setBackupReasonDraft(item.reason || "其他");
@@ -1180,7 +1176,7 @@ export default function App() {
     setBackupAlternativeDraft(item.alternative || "");
     setBackupReminderDraft(item.reminder || "");
     setBackupWebsiteDraft(item.website || "");
-    setTimeout(() => setAddingBackupPlan(true), 380);
+    setAddingBackupPlan(true);
   };
   const saveBackupPlan = () => {
     const alternative = backupAlternativeDraft.trim();
@@ -5181,7 +5177,7 @@ export default function App() {
           </Pressable>
         </Modal>
 
-        <Modal visible={!!selectedTool} animationType="slide" transparent onRequestClose={() => setSelectedTool(null)}>
+        <Modal visible={!!selectedTool && !addingBackupPlan} animationType="slide" transparent onRequestClose={() => setSelectedTool(null)}>
           <Pressable style={styles.modalShade} onPress={() => { setAddingFlight(false); setAddingAccommodation(false); setAddingShoppingItem(false); setSelectedTool(null); }}>
             <Pressable style={[styles.sheet, styles.toolSheet]} onPress={(event) => event.stopPropagation()}>
               <View style={styles.sheetHandle} />
