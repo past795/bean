@@ -27,6 +27,7 @@ export type Stop = {
   reservationRequired?: boolean;
   reservationNote?: string;
   reservationSuggestedDate?: string;
+  reservationSuggestedTime?: string;
   reservationCompleted?: boolean;
 };
 
@@ -97,6 +98,7 @@ export type TripReservationReminder = {
   id: string;
   title: string;
   suggestedDate?: string;
+  suggestedTime?: string;
   note?: string;
   website?: string;
   completed?: boolean;

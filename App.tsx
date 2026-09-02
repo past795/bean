@@ -99,11 +99,23 @@ const reservationDateLabel = (dateText: string) => {
   if (iso) return `${iso[2]}/${iso[3]}`;
   return String(dateText || "日期未定").match(/^\d{2}\/\d{2}/)?.[0] || String(dateText || "日期未定");
 };
-const reservationGoogleCalendarUrl = (title: string, dateText: string, note = "") => {
+const calendarDateTimeRange = (dateText: string, timeText = "") => {
+  const normalizedDate = normalizeTripDate(dateText);
+  const time = String(timeText).trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (!normalizedDate || !time) return null;
+  const startDate = normalizedDate.replaceAll("-", "");
+  const total = Number(time[1]) * 60 + Number(time[2]);
+  const endTotal = total + 30;
+  const endDate = endTotal >= 1440 ? dateDaysBefore(normalizedDate, -1).replaceAll("-", "") : startDate;
+  const formatTime = (minutes: number) => `${String(Math.floor((minutes % 1440) / 60)).padStart(2, "0")}${String(minutes % 60).padStart(2, "0")}00`;
+  return { start: `${startDate}T${formatTime(total)}`, end: `${endDate}T${formatTime(endTotal)}` };
+};
+const reservationGoogleCalendarUrl = (title: string, dateText: string, note = "", timeText = "") => {
   const normalizedDate = normalizeTripDate(dateText);
   if (!normalizedDate) return "";
-  const start = normalizedDate.replaceAll("-", "");
-  const end = dateDaysBefore(normalizedDate, -1).replaceAll("-", "");
+  const timed = calendarDateTimeRange(normalizedDate, timeText);
+  const start = timed?.start || normalizedDate.replaceAll("-", "");
+  const end = timed?.end || dateDaysBefore(normalizedDate, -1).replaceAll("-", "");
   const params = new URLSearchParams({
     action: "TEMPLATE",
     text: `預約提醒｜${title}`,
@@ -112,17 +124,20 @@ const reservationGoogleCalendarUrl = (title: string, dateText: string, note = ""
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 };
-const reservationIcsContent = (title: string, dateText: string, note = "") => {
+const reservationIcsContent = (title: string, dateText: string, note = "", timeText = "") => {
   const normalizedDate = normalizeTripDate(dateText);
   if (!normalizedDate) return "";
   const start = normalizedDate.replaceAll("-", "");
   const end = dateDaysBefore(normalizedDate, -1).replaceAll("-", "");
+  const timed = calendarDateTimeRange(normalizedDate, timeText);
   const escape = (value: string) => value.replace(/\\/g, "\\\\").replace(/,/g, "\\,").replace(/;/g, "\\;").replace(/\n/g, "\\n");
-  return ["BEGIN:VCALENDAR", "VERSION:2.0", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "PRODID:-//Douyou//Reservation//ZH", "BEGIN:VEVENT", `UID:douyou-${start}-${Date.now()}@douyou`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")}`, `DTSTART;VALUE=DATE:${start}`, `DTEND;VALUE=DATE:${end}`, `SUMMARY:${escape(`預約提醒｜${title}`)}`, `DESCRIPTION:${escape(note || "豆遊預約提醒")}`, "BEGIN:VALARM", "TRIGGER:-PT9H", "ACTION:DISPLAY", "DESCRIPTION:豆遊預約提醒", "END:VALARM", "END:VEVENT", "END:VCALENDAR", ""].join("\r\n");
+  const startLine = timed ? `DTSTART:${timed.start}` : `DTSTART;VALUE=DATE:${start}`;
+  const endLine = timed ? `DTEND:${timed.end}` : `DTEND;VALUE=DATE:${end}`;
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "PRODID:-//Douyou//Reservation//ZH", "BEGIN:VEVENT", `UID:douyou-${start}-${Date.now()}@douyou`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")}`, startLine, endLine, `SUMMARY:${escape(`預約提醒｜${title}`)}`, `DESCRIPTION:${escape(note || "豆遊預約提醒")}`, "BEGIN:VALARM", timed ? "TRIGGER:-PT30M" : "TRIGGER:-PT9H", "ACTION:DISPLAY", "DESCRIPTION:豆遊預約提醒", "END:VALARM", "END:VEVENT", "END:VCALENDAR", ""].join("\r\n");
 };
-const openReservationIphoneCalendar = async (title: string, dateText: string, note = "") => {
+const openReservationIphoneCalendar = async (title: string, dateText: string, note = "", timeText = "") => {
   const normalizedDate = normalizeTripDate(dateText);
-  const ics = reservationIcsContent(title, dateText, note);
+  const ics = reservationIcsContent(title, dateText, note, timeText);
   if (!normalizedDate || !ics) throw new Error("INVALID_RESERVATION_DATE");
   if (Platform.OS === "web" && typeof document !== "undefined") {
     const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
@@ -150,12 +165,12 @@ const reservationInfoForStop = (stop: Stop, dayDate = "") => {
     if (/鑽石灣|遊艇/.test(text)) return dateDaysBefore(dayDate, 30);
     return dateDaysBefore(dayDate, 14);
   })();
-  if (stop.reservationRequired || stop.reservationNote) return { required: true, note: stop.reservationNote || "請於出發前完成預約或確認報到方式。", suggestedDate };
+  if (stop.reservationRequired || stop.reservationNote) return { required: true, note: stop.reservationNote || "請於出發前完成預約或確認報到方式。", suggestedDate, suggestedTime: stop.reservationSuggestedTime || "" };
   const text = `${stop.title} ${stop.note} ${stop.transport}`;
-  if (/Sky Capsule|天空膠囊/.test(text)) return { required: true, note: "建議出發前 4 週開放時預約；可優先選靠海側座位。", suggestedDate };
-  if (/鑽石灣|遊艇/.test(text)) return { required: true, note: "請依預約航班提早報到；建議至少一個月前確認場次。", suggestedDate };
-  if (/Catch Table|預約制/.test(text)) return { required: true, note: "請先確認可訂位時段、入場規則或取票方式。", suggestedDate };
-  return { required: false, note: "", suggestedDate: "" };
+  if (/Sky Capsule|天空膠囊/.test(text)) return { required: true, note: "建議出發前 4 週開放時預約；可優先選靠海側座位。", suggestedDate, suggestedTime: "" };
+  if (/鑽石灣|遊艇/.test(text)) return { required: true, note: "請依預約航班提早報到；建議至少一個月前確認場次。", suggestedDate, suggestedTime: "" };
+  if (/Catch Table|預約制/.test(text)) return { required: true, note: "請先確認可訂位時段、入場規則或取票方式。", suggestedDate, suggestedTime: "" };
+  return { required: false, note: "", suggestedDate: "", suggestedTime: "" };
 };
 const buildInviteMessage = (_tripId: string, inviteCode: string) => `一起編輯豆遊行程 ✈️
 
@@ -402,7 +417,7 @@ const formatCloudDateTime = (value: unknown) => {
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date).replace(" ", " ");
 };
 
-const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string; durationMinutes?: number; transitMinutes?: number; reservationRequired?: boolean; reservationNote?: string; reservationSuggestedDate?: string; reservationCompleted?: boolean } => {
+const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string; durationMinutes?: number; transitMinutes?: number; reservationRequired?: boolean; reservationNote?: string; reservationSuggestedDate?: string; reservationSuggestedTime?: string; reservationCompleted?: boolean } => {
   if (!value) return {};
   try {
     const parsed = JSON.parse(String(value));
@@ -415,6 +430,7 @@ const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: 
       reservationRequired: parsed.reservationRequired === true,
       reservationNote: typeof parsed.reservationNote === "string" ? parsed.reservationNote : undefined,
       reservationSuggestedDate: typeof parsed.reservationSuggestedDate === "string" ? parsed.reservationSuggestedDate : undefined,
+      reservationSuggestedTime: typeof parsed.reservationSuggestedTime === "string" ? parsed.reservationSuggestedTime : undefined,
       reservationCompleted: parsed.reservationCompleted === true
     };
   } catch {
@@ -488,7 +504,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   },
   itinerary: trip.days.flatMap((day) => day.stops.map((stop, index) => ({
     "日期ID": day.id, "景點ID": stop.id, "日期": day.date, "開始時間": stop.time,
-    "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "", durationMinutes: stop.durationMinutes || 0, transitMinutes: stop.transitMinutes || 0, reservationRequired: !!stop.reservationRequired, reservationNote: stop.reservationNote || "", reservationSuggestedDate: stop.reservationSuggestedDate || "", reservationCompleted: !!stop.reservationCompleted }), "景點名稱": stop.title, "地址": stop.address,
+    "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "", durationMinutes: stop.durationMinutes || 0, transitMinutes: stop.transitMinutes || 0, reservationRequired: !!stop.reservationRequired, reservationNote: stop.reservationNote || "", reservationSuggestedDate: stop.reservationSuggestedDate || "", reservationSuggestedTime: stop.reservationSuggestedTime || "", reservationCompleted: !!stop.reservationCompleted }), "景點名稱": stop.title, "地址": stop.address,
     "交通方式": stop.transport, "備註": stop.note, "緯度": stop.latitude ?? "",
     "經度": stop.longitude ?? "", "排序": index
   }))),
@@ -565,7 +581,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
           transport: String(row["交通方式"] || "尚未安排"), transportMode: "其他" as const,
           note: String(row["備註"] || ""), latitude: row["緯度"] === "" ? undefined : Number(row["緯度"]),
           longitude: row["經度"] === "" ? undefined : Number(row["經度"]),
-          routeMode: meta.routeMode || "driving", openingHours: meta.openingHours || "", openingHoursSource: meta.openingHoursSource || "", durationMinutes: meta.durationMinutes || 0, transitMinutes: meta.transitMinutes || 0, reservationRequired: meta.reservationRequired, reservationNote: meta.reservationNote || "", reservationSuggestedDate: meta.reservationSuggestedDate || "", reservationCompleted: meta.reservationCompleted
+          routeMode: meta.routeMode || "driving", openingHours: meta.openingHours || "", openingHoursSource: meta.openingHoursSource || "", durationMinutes: meta.durationMinutes || 0, transitMinutes: meta.transitMinutes || 0, reservationRequired: meta.reservationRequired, reservationNote: meta.reservationNote || "", reservationSuggestedDate: meta.reservationSuggestedDate || "", reservationSuggestedTime: meta.reservationSuggestedTime || "", reservationCompleted: meta.reservationCompleted
         };
       })
     };
@@ -795,6 +811,10 @@ export default function App() {
   const [draftTransitMinutes, setDraftTransitMinutes] = useState("");
   const [draftTransport, setDraftTransport] = useState("");
   const [draftRouteMode, setDraftRouteMode] = useState<RouteMode>("driving");
+  const [draftReservationRequired, setDraftReservationRequired] = useState(false);
+  const [draftReservationDate, setDraftReservationDate] = useState("");
+  const [draftReservationTime, setDraftReservationTime] = useState("");
+  const [draftReservationNote, setDraftReservationNote] = useState("");
   const [creatingTrip, setCreatingTrip] = useState(false);
   const [newTripName, setNewTripName] = useState("");
   const [newDestination, setNewDestination] = useState("");
@@ -829,8 +849,10 @@ export default function App() {
   const [addingReservation, setAddingReservation] = useState(false);
   const [reservationTitleDraft, setReservationTitleDraft] = useState("");
   const [reservationDateDraft, setReservationDateDraft] = useState("");
+  const [reservationTimeDraft, setReservationTimeDraft] = useState("");
   const [reservationNoteDraft, setReservationNoteDraft] = useState("");
   const [reservationWebsiteDraft, setReservationWebsiteDraft] = useState("");
+  const [editingReservationId, setEditingReservationId] = useState<string | null>(null);
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
   const [addingExpense, setAddingExpense] = useState(false);
   const [expenseTitle, setExpenseTitle] = useState("");
@@ -1053,10 +1075,25 @@ export default function App() {
   const saveManualReservation = () => {
     const title = reservationTitleDraft.trim();
     if (!title) { showToast("請先填寫預約事項名稱"); return; }
-    updateActiveTrip({ reservations: [...(activeTrip.reservations || []), { id: `reservation-${Date.now()}`, title, suggestedDate: reservationDateDraft.trim(), note: reservationNoteDraft.trim(), website: reservationWebsiteDraft.trim(), completed: false }] });
+    const time = reservationTimeDraft.trim();
+    if (time && !/^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(time)) { showToast("預約時間請輸入 00:00～23:59"); return; }
+    const current = activeTrip.reservations || [];
+    const nextItem = { title, suggestedDate: reservationDateDraft.trim(), suggestedTime: time, note: reservationNoteDraft.trim(), website: reservationWebsiteDraft.trim() };
+    updateActiveTrip({ reservations: editingReservationId
+      ? current.map((item) => item.id === editingReservationId ? { ...item, ...nextItem } : item)
+      : [...current, { id: `reservation-${Date.now()}`, ...nextItem, completed: false }]
+    });
     setReservationWebsiteDraft("");
-    setReservationTitleDraft(""); setReservationDateDraft(""); setReservationNoteDraft(""); setAddingReservation(false);
-    showToast("已新增預約提醒，並同步給旅伴");
+    setReservationTitleDraft(""); setReservationDateDraft(""); setReservationTimeDraft(""); setReservationNoteDraft(""); setEditingReservationId(null); setAddingReservation(false);
+    showToast(editingReservationId ? "已更新預約提醒" : "已新增預約提醒，並同步給旅伴");
+  };
+  const openNewReservation = () => {
+    setEditingReservationId(null); setReservationTitleDraft(""); setReservationDateDraft(""); setReservationTimeDraft(""); setReservationNoteDraft(""); setReservationWebsiteDraft("");
+    setSelectedTool(null); setAddingReservation(true);
+  };
+  const openReservationEditor = (item: NonNullable<TripPlan["reservations"]>[number]) => {
+    setEditingReservationId(item.id); setReservationTitleDraft(item.title); setReservationDateDraft(item.suggestedDate || ""); setReservationTimeDraft(item.suggestedTime || ""); setReservationNoteDraft(item.note || ""); setReservationWebsiteDraft(item.website || "");
+    setSelectedTool(null); setAddingReservation(true);
   };
   const toggleManualReservation = (id: string) => updateActiveTrip({ reservations: (activeTrip.reservations || []).map((item) => item.id === id ? { ...item, completed: !item.completed } : item) });
   const removeManualReservation = (id: string) => updateActiveTrip({ reservations: (activeTrip.reservations || []).filter((item) => item.id !== id) });
@@ -2189,7 +2226,11 @@ export default function App() {
         transitMinutes,
         transport,
         transportMode,
-        routeMode: draftRouteMode
+        routeMode: draftRouteMode,
+        reservationRequired: draftReservationRequired,
+        reservationSuggestedDate: draftReservationRequired ? draftReservationDate.trim() : "",
+        reservationSuggestedTime: draftReservationRequired ? draftReservationTime.trim() : "",
+        reservationNote: draftReservationRequired ? draftReservationNote.trim() : ""
       } : stop
     );
     const index = next.findIndex((stop) => stop.id === editing.id);
@@ -4062,7 +4103,10 @@ export default function App() {
   const toolboxSubtitle = (title: string, fallback: string) => {
     if (title === "班機") return activeTrip.flights.length ? `${activeTrip.flights.length} 段航班` : "尚未新增航班";
     if (title === "住宿") return activeTrip.accommodations.length ? `${activeTrip.accommodations.length} 筆住宿` : "尚未新增住宿";
-    if (title === "預約提醒") return reservationStops.length ? `${reservationStops.length} 項需要處理` : "目前沒有預約事項";
+    if (title === "預約提醒") {
+      const count = reservationStops.length + (activeTrip.reservations || []).length;
+      return count ? `${count} 項需要處理` : "目前沒有預約事項";
+    }
     if (title === "天氣") return `查看 ${activeTrip.destination} 即時天氣`;
     if (title === "匯率") return `${currencyForTrip.code} → TWD 快速換算`;
     if (title === "必買商品") return isKoreaTrip ? "韓國採買清單" : `${activeTrip.destination} 尚未建立清單`;
@@ -4146,6 +4190,10 @@ export default function App() {
             setDraftTransitMinutes(String(item.transitMinutes || ""));
             setDraftTransport(item.transport || "");
             setDraftRouteMode(item.routeMode || (item.transport.includes("步行") ? "walking" : item.transport.includes("地鐵") || item.transport.includes("公車") ? "transit" : item.transport.includes("計程車") ? "taxi" : "driving"));
+            setDraftReservationRequired(!!item.reservationRequired || !!item.reservationNote);
+            setDraftReservationDate(item.reservationSuggestedDate || "");
+            setDraftReservationTime(item.reservationSuggestedTime || "");
+            setDraftReservationNote(item.reservationNote || "");
           }}
         >
           <View style={styles.stopTop}>
@@ -4910,6 +4958,19 @@ export default function App() {
                 placeholderTextColor="#A49C90"
                 style={styles.fieldInput}
               />
+              <Text style={styles.fieldLabel}>是否需要提前預約？</Text>
+              <Pressable style={[styles.reservationToggle, draftReservationRequired && styles.reservationToggleActive]} onPress={() => setDraftReservationRequired((value) => !value)}>
+                <View style={[styles.reservationToggleBox, draftReservationRequired && styles.reservationToggleBoxActive]}><Text style={styles.reservationToggleCheck}>{draftReservationRequired ? "✓" : ""}</Text></View>
+                <View style={styles.reservationToggleText}><Text style={styles.reservationToggleTitle}>{draftReservationRequired ? "需要預約" : "不需要預約"}</Text><Text style={styles.reservationToggleSub}>開啟後會顯示在工具箱的預約提醒</Text></View>
+              </Pressable>
+              {draftReservationRequired && <>
+                <Text style={styles.fieldLabel}>建議預約日期</Text>
+                <TextInput value={draftReservationDate} onChangeText={setDraftReservationDate} placeholder="例如：2026-09-07" placeholderTextColor="#A49C90" style={styles.fieldInput} />
+                <Text style={styles.fieldLabel}>建議預約時間</Text>
+                <TextInput value={draftReservationTime} onChangeText={setDraftReservationTime} placeholder="例如：10:00" keyboardType="numbers-and-punctuation" placeholderTextColor="#A49C90" style={styles.fieldInput} />
+                <Text style={styles.fieldLabel}>預約備註／網站</Text>
+                <TextInput value={draftReservationNote} onChangeText={setDraftReservationNote} placeholder="可貼預約網址、開放時間或注意事項" placeholderTextColor="#A49C90" multiline style={styles.noteInput} />
+              </>}
               <Text style={styles.fieldLabel}>備註</Text>
               <TextInput
                 value={draftNote}
@@ -4958,13 +5019,14 @@ export default function App() {
           </View>
         </Modal>
 
-        <Modal visible={addingReservation} animationType="slide" transparent onRequestClose={() => setAddingReservation(false)}>
-          <Pressable style={styles.modalShade} onPress={() => setAddingReservation(false)}><Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>NEW RESERVATION</Text><Text style={styles.sheetTitle}>新增預約提醒</Text>
+        <Modal visible={addingReservation} animationType="slide" transparent onRequestClose={() => { setAddingReservation(false); setEditingReservationId(null); }}>
+          <Pressable style={styles.modalShade} onPress={() => setAddingReservation(false)}><Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>NEW RESERVATION</Text><Text style={styles.sheetTitle}>{editingReservationId ? "編輯預約提醒" : "新增預約提醒"}</Text>
             <Text style={styles.fieldLabel}>預約事項 *</Text><TextInput value={reservationTitleDraft} onChangeText={setReservationTitleDraft} placeholder="例如：天空膠囊、餐廳訂位、租車" placeholderTextColor="#AAA198" style={styles.fieldInput} />
             <Text style={styles.fieldLabel}>建議預約日</Text><TextInput value={reservationDateDraft} onChangeText={setReservationDateDraft} placeholder="例如：2026-09-06" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+            <Text style={styles.fieldLabel}>建議預約時間（可留空）</Text><TextInput value={reservationTimeDraft} onChangeText={setReservationTimeDraft} placeholder="例如：10:00" keyboardType="numbers-and-punctuation" placeholderTextColor="#AAA198" style={styles.fieldInput} />
             <Text style={styles.fieldLabel}>預約網站（可留空）</Text><TextInput value={reservationWebsiteDraft} onChangeText={setReservationWebsiteDraft} placeholder="https://…" autoCapitalize="none" keyboardType="url" placeholderTextColor="#AAA198" style={styles.fieldInput} />
             <Text style={styles.fieldLabel}>備註</Text><TextInput value={reservationNoteDraft} onChangeText={setReservationNoteDraft} placeholder="例如：預約網站、開放時間、訂位代號" placeholderTextColor="#AAA198" multiline style={styles.noteInput} />
-            <Pressable style={styles.primaryButton} onPress={saveManualReservation}><Text style={styles.primaryButtonText}>新增預約提醒</Text></Pressable><Pressable style={styles.cancelButton} onPress={() => setAddingReservation(false)}><Text style={styles.cancelText}>取消</Text></Pressable>
+            <Pressable style={styles.primaryButton} onPress={saveManualReservation}><Text style={styles.primaryButtonText}>{editingReservationId ? "儲存預約修改" : "新增預約提醒"}</Text></Pressable><Pressable style={styles.cancelButton} onPress={() => { setAddingReservation(false); setEditingReservationId(null); }}><Text style={styles.cancelText}>取消</Text></Pressable>
           </Pressable></Pressable>
         </Modal>
 
@@ -5115,14 +5177,14 @@ export default function App() {
               )}
               {selectedTool === "預約提醒" && (
                 <View style={styles.detailBlock}>
-                  <View style={styles.reservationHeading}><View style={styles.toolText}><Text style={styles.detailTitle}>這趟旅行的預約提醒</Text><Text style={styles.detailHint}>系統會依行程日期提供建議預約日；按下「已完成」後，所有旅伴都會同步看到完成狀態。</Text></View><Pressable style={styles.reservationAddButton} onPress={() => { setSelectedTool(null); setAddingReservation(true); }}><Text style={styles.reservationAddText}>＋ 新增預約</Text></Pressable></View>
+                  <View style={styles.reservationHeading}><View style={styles.toolText}><Text style={styles.detailTitle}>這趟旅行的預約提醒</Text><Text style={styles.detailHint}>系統會依行程日期提供建議預約日；按下「已完成」後，所有旅伴都會同步看到完成狀態。</Text></View><Pressable style={styles.reservationAddButton} onPress={openNewReservation}><Text style={styles.reservationAddText}>＋ 新增預約</Text></Pressable></View>
                   {reservationStops.map(({ day, stop, info }) => (
                     <View key={stop.id} style={[styles.toolCard, stop.reservationCompleted && styles.reservationCompletedCard]}>
-                      <View style={styles.toolText}><Text style={styles.toolTitle}>{reservationDateLabel(day.date)}・{stop.time} {stopDisplayTitle(stop)}</Text><Text style={styles.toolSub}>{info.suggestedDate ? `建議於 ${reservationDateLabel(info.suggestedDate)} 預約` : "建議盡早確認預約"}</Text><Text style={styles.toolSub}>{info.note}</Text>{!!reservationWebsiteUrl(`${stop.reservationNote || ""} ${stop.note || ""}`) && <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(reservationWebsiteUrl(`${stop.reservationNote || ""} ${stop.note || ""}`))}><Text style={styles.reservationWebsiteText}>開啟預約網站 ↗</Text></Pressable>}{!!info.suggestedDate && <View style={styles.calendarActions}><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationGoogleCalendarUrl(stopDisplayTitle(stop), info.suggestedDate || "", info.note))}><Text style={styles.calendarButtonText}>Google 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => openReservationIphoneCalendar(stopDisplayTitle(stop), info.suggestedDate || "", info.note).catch(() => showToast("無法建立 iPhone 行事曆檔，請確認建議預約日期。"))}><Text style={styles.calendarButtonText}>iPhone 行事曆</Text></Pressable></View>}</View>
+                      <View style={styles.toolText}><Text style={styles.toolTitle}>{reservationDateLabel(day.date)}・{stop.time} {stopDisplayTitle(stop)}</Text><Text style={styles.toolSub}>{info.suggestedDate ? `建議於 ${reservationDateLabel(info.suggestedDate)}${info.suggestedTime ? ` ${info.suggestedTime}` : ""} 預約` : "建議盡早確認預約"}</Text><Text style={styles.toolSub}>{info.note}</Text>{!!reservationWebsiteUrl(`${stop.reservationNote || ""} ${stop.note || ""}`) && <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(reservationWebsiteUrl(`${stop.reservationNote || ""} ${stop.note || ""}`))}><Text style={styles.reservationWebsiteText}>開啟預約網站 ↗</Text></Pressable>}{!!info.suggestedDate && <View style={styles.calendarActions}><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationGoogleCalendarUrl(stopDisplayTitle(stop), info.suggestedDate || "", info.note, info.suggestedTime || ""))}><Text style={styles.calendarButtonText}>Google 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => openReservationIphoneCalendar(stopDisplayTitle(stop), info.suggestedDate || "", info.note, info.suggestedTime || "").catch(() => showToast("無法建立 iPhone 行事曆檔，請確認建議預約日期。"))}><Text style={styles.calendarButtonText}>iPhone 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => { setSelectedDayId(day.id); setEditing(stop); setDraftTitle(stop.title); setDraftTime(stop.time || ""); setDraftAddress(stop.address === "地址待補" ? "" : stop.address); setDraftNote(stop.note); setDraftOpeningHours(stop.openingHours || ""); setDraftDuration(String(stop.durationMinutes || "")); setDraftTransitMinutes(String(stop.transitMinutes || "")); setDraftTransport(stop.transport || ""); setDraftRouteMode(stop.routeMode || "transit"); setDraftReservationRequired(true); setDraftReservationDate(stop.reservationSuggestedDate || ""); setDraftReservationTime(stop.reservationSuggestedTime || ""); setDraftReservationNote(stop.reservationNote || ""); setSelectedTool(null); }}><Text style={styles.calendarButtonText}>編輯</Text></Pressable></View>}</View>
                       <Pressable style={[styles.reservationCheckButton, stop.reservationCompleted && styles.reservationCheckButtonDone]} onPress={() => toggleReservationCompleted(day.id, stop.id)}><Text style={[styles.reservationCheckText, stop.reservationCompleted && styles.reservationCheckTextDone]}>{stop.reservationCompleted ? "✓ 已完成" : "○ 待預約"}</Text></Pressable>
                     </View>
                   ))}
-                  {(activeTrip.reservations || []).map((item) => <View key={item.id} style={[styles.toolCard, item.completed && styles.reservationCompletedCard]}><View style={styles.toolText}><Text style={styles.toolTitle}>{item.title}</Text><Text style={styles.toolSub}>{item.suggestedDate ? `建議於 ${reservationDateLabel(item.suggestedDate)} 預約` : "建議預約日：請自行設定"}</Text>{!!item.note && <Text style={styles.toolSub}>{item.note}</Text>}{!!item.website && <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(item.website || "")}><Text style={styles.reservationWebsiteText}>開啟預約網站 ↗</Text></Pressable>}{!!item.suggestedDate && <View style={styles.calendarActions}><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationGoogleCalendarUrl(item.title, item.suggestedDate || "", item.note || ""))}><Text style={styles.calendarButtonText}>Google 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => openReservationIphoneCalendar(item.title, item.suggestedDate || "", item.note || "").catch(() => showToast("無法建立 iPhone 行事曆檔，請確認建議預約日期。"))}><Text style={styles.calendarButtonText}>iPhone 行事曆</Text></Pressable></View>}</View><Pressable style={[styles.reservationCheckButton, item.completed && styles.reservationCheckButtonDone]} onPress={() => toggleManualReservation(item.id)}><Text style={[styles.reservationCheckText, item.completed && styles.reservationCheckTextDone]}>{item.completed ? "✓ 已完成" : "○ 待預約"}</Text></Pressable><Pressable style={styles.reservationDeleteButton} onPress={() => removeManualReservation(item.id)}><Text style={styles.reservationDeleteText}>×</Text></Pressable></View>)}
+                  {(activeTrip.reservations || []).map((item) => <View key={item.id} style={[styles.toolCard, item.completed && styles.reservationCompletedCard]}><View style={styles.toolText}><Text style={styles.toolTitle}>{item.title}</Text><Text style={styles.toolSub}>{item.suggestedDate ? `建議於 ${reservationDateLabel(item.suggestedDate)}${item.suggestedTime ? ` ${item.suggestedTime}` : ""} 預約` : "建議預約日：請自行設定"}</Text>{!!item.note && <Text style={styles.toolSub}>{item.note}</Text>}{!!item.website && <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(item.website || "")}><Text style={styles.reservationWebsiteText}>開啟預約網站 ↗</Text></Pressable>}<View style={styles.calendarActions}>{!!item.suggestedDate && <><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationGoogleCalendarUrl(item.title, item.suggestedDate || "", item.note || "", item.suggestedTime || ""))}><Text style={styles.calendarButtonText}>Google 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => openReservationIphoneCalendar(item.title, item.suggestedDate || "", item.note || "", item.suggestedTime || "").catch(() => showToast("無法建立 iPhone 行事曆檔，請確認建議預約日期。"))}><Text style={styles.calendarButtonText}>iPhone 行事曆</Text></Pressable></>}<Pressable style={styles.calendarButton} onPress={() => openReservationEditor(item)}><Text style={styles.calendarButtonText}>編輯</Text></Pressable></View></View><Pressable style={[styles.reservationCheckButton, item.completed && styles.reservationCheckButtonDone]} onPress={() => toggleManualReservation(item.id)}><Text style={[styles.reservationCheckText, item.completed && styles.reservationCheckTextDone]}>{item.completed ? "✓ 已完成" : "○ 待預約"}</Text></Pressable><Pressable style={styles.reservationDeleteButton} onPress={() => removeManualReservation(item.id)}><Text style={styles.reservationDeleteText}>×</Text></Pressable></View>)}
                   {!reservationStops.length && !(activeTrip.reservations || []).length && <Text style={styles.emptyListText}>目前沒有預約事項。可按右上方「＋ 新增預約」，或在景點備註填「需預約」或「預約制」。</Text>}
                 </View>
               )}
