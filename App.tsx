@@ -23,12 +23,37 @@ import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { toolboxItems } from "./src/data/toolbox";
 import { shoppingItems } from "./src/data/shopping";
-import { initialTrip as busanInitialTrip } from "./src/data/trip";
+import { BUSAN_ITINERARY_VERSION, initialTrip as busanInitialTrip } from "./src/data/trip";
 import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
 import { archiveFirestoreTrip, deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreMembers, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, restoreFirestoreTrip, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreMemberName, updateFirestoreTripState } from "./src/firestoreSync";
+
+type BusanBackupPlan = {
+  id: string;
+  group: "天候備案" | "額滿／公休";
+  condition: string;
+  affected: string;
+  alternative: string;
+  note: string;
+  url?: string;
+};
+
+const BUSAN_BACKUP_PLANS: BusanBackupPlan[] = [
+  { id: "weather-d1", group: "天候備案", condition: "下雨／太熱", affected: "10/04 太宗台＋白淺灘文化村", alternative: "釜山電影體驗博物館，或提早前往南浦洞、樂天百貨", note: "太宗台遊園列車可能因天候停駛，出發前先確認。" },
+  { id: "weather-d2a", group: "天候備案", condition: "下雨", affected: "10/05 甘川文化村＋阿米山", alternative: "新世界百貨 Centum City 或西面地下街", note: "路面濕滑時取消阿米山，甘川文化村縮短停留。" },
+  { id: "weather-d2b", group: "天候備案", condition: "下雨", affected: "10/05 冬柏公園＋海雲台", alternative: "田浦室內咖啡廳與選物店", note: "海邊行程縮短，保留室內用餐與咖啡備案。" },
+  { id: "weather-d3", group: "天候備案", condition: "下雨", affected: "10/06 西面", alternative: "西面地下街與室內午餐", note: "主要活動在室內，原行程大致可照常進行。" },
+  { id: "weather-d4a", group: "天候備案", condition: "強風／大雨", affected: "10/07 松島纜車", alternative: "Museum 1", note: "先查官方停駛、退票與 Visit Busan Pass 使用規則。" },
+  { id: "weather-d4b", group: "天候備案", condition: "下雨", affected: "10/07 青沙浦＋Sky Capsule", alternative: "保留有遮蔽的 Sky Capsule，取消踏石觀景台後前往水營灣", note: "依風雨狀況縮短海岸停留。" },
+  { id: "weather-d4c", group: "天候備案", condition: "強風浪／颱風", affected: "10/07 Diamond Bay 遊艇", alternative: "行程提前或延長 SPA LAND", note: "依優先順序保留 SPA LAND、纜車／遊艇、Sky Capsule；必要時取消 Running Man。", url: "https://diamondbay-tw.imweb.me/vbp-tw" },
+  { id: "weather-d5", group: "天候備案", condition: "下雨", affected: "10/08 海東龍宮寺", alternative: "樂天 Outlet 或 Waveon Coffee", note: "寺院步道濕滑時不要勉強前往。" },
+  { id: "full-capsule", group: "額滿／公休", condition: "額滿／停駛", affected: "Sky Capsule", alternative: "改搭計程車前往水營灣", note: "保留後續遊艇與 SPA LAND 行程。" },
+  { id: "full-pork", group: "額滿／公休", condition: "客滿", affected: "喉嚨烤肉影島店", alternative: "明星一隻雞", note: "依現場候位時間彈性切換。" },
+  { id: "full-gamcheon", group: "額滿／公休", condition: "客滿", affected: "甘川午餐", alternative: "阿米／多大浦用餐，或移到海雲台再吃", note: "不要為單一餐廳壓縮下午行程。" },
+  { id: "full-jeonpo", group: "額滿／公休", condition: "客滿", affected: "田浦燒肉", alternative: "味贊王西面店", note: "可先收藏地圖位置方便臨時切換。" }
+];
 
 const homeTravelBean = require("./assets/home-travel-bean-transparent.png");
 const JIGOKU_STEAM_COORDINATES = { latitude: 33.31542873, longitude: 131.47623155 };
@@ -743,6 +768,19 @@ const normalizeTripSchedule = (trip: TripPlan): TripPlan => {
   };
 };
 
+const upgradeBusanItinerary = (trip: TripPlan): TripPlan => {
+  const isBusanTrip = /釜山/.test(`${trip.title} ${trip.destination}`);
+  if (!isBusanTrip || (trip.busanItineraryVersion || 0) >= BUSAN_ITINERARY_VERSION) return trip;
+  return {
+    ...trip,
+    startDate: "2026-10-04",
+    endDate: "2026-10-08",
+    period: "2026.10.04 – 2026.10.08",
+    days: busanInitialTrip,
+    busanItineraryVersion: BUSAN_ITINERARY_VERSION
+  };
+};
+
 const transportIcon = (mode: Stop["transportMode"]) =>
   ({ 步行: "🚶", 計程車: "🚕", 公車: "🚌", 地鐵: "🚇", 飛機: "✈️", 預約制: "🎫", 百貨內: "🏬", 其他: "↗️" }[mode]);
 
@@ -1154,7 +1192,12 @@ export default function App() {
     if (!firestoreConnected || !activeTrip?.id) return;
     return listenFirestoreTrip(activeTrip.id, (incomingTrip, incomingExpenses) => {
       if (Date.now() - localMutationAtRef.current < 1800) return;
-      const normalizedTrip = normalizeTripSchedule(incomingTrip as TripPlan);
+      const rawTrip = incomingTrip as TripPlan;
+      const normalizedTrip = normalizeTripSchedule(upgradeBusanItinerary(rawTrip));
+      if (JSON.stringify(rawTrip) !== JSON.stringify(normalizedTrip) && googleUser?.firebaseUid) {
+        const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
+        updateFirestoreTripState(personId, normalizedTrip, incomingExpenses).catch(() => undefined);
+      }
       setTrips((current) => {
         const next = current.some((trip) => trip.id === normalizedTrip.id)
           ? current.map((trip) => trip.id === normalizedTrip.id ? normalizedTrip : trip)
@@ -1215,7 +1258,7 @@ export default function App() {
         if (tripStops.has(tripId)) return;
         tripStops.set(tripId, listenFirestoreTrip(tripId, (incomingTrip, incomingExpenses) => {
           const rawTrip = incomingTrip as TripPlan;
-          const trip = normalizeTripSchedule(rawTrip);
+          const trip = normalizeTripSchedule(upgradeBusanItinerary(rawTrip));
           if (JSON.stringify(rawTrip) !== JSON.stringify(trip)) {
             updateFirestoreTripState(personId, trip, incomingExpenses).catch(() => undefined);
           }
@@ -4107,6 +4150,10 @@ export default function App() {
       const count = reservationStops.length + (activeTrip.reservations || []).length;
       return count ? `${count} 項需要處理` : "目前沒有預約事項";
     }
+    if (title === "備案") {
+      const isBusanTrip = /釜山/.test(`${activeTrip.title} ${activeTrip.destination}`);
+      return isBusanTrip ? `${BUSAN_BACKUP_PLANS.length} 組天候、額滿與延誤方案` : "尚未建立這趟旅行的備案";
+    }
     if (title === "天氣") return `查看 ${activeTrip.destination} 即時天氣`;
     if (title === "匯率") return `${currencyForTrip.code} → TWD 快速換算`;
     if (title === "必買商品") return isKoreaTrip ? "韓國採買清單" : `${activeTrip.destination} 尚未建立清單`;
@@ -5143,6 +5190,33 @@ export default function App() {
                     ))}
                     <Pressable style={styles.primaryButton} onPress={() => setAddingAccommodation(true)}><Text style={styles.primaryButtonText}>＋ 新增住宿</Text></Pressable>
                   </>}
+                </View>
+              )}
+              {selectedTool === "備案" && (
+                <View style={styles.detailBlock}>
+                  <Text style={styles.detailTitle}>這趟旅行的備案</Text>
+                  <Text style={styles.detailHint}>依天候與現場狀況整理；臨時需要改行程時，可直接查看受影響行程與替代方案。</Text>
+                  {!/釜山/.test(`${activeTrip.title} ${activeTrip.destination}`) ? (
+                    <Text style={styles.emptyListText}>尚未建立這趟旅行的備案。</Text>
+                  ) : (["天候備案", "額滿／公休"] as const).map((group) => (
+                    <View key={group}>
+                      <Text style={styles.shoppingSectionTitle}>{group}</Text>
+                      {BUSAN_BACKUP_PLANS.filter((item) => item.group === group).map((item) => (
+                        <View key={item.id} style={styles.toolCard}>
+                          <View style={styles.toolText}>
+                            <Text style={styles.toolTitle}>{item.condition}｜{item.affected}</Text>
+                            <Text style={styles.toolSub}>替代：{item.alternative}</Text>
+                            <Text style={styles.toolSub}>提醒：{item.note}</Text>
+                            {!!item.url && (
+                              <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(item.url || "")}>
+                                <Text style={styles.reservationWebsiteText}>查看官方資訊 ↗</Text>
+                              </Pressable>
+                            )}
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  ))}
                 </View>
               )}
               {selectedTool === "天氣" && (

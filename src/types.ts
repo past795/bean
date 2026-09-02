@@ -125,4 +125,5 @@ export type TripPlan = {
   unscheduledPlaces?: UnscheduledPlace[];
   reservations?: TripReservationReminder[];
   oitaDay3TransitVersion?: number;
+  busanItineraryVersion?: number;
 };
