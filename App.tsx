@@ -1165,10 +1165,14 @@ export default function App() {
     setBackupWebsiteDraft("");
   };
   const openNewBackupPlan = () => {
+    // Close the toolbox sheet first so the editor modal is always on top.
+    setSelectedTool(null);
     resetBackupPlanDraft();
     setAddingBackupPlan(true);
   };
   const openBackupPlanEditor = (item: TripBackupPlan) => {
+    // Close the toolbox sheet first so the editor modal is always on top.
+    setSelectedTool(null);
     setEditingBackupPlanId(item.id);
     setBackupDateDraft(item.date || "");
     setBackupReasonDraft(item.reason || "其他");
