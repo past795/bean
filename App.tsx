@@ -5294,22 +5294,40 @@ export default function App() {
               )}
               {selectedTool === "備案" && (
                 <View style={styles.detailBlock}>
-                  <View style={styles.reservationHeading}>
-                    <View style={styles.toolText}><Text style={styles.detailTitle}>這趟旅行的備案</Text><Text style={styles.detailHint}>記下日期、原因、受影響行程與替代提醒；所有旅伴會一起看到更新。</Text></View>
-                    <Pressable style={styles.reservationAddButton} onPress={openNewBackupPlan}><Text style={styles.reservationAddText}>＋ 新增備案</Text></Pressable>
+                  <View style={styles.backupHeading}>
+                    <Text style={styles.detailTitle}>這趟旅行的備案</Text>
+                    <Text style={styles.detailHint}>遇到下雨、店休或交通異動時，快速查看替代方案。</Text>
                   </View>
+                  <Pressable style={styles.backupAddButton} onPress={openNewBackupPlan}>
+                    <Text style={styles.backupAddIcon}>＋</Text>
+                    <Text style={styles.backupAddText}>新增備案</Text>
+                  </Pressable>
                   {(activeTrip.backupPlans || []).map((item) => (
-                    <View key={item.id} style={styles.toolCard}>
-                      <View style={styles.toolText}>
-                        <Text style={styles.toolTitle}>{item.date ? `${item.date}｜` : ""}{item.reason}</Text>
-                        {!!item.affected && <Text style={styles.toolSub}>受影響：{item.affected}</Text>}
-                        <Text style={styles.toolSub}>替代：{item.alternative}</Text>
-                        {!!item.reminder && <Text style={styles.toolSub}>提醒：{item.reminder}</Text>}
-                        <View style={styles.calendarActions}>
-                          {!!item.website && <Pressable style={styles.calendarButton} onPress={() => Linking.openURL(item.website || "")}><Text style={styles.calendarButtonText}>查看資訊 ↗</Text></Pressable>}
-                          <Pressable style={styles.calendarButton} onPress={() => openBackupPlanEditor(item)}><Text style={styles.calendarButtonText}>編輯</Text></Pressable>
-                          <Pressable style={styles.calendarButton} onPress={() => removeBackupPlan(item.id)}><Text style={styles.reservationDeleteText}>刪除</Text></Pressable>
+                    <View key={item.id} style={styles.backupCard}>
+                      <View style={styles.backupCardHeader}>
+                        {!!item.date && <Text style={styles.backupDate}>{item.date}</Text>}
+                        <Text style={styles.backupReason}>{item.reason}</Text>
+                      </View>
+                      {!!item.affected && (
+                        <View style={styles.backupInfoRow}>
+                          <Text style={styles.backupInfoLabel}>受影響</Text>
+                          <Text style={styles.backupInfoText}>{item.affected}</Text>
                         </View>
+                      )}
+                      <View style={styles.backupAlternativeBox}>
+                        <Text style={styles.backupAlternativeLabel}>替代方案</Text>
+                        <Text style={styles.backupAlternativeText}>{item.alternative}</Text>
+                      </View>
+                      {!!item.reminder && (
+                        <View style={styles.backupInfoRow}>
+                          <Text style={styles.backupInfoLabel}>提醒</Text>
+                          <Text style={styles.backupInfoText}>{item.reminder}</Text>
+                        </View>
+                      )}
+                      <View style={styles.backupActions}>
+                        {!!item.website && <Pressable style={styles.backupActionButton} onPress={() => Linking.openURL(item.website || "")}><Text style={styles.backupActionText}>查看資訊 ↗</Text></Pressable>}
+                        <Pressable style={styles.backupActionButton} onPress={() => openBackupPlanEditor(item)}><Text style={styles.backupActionText}>編輯</Text></Pressable>
+                        <Pressable style={[styles.backupActionButton, styles.backupDeleteButton]} onPress={() => removeBackupPlan(item.id)}><Text style={styles.backupDeleteText}>刪除</Text></Pressable>
                       </View>
                     </View>
                   ))}
@@ -6137,6 +6155,25 @@ const styles = createDouyouStyles({
   reservationCompletedCard: { backgroundColor: "#F4FAF6", borderColor: "#CDE3D4" },
   reservationHeading: { flexDirection: "row", alignItems: "flex-start", marginBottom: 12 },
   reservationAddButton: { backgroundColor: "#637595", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 9, marginLeft: 10, marginTop: 1 },
+  backupHeading: { marginBottom: 14 },
+  backupAddButton: { width: "100%", minHeight: 48, borderRadius: 15, backgroundColor: "#637595", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 14 },
+  backupAddIcon: { color: "#FFF", fontSize: 21, lineHeight: 23, fontWeight: "500" },
+  backupAddText: { color: "#FFF", fontSize: 14, fontWeight: "900" },
+  backupCard: { backgroundColor: "#FFF", borderWidth: 1, borderColor: "#E1E5EC", borderRadius: 18, padding: 16, marginBottom: 12, shadowColor: "#42516B", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  backupCardHeader: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  backupDate: { color: "#536783", backgroundColor: "#EDF2FA", borderRadius: 9, paddingHorizontal: 9, paddingVertical: 5, fontSize: 12, fontWeight: "900" },
+  backupReason: { flexShrink: 1, color: "#292622", fontSize: 18, fontWeight: "900" },
+  backupInfoRow: { flexDirection: "row", alignItems: "flex-start", marginTop: 7 },
+  backupInfoLabel: { width: 58, color: "#8B8177", fontSize: 11, fontWeight: "900", paddingTop: 1 },
+  backupInfoText: { flex: 1, color: "#665F58", fontSize: 13, lineHeight: 20 },
+  backupAlternativeBox: { backgroundColor: "#F4F6FA", borderRadius: 13, paddingHorizontal: 12, paddingVertical: 11 },
+  backupAlternativeLabel: { color: "#637595", fontSize: 10, fontWeight: "900", letterSpacing: 0.6, marginBottom: 4 },
+  backupAlternativeText: { color: "#35312D", fontSize: 14, lineHeight: 21, fontWeight: "700" },
+  backupActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8, flexWrap: "wrap", marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#EEEAE5" },
+  backupActionButton: { minHeight: 36, borderWidth: 1, borderColor: "#CDD7E7", backgroundColor: "#F7F9FD", borderRadius: 10, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" },
+  backupActionText: { color: "#536783", fontSize: 12, fontWeight: "900" },
+  backupDeleteButton: { borderColor: "#ECD8D3", backgroundColor: "#FFF7F5" },
+  backupDeleteText: { color: "#AE6256", fontSize: 12, fontWeight: "900" },
   calendarActions: { flexDirection: "row", gap: 7, flexWrap: "wrap", marginTop: 8 },
   calendarButton: { borderWidth: 1, borderColor: "#CBD6E8", backgroundColor: "#F7FAFF", borderRadius: 9, paddingHorizontal: 8, paddingVertical: 6 },
   calendarButtonText: { color: "#536A92", fontSize: 11, fontWeight: "800" },
