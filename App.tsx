@@ -24,7 +24,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { toolboxItems } from "./src/data/toolbox";
 import { shoppingItems } from "./src/data/shopping";
 import { BUSAN_ITINERARY_VERSION, initialTrip as busanInitialTrip } from "./src/data/trip";
-import { FlightInfo, Stop, TripDay, TripPlan } from "./src/types";
+import { FlightInfo, Stop, TripBackupPlan, TripDay, TripPlan } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
@@ -56,6 +56,15 @@ const BUSAN_BACKUP_PLANS: BusanBackupPlan[] = [
 ];
 
 const homeTravelBean = require("./assets/home-travel-bean-transparent.png");
+const busanBackupDefaults = (): TripBackupPlan[] => BUSAN_BACKUP_PLANS.map((item) => ({
+  id: item.id,
+  date: item.affected.match(/\d{2}\/\d{2}/)?.[0] || "",
+  reason: item.condition,
+  affected: item.affected,
+  alternative: item.alternative,
+  reminder: item.note,
+  website: item.url
+}));
 const JIGOKU_STEAM_COORDINATES = { latitude: 33.31542873, longitude: 131.47623155 };
 const isJigokuSteamWorkshop = (stop: Pick<Stop, "title" | "address">) =>
   /地獄蒸(?:し|工房)|地獄蒸工房.*鉄輪|地獄蒸工房.*鐵輪/i.test(`${stop.title} ${stop.address}`);
@@ -770,13 +779,16 @@ const normalizeTripSchedule = (trip: TripPlan): TripPlan => {
 
 const upgradeBusanItinerary = (trip: TripPlan): TripPlan => {
   const isBusanTrip = /釜山/.test(`${trip.title} ${trip.destination}`);
-  if (!isBusanTrip || (trip.busanItineraryVersion || 0) >= BUSAN_ITINERARY_VERSION) return trip;
+  if (!isBusanTrip) return trip;
+  const backupPlans = trip.backupPlans?.length ? trip.backupPlans : busanBackupDefaults();
+  if ((trip.busanItineraryVersion || 0) >= BUSAN_ITINERARY_VERSION) return { ...trip, backupPlans };
   return {
     ...trip,
     startDate: "2026-10-04",
     endDate: "2026-10-08",
     period: "2026.10.04 – 2026.10.08",
     days: busanInitialTrip,
+    backupPlans,
     busanItineraryVersion: BUSAN_ITINERARY_VERSION
   };
 };
@@ -891,6 +903,14 @@ export default function App() {
   const [reservationNoteDraft, setReservationNoteDraft] = useState("");
   const [reservationWebsiteDraft, setReservationWebsiteDraft] = useState("");
   const [editingReservationId, setEditingReservationId] = useState<string | null>(null);
+  const [addingBackupPlan, setAddingBackupPlan] = useState(false);
+  const [editingBackupPlanId, setEditingBackupPlanId] = useState<string | null>(null);
+  const [backupDateDraft, setBackupDateDraft] = useState("");
+  const [backupReasonDraft, setBackupReasonDraft] = useState("下雨");
+  const [backupAffectedDraft, setBackupAffectedDraft] = useState("");
+  const [backupAlternativeDraft, setBackupAlternativeDraft] = useState("");
+  const [backupReminderDraft, setBackupReminderDraft] = useState("");
+  const [backupWebsiteDraft, setBackupWebsiteDraft] = useState("");
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
   const [addingExpense, setAddingExpense] = useState(false);
   const [expenseTitle, setExpenseTitle] = useState("");
@@ -1135,6 +1155,54 @@ export default function App() {
   };
   const toggleManualReservation = (id: string) => updateActiveTrip({ reservations: (activeTrip.reservations || []).map((item) => item.id === id ? { ...item, completed: !item.completed } : item) });
   const removeManualReservation = (id: string) => updateActiveTrip({ reservations: (activeTrip.reservations || []).filter((item) => item.id !== id) });
+  const resetBackupPlanDraft = () => {
+    setEditingBackupPlanId(null);
+    setBackupDateDraft("");
+    setBackupReasonDraft("下雨");
+    setBackupAffectedDraft("");
+    setBackupAlternativeDraft("");
+    setBackupReminderDraft("");
+    setBackupWebsiteDraft("");
+  };
+  const openNewBackupPlan = () => {
+    resetBackupPlanDraft();
+    setAddingBackupPlan(true);
+  };
+  const openBackupPlanEditor = (item: TripBackupPlan) => {
+    setEditingBackupPlanId(item.id);
+    setBackupDateDraft(item.date || "");
+    setBackupReasonDraft(item.reason || "其他");
+    setBackupAffectedDraft(item.affected || "");
+    setBackupAlternativeDraft(item.alternative || "");
+    setBackupReminderDraft(item.reminder || "");
+    setBackupWebsiteDraft(item.website || "");
+    setAddingBackupPlan(true);
+  };
+  const saveBackupPlan = () => {
+    const alternative = backupAlternativeDraft.trim();
+    if (!alternative) { showToast("請填寫替代方案"); return; }
+    const current = activeTrip.backupPlans || [];
+    const values = {
+      date: backupDateDraft.trim(),
+      reason: backupReasonDraft.trim() || "其他",
+      affected: backupAffectedDraft.trim(),
+      alternative,
+      reminder: backupReminderDraft.trim(),
+      website: backupWebsiteDraft.trim()
+    };
+    updateActiveTrip({
+      backupPlans: editingBackupPlanId
+        ? current.map((item) => item.id === editingBackupPlanId ? { ...item, ...values } : item)
+        : [...current, { id: `backup-${Date.now()}`, ...values }]
+    });
+    setAddingBackupPlan(false);
+    resetBackupPlanDraft();
+    showToast(editingBackupPlanId ? "備案已更新" : "備案已新增");
+  };
+  const removeBackupPlan = (id: string) => {
+    updateActiveTrip({ backupPlans: (activeTrip.backupPlans || []).filter((item) => item.id !== id) });
+    showToast("備案已刪除");
+  };
   const importBusanBackupsToFavorites = () => {
     const names = new Set(favorites.map((item) => item.name.trim().toLowerCase()));
     const additions = BUSAN_BACKUP_FAVORITES.filter((item) => !names.has(item.name.trim().toLowerCase()));
@@ -4151,8 +4219,8 @@ export default function App() {
       return count ? `${count} 項需要處理` : "目前沒有預約事項";
     }
     if (title === "備案") {
-      const isBusanTrip = /釜山/.test(`${activeTrip.title} ${activeTrip.destination}`);
-      return isBusanTrip ? `${BUSAN_BACKUP_PLANS.length} 組天候、額滿與延誤方案` : "尚未建立這趟旅行的備案";
+      const count = activeTrip.backupPlans?.length || 0;
+      return count ? `${count} 組替代方案` : "尚未建立這趟旅行的備案";
     }
     if (title === "天氣") return `查看 ${activeTrip.destination} 即時天氣`;
     if (title === "匯率") return `${currencyForTrip.code} → TWD 快速換算`;
@@ -5077,6 +5145,38 @@ export default function App() {
           </Pressable></Pressable>
         </Modal>
 
+        <Modal visible={addingBackupPlan} animationType="slide" transparent onRequestClose={() => { setAddingBackupPlan(false); resetBackupPlanDraft(); }}>
+          <Pressable style={styles.modalShade} onPress={() => { setAddingBackupPlan(false); resetBackupPlanDraft(); }}>
+            <Pressable style={[styles.sheet, styles.toolSheet]} onPress={(event) => event.stopPropagation()}>
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetEyebrow}>BACKUP PLAN</Text>
+              <Text style={styles.sheetTitle}>{editingBackupPlanId ? "編輯備案" : "新增備案"}</Text>
+              <ScrollView style={styles.toolSheetBody} contentContainerStyle={styles.toolSheetBodyContent} keyboardShouldPersistTaps="always">
+                <Text style={styles.fieldLabel}>日期（可留空）</Text>
+                <TextInput value={backupDateDraft} onChangeText={setBackupDateDraft} placeholder="例如：10/05 或 2026-10-05" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                <Text style={styles.fieldLabel}>原因</Text>
+                <View style={styles.currencyChoices}>
+                  {["下雨", "強風／停駛", "客滿", "公休", "交通延誤", "體力不足", "其他"].map((reason) => (
+                    <Pressable key={reason} onPress={() => setBackupReasonDraft(reason)} style={[styles.currencyChoice, backupReasonDraft === reason && styles.currencyChoiceActive]}>
+                      <Text style={[styles.currencyChoiceText, backupReasonDraft === reason && styles.currencyChoiceTextActive]}>{reason}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Text style={styles.fieldLabel}>受影響行程</Text>
+                <TextInput value={backupAffectedDraft} onChangeText={setBackupAffectedDraft} placeholder="例如：天空膠囊、海岸散步" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                <Text style={styles.fieldLabel}>替代方案 *</Text>
+                <TextInput value={backupAlternativeDraft} onChangeText={setBackupAlternativeDraft} placeholder="例如：改去 Spa Land 與百貨公司" placeholderTextColor="#AAA198" multiline style={styles.noteInput} />
+                <Text style={styles.fieldLabel}>替代提醒</Text>
+                <TextInput value={backupReminderDraft} onChangeText={setBackupReminderDraft} placeholder="例如：出發前兩小時確認停駛公告" placeholderTextColor="#AAA198" multiline style={styles.noteInput} />
+                <Text style={styles.fieldLabel}>參考網址（可留空）</Text>
+                <TextInput value={backupWebsiteDraft} onChangeText={setBackupWebsiteDraft} placeholder="https://…" autoCapitalize="none" keyboardType="url" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                <Pressable style={styles.primaryButton} onPress={saveBackupPlan}><Text style={styles.primaryButtonText}>{editingBackupPlanId ? "儲存備案修改" : "新增備案"}</Text></Pressable>
+                <Pressable style={styles.cancelButton} onPress={() => { setAddingBackupPlan(false); resetBackupPlanDraft(); }}><Text style={styles.cancelText}>取消</Text></Pressable>
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         <Modal visible={!!selectedTool} animationType="slide" transparent onRequestClose={() => setSelectedTool(null)}>
           <Pressable style={styles.modalShade} onPress={() => { setAddingFlight(false); setAddingAccommodation(false); setAddingShoppingItem(false); setSelectedTool(null); }}>
             <Pressable style={[styles.sheet, styles.toolSheet]} onPress={(event) => event.stopPropagation()}>
@@ -5194,29 +5294,26 @@ export default function App() {
               )}
               {selectedTool === "備案" && (
                 <View style={styles.detailBlock}>
-                  <Text style={styles.detailTitle}>這趟旅行的備案</Text>
-                  <Text style={styles.detailHint}>依天候與現場狀況整理；臨時需要改行程時，可直接查看受影響行程與替代方案。</Text>
-                  {!/釜山/.test(`${activeTrip.title} ${activeTrip.destination}`) ? (
-                    <Text style={styles.emptyListText}>尚未建立這趟旅行的備案。</Text>
-                  ) : (["天候備案", "額滿／公休"] as const).map((group) => (
-                    <View key={group}>
-                      <Text style={styles.shoppingSectionTitle}>{group}</Text>
-                      {BUSAN_BACKUP_PLANS.filter((item) => item.group === group).map((item) => (
-                        <View key={item.id} style={styles.toolCard}>
-                          <View style={styles.toolText}>
-                            <Text style={styles.toolTitle}>{item.condition}｜{item.affected}</Text>
-                            <Text style={styles.toolSub}>替代：{item.alternative}</Text>
-                            <Text style={styles.toolSub}>提醒：{item.note}</Text>
-                            {!!item.url && (
-                              <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(item.url || "")}>
-                                <Text style={styles.reservationWebsiteText}>查看官方資訊 ↗</Text>
-                              </Pressable>
-                            )}
-                          </View>
+                  <View style={styles.reservationHeading}>
+                    <View style={styles.toolText}><Text style={styles.detailTitle}>這趟旅行的備案</Text><Text style={styles.detailHint}>記下日期、原因、受影響行程與替代提醒；所有旅伴會一起看到更新。</Text></View>
+                    <Pressable style={styles.reservationAddButton} onPress={openNewBackupPlan}><Text style={styles.reservationAddText}>＋ 新增備案</Text></Pressable>
+                  </View>
+                  {(activeTrip.backupPlans || []).map((item) => (
+                    <View key={item.id} style={styles.toolCard}>
+                      <View style={styles.toolText}>
+                        <Text style={styles.toolTitle}>{item.date ? `${item.date}｜` : ""}{item.reason}</Text>
+                        {!!item.affected && <Text style={styles.toolSub}>受影響：{item.affected}</Text>}
+                        <Text style={styles.toolSub}>替代：{item.alternative}</Text>
+                        {!!item.reminder && <Text style={styles.toolSub}>提醒：{item.reminder}</Text>}
+                        <View style={styles.calendarActions}>
+                          {!!item.website && <Pressable style={styles.calendarButton} onPress={() => Linking.openURL(item.website || "")}><Text style={styles.calendarButtonText}>查看資訊 ↗</Text></Pressable>}
+                          <Pressable style={styles.calendarButton} onPress={() => openBackupPlanEditor(item)}><Text style={styles.calendarButtonText}>編輯</Text></Pressable>
+                          <Pressable style={styles.calendarButton} onPress={() => removeBackupPlan(item.id)}><Text style={styles.reservationDeleteText}>刪除</Text></Pressable>
                         </View>
-                      ))}
+                      </View>
                     </View>
                   ))}
+                  {!(activeTrip.backupPlans || []).length && <Text style={styles.emptyListText}>尚未建立備案，請按「＋ 新增備案」。</Text>}
                 </View>
               )}
               {selectedTool === "天氣" && (

@@ -104,6 +104,16 @@ export type TripReservationReminder = {
   completed?: boolean;
 };
 
+export type TripBackupPlan = {
+  id: string;
+  date?: string;
+  reason: string;
+  affected?: string;
+  alternative: string;
+  reminder?: string;
+  website?: string;
+};
+
 export type TripPlan = {
   id: string;
   title: string;
@@ -124,6 +134,7 @@ export type TripPlan = {
   checklist: TripChecklistItem[];
   unscheduledPlaces?: UnscheduledPlace[];
   reservations?: TripReservationReminder[];
+  backupPlans?: TripBackupPlan[];
   oitaDay3TransitVersion?: number;
   busanItineraryVersion?: number;
 };
