@@ -1,0 +1,11 @@
+請接手我的「豆遊」旅行 Web App 專案。
+
+本機專案：C:\Users\USER\OneDrive\文件\財務\busan-trip-app
+請先完整閱讀：C:\Users\USER\OneDrive\文件\財務\busan-trip-app\PROJECT_HANDOFF.md
+
+交接文件已整理產品需求、技術架構、Firebase／Firestore／Apps Script／Cloudflare、重要旅行 ID、已知問題、發布流程與我的使用偏好。不要重新讀取上一串超長對話，也不要從頭掃描整個專案；先讀交接文件，再只查看與我接下來需求直接相關的程式碼。
+
+工作方式：請直接修改、型別檢查、建置並發布；保留現有資料與未提交變更。正式網站是 https://past795.github.io/bean/ 。
+
+我接下來要處理的是：
+（在這裡貼上新的需求或截圖）
