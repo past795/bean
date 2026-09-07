@@ -11,6 +11,7 @@ const basePath = isCloudflare ? "" : "/bean";
 let html = await readFile(path, "utf8");
 const icon = await readFile(iconPath);
 const iconVersion = createHash("sha256").update(icon).digest("hex").slice(0, 12);
+const faviconName = `douyou-favicon-${iconVersion}.png`;
 const bundleMatch = html.match(/<script src="([^"]+\.js)" defer><\/script>/);
 if (bundleMatch) {
   const bundlePath = new URL(`../dist${bundleMatch[1].replace("/bean", "")}`, import.meta.url);
@@ -56,12 +57,16 @@ html = html.replace(
       }
     </style>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <link rel="icon" type="image/png" href="${basePath}/apple-touch-icon.png?v=${iconVersion}" />
-    <link rel="shortcut icon" type="image/png" href="${basePath}/apple-touch-icon.png?v=${iconVersion}" />
+    <link rel="icon" type="image/png" href="${basePath}/${faviconName}" />
+    <link rel="shortcut icon" type="image/png" href="${basePath}/${faviconName}" />
     <link rel="apple-touch-icon" sizes="180x180" href="${basePath}/apple-touch-icon.png?v=${iconVersion}" />`
 );
+// Expo appends its generated favicon.ico after our tags. Remove that later tag
+// so browsers do not keep selecting the stale icon over the versioned PNG.
+html = html.replace(/\s*<link rel="icon" href="[^"]*favicon\.ico" \/>/g, "");
 if (isCloudflare) html = html.replaceAll("/bean/", "/");
 await writeFile(path, html);
 await copyFile(iconPath, new URL("../dist/apple-touch-icon.png", import.meta.url));
+await copyFile(iconPath, new URL(`../dist/${faviconName}`, import.meta.url));
 await copyFile(homeMascotPath, new URL("../dist/home-travel-bean.png", import.meta.url));
 await copyFile(fontPath, new URL("../dist/NotoSerifTC-Variable.ttf", import.meta.url));
