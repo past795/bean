@@ -1988,9 +1988,9 @@ export default function App() {
     };
     const travelMinutes = (from: Stop, to: Stop) => {
       if ((from.transitMinutes || 0) > 0) return from.transitMinutes!;
-      const distance = distanceKm(from, to);
-      if (distance == null) return null;
       const mode = from.routeMode || "driving";
+      const distance = distanceKm(from, to);
+      if (distance == null) return mode === "walking" ? 15 : mode === "transit" ? 35 : 20;
       const minutes = mode === "walking" ? distance / 4.5 * 60
         : mode === "transit" ? distance / 22 * 60 + 10
         : mode === "taxi" ? distance / 30 * 60 + 5
@@ -2040,6 +2040,17 @@ export default function App() {
     updateStops(scheduled);
     showToast(`已依距離與交通方式補上 ${updatedCount} 個時間`);
   };
+
+  const activeFlexibleTimeSignature = activeTrip.days.map((day) =>
+    `${day.id}:${day.stops.map((stop) => `${stop.id}:${stop.time}:${stop.latitude ?? ""}:${stop.longitude ?? ""}:${stop.durationMinutes ?? ""}:${stop.transitMinutes ?? ""}:${stop.routeMode ?? ""}`).join("|")}`
+  ).join(";");
+  useEffect(() => {
+    if (!tripsLoaded || !activeTrip.days.some((day) => day.stops.some((stop) => !/^([01]?\d|2[0-3]):[0-5]\d$/.test(stop.time || "")))) return;
+    const scheduledDays = activeTrip.days.map((day) => ({ ...day, stops: stopsWithEstimatedTimes(day.stops) }));
+    const changed = scheduledDays.some((day, dayIndex) => day.stops.some((stop, stopIndex) => stop.time !== activeTrip.days[dayIndex]?.stops[stopIndex]?.time));
+    if (!changed) return;
+    persistTrips(trips.map((trip) => trip.id === activeTrip.id ? { ...trip, days: scheduledDays } : trip));
+  }, [tripsLoaded, activeTrip.id, activeFlexibleTimeSignature]);
 
   useEffect(() => {
     if (!tripsLoaded) return;
@@ -2510,14 +2521,19 @@ export default function App() {
     }
   };
 
-  const copyAddressAndOpenUber = async (stop: Stop) => {
+  const copyStopAddress = async (stop: Stop, openingUber = false) => {
     const address = await resolveFullAddress(stop);
     try {
       await (globalThis as any).navigator?.clipboard?.writeText(address);
-      showToast("地址已複製，正在開啟 Uber");
+      showToast(openingUber ? "地址已複製，正在開啟 Uber" : "地址已複製");
     } catch {
-      showToast("正在開啟 Uber");
+      showToast(openingUber ? "正在開啟 Uber" : "無法自動複製，請長按地址複製");
     }
+    return address;
+  };
+
+  const copyAddressAndOpenUber = async (stop: Stop) => {
+    const address = await copyStopAddress(stop, true);
     const uberUrl = `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff%5Bformatted_address%5D=${encodeURIComponent(address)}`;
     Linking.openURL(uberUrl).catch(() => Alert.alert("無法開啟 Uber", `地址已複製：${address}`));
   };
@@ -4417,10 +4433,13 @@ export default function App() {
           </View>
           <Text style={styles.stopTitle}>{stopDisplayTitle(item)}</Text>
           {reservationInfoForStop(item, selectedDay.date).required && <Text style={styles.pass}>{item.reservationCompleted ? "✅ 已完成預約" : "📌 需預約"}｜{reservationInfoForStop(item, selectedDay.date).note}</Text>}
-          <Pressable onPress={() => copyAddressAndOpenUber(item)} style={styles.addressButton}>
+          <View style={styles.addressButton}>
             <Text style={styles.address} numberOfLines={2}>📍 {item.address}</Text>
-            <Text style={styles.addressAction}>複製地址・開啟 Uber ↗</Text>
-          </Pressable>
+            <View style={styles.addressActionRow}>
+              <Pressable onPress={() => copyStopAddress(item)} style={styles.addressActionButton}><Text style={styles.addressAction}>複製地址</Text></Pressable>
+              <Pressable onPress={() => copyAddressAndOpenUber(item)} style={styles.addressActionButton}><Text style={styles.addressAction}>打開 Uber ↗</Text></Pressable>
+            </View>
+          </View>
           <View style={styles.transportRow}>
             <Text style={styles.transportIcon}>{transportIcon(item.transportMode)}</Text>
             <View>
@@ -6142,7 +6161,9 @@ const styles = createDouyouStyles({
   stopTitle: { color: "#292622", fontWeight: "800", fontSize: 17, marginTop: 10 },
   addressButton: { alignSelf: "stretch", marginTop: 7, backgroundColor: "#F8F6F2", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
   address: { color: "#716A63", fontSize: 12 },
-  addressAction: { color: "#667B9D", fontSize: 9, fontWeight: "900", marginTop: 4 },
+  addressActionRow: { flexDirection: "row", gap: 8, marginTop: 7 },
+  addressActionButton: { borderRadius: 9, borderWidth: 1, borderColor: "#D8DFEA", backgroundColor: "#FFFFFF", paddingHorizontal: 11, paddingVertical: 7 },
+  addressAction: { color: "#667B9D", fontSize: 10, fontWeight: "900" },
   transportRow: { flexDirection: "row", backgroundColor: "#F1F3F7", padding: 10, borderRadius: 13, marginTop: 11, gap: 9, alignItems: "center" },
   transportIcon: { fontSize: 20 },
   transportLabel: { color: "#8791A2", fontSize: 9, fontWeight: "700" },
