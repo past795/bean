@@ -1977,13 +1977,68 @@ export default function App() {
     }
   };
 
+  const stopsWithEstimatedTimes = (stops: Stop[]) => {
+    const distanceKm = (from: Stop, to: Stop) => {
+      if (from.latitude == null || from.longitude == null || to.latitude == null || to.longitude == null) return null;
+      const toRad = (value: number) => value * Math.PI / 180;
+      const dLat = toRad(to.latitude - from.latitude);
+      const dLon = toRad(to.longitude - from.longitude);
+      const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(from.latitude)) * Math.cos(toRad(to.latitude)) * Math.sin(dLon / 2) ** 2;
+      return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+    };
+    const travelMinutes = (from: Stop, to: Stop) => {
+      if ((from.transitMinutes || 0) > 0) return from.transitMinutes!;
+      const distance = distanceKm(from, to);
+      if (distance == null) return null;
+      const mode = from.routeMode || "driving";
+      const minutes = mode === "walking" ? distance / 4.5 * 60
+        : mode === "transit" ? distance / 22 * 60 + 10
+        : mode === "taxi" ? distance / 30 * 60 + 5
+        : distance / 32 * 60 + 3;
+      return Math.max(mode === "walking" ? 2 : 5, Math.round(minutes / 5) * 5);
+    };
+    let previousStart: number | null = null;
+    return stops.map((stop, index, rows) => {
+      const fixed = stop.time?.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+      if (fixed) {
+        previousStart = Number(fixed[1]) * 60 + Number(fixed[2]);
+        return stop;
+      }
+      if (index === 0) {
+        previousStart = 9 * 60;
+        return { ...stop, time: "09:00" };
+      }
+      const previous = rows[index - 1]!;
+      const travel = travelMinutes(previous, stop);
+      if (previousStart == null || travel == null) {
+        previousStart = null;
+        return stop;
+      }
+      const start = Math.min(23 * 60 + 55, previousStart + (previous.durationMinutes || 60) + travel);
+      previousStart = start;
+      return { ...stop, time: `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}` };
+    });
+  };
+
   const updateStops = (stops: Stop[]) => {
     if (stops !== selectedDay.stops) setPreviousStops([...selectedDay.stops]);
+    const scheduledStops = stopsWithEstimatedTimes(stops);
     const next = trips.map((trip) => trip.id !== activeTrip.id ? trip : {
       ...trip,
-      days: trip.days.map((day) => day.id === selectedDay.id ? { ...day, stops } : day)
+      days: trip.days.map((day) => day.id === selectedDay.id ? { ...day, stops: scheduledStops } : day)
     });
     persistTrips(next);
+  };
+
+  const autoScheduleSelectedDay = () => {
+    const scheduled = stopsWithEstimatedTimes(selectedDay.stops);
+    const updatedCount = scheduled.filter((stop, index) => stop.time !== selectedDay.stops[index]?.time).length;
+    if (!updatedCount) {
+      showToast("目前沒有可自動補上的彈性時間；請先確認景點座標");
+      return;
+    }
+    updateStops(scheduled);
+    showToast(`已依距離與交通方式補上 ${updatedCount} 個時間`);
   };
 
   useEffect(() => {
@@ -4551,6 +4606,9 @@ export default function App() {
                       <View style={styles.dayActionRow}>
                         <Pressable style={styles.dayMoveButton} onPress={() => setDayOrganizerVisible(true)}>
                           <Text style={styles.dayMoveText}>≡ 整日編排</Text>
+                        </Pressable>
+                        <Pressable style={styles.dayMoveButton} onPress={autoScheduleSelectedDay}>
+                          <Text style={styles.dayMoveText}>🕒 自動排時間</Text>
                         </Pressable>
                         <Pressable disabled={days.findIndex((day) => day.id === selectedDay.id) === 0} style={styles.dayMoveButton} onPress={() => moveWholeDay(-1)}>
                           <Text style={[styles.dayMoveText, days.findIndex((day) => day.id === selectedDay.id) === 0 && styles.reorderDisabled]}>← 整天前移</Text>
