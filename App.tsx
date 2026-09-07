@@ -393,7 +393,7 @@ const googleMemberId = (user: GoogleUser) =>
   JY_EMAILS.has(user.email.trim().toLowerCase()) ? "person:jy" : `google:${user.sub}`;
 // GitHub Pages uses /bean/, while Cloudflare Pages is served from /.  Build the
 // logo URL from the current site so the sign-in mark works on either host.
-const WEB_APP_ICON = { uri: `${currentWebBase}apple-touch-icon.png?v=83630ed0dd00` };
+const WEB_APP_ICON = { uri: `${currentWebBase}apple-touch-icon.png?v=74354405efc7` };
 
 const escapeExportText = (value: unknown) => String(value ?? "")
   .replace(/&/g, "&amp;")
