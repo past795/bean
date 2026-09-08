@@ -114,6 +114,13 @@ export type TripBackupPlan = {
   website?: string;
 };
 
+export type TripShoppingGuidePlace = {
+  id: string;
+  region: string;
+  name: string;
+  note?: string;
+};
+
 export type TripPlan = {
   id: string;
   title: string;
@@ -135,6 +142,7 @@ export type TripPlan = {
   unscheduledPlaces?: UnscheduledPlace[];
   reservations?: TripReservationReminder[];
   backupPlans?: TripBackupPlan[];
+  shoppingGuide?: TripShoppingGuidePlace[];
   oitaDay3TransitVersion?: number;
   busanItineraryVersion?: number;
 };

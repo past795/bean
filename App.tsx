@@ -24,7 +24,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { toolboxItems } from "./src/data/toolbox";
 import { shoppingItems } from "./src/data/shopping";
 import { BUSAN_ITINERARY_VERSION, initialTrip as busanInitialTrip } from "./src/data/trip";
-import { FlightInfo, Stop, TripBackupPlan, TripDay, TripPlan } from "./src/types";
+import { FlightInfo, Stop, TripBackupPlan, TripDay, TripPlan, TripShoppingGuidePlace } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
@@ -916,6 +916,11 @@ export default function App() {
   const [backupAlternativeDraft, setBackupAlternativeDraft] = useState("");
   const [backupReminderDraft, setBackupReminderDraft] = useState("");
   const [backupWebsiteDraft, setBackupWebsiteDraft] = useState("");
+  const [editingShoppingGuideId, setEditingShoppingGuideId] = useState<string | null>(null);
+  const [shoppingGuideEditing, setShoppingGuideEditing] = useState(false);
+  const [shoppingGuideRegionDraft, setShoppingGuideRegionDraft] = useState("");
+  const [shoppingGuideNameDraft, setShoppingGuideNameDraft] = useState("");
+  const [shoppingGuideNoteDraft, setShoppingGuideNoteDraft] = useState("");
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
   const [addingExpense, setAddingExpense] = useState(false);
   const [expenseTitle, setExpenseTitle] = useState("");
@@ -1207,6 +1212,38 @@ export default function App() {
   const removeBackupPlan = (id: string) => {
     updateActiveTrip({ backupPlans: (activeTrip.backupPlans || []).filter((item) => item.id !== id) });
     showToast("備案已刪除");
+  };
+  const resetShoppingGuideDraft = () => {
+    setShoppingGuideEditing(false);
+    setEditingShoppingGuideId(null);
+    setShoppingGuideRegionDraft("");
+    setShoppingGuideNameDraft("");
+    setShoppingGuideNoteDraft("");
+  };
+  const openShoppingGuideEditor = (item?: TripShoppingGuidePlace, region = "") => {
+    setShoppingGuideEditing(true);
+    setEditingShoppingGuideId(item?.id || null);
+    setShoppingGuideRegionDraft(item?.region || region);
+    setShoppingGuideNameDraft(item?.name || "");
+    setShoppingGuideNoteDraft(item?.note || "");
+  };
+  const saveShoppingGuidePlace = () => {
+    const region = shoppingGuideRegionDraft.trim();
+    const name = shoppingGuideNameDraft.trim();
+    if (!region || !name) { showToast("請填寫大地區與地點名稱"); return; }
+    const current = activeTrip.shoppingGuide || [];
+    const values = { region, name, note: shoppingGuideNoteDraft.trim() };
+    updateActiveTrip({ shoppingGuide: editingShoppingGuideId
+      ? current.map((item) => item.id === editingShoppingGuideId ? { ...item, ...values } : item)
+      : [...current, { id: `shopping-guide-${Date.now()}`, ...values }]
+    });
+    showToast(editingShoppingGuideId ? "逛街地點已更新" : "逛街地點已新增");
+    resetShoppingGuideDraft();
+  };
+  const removeShoppingGuidePlace = (id: string) => {
+    updateActiveTrip({ shoppingGuide: (activeTrip.shoppingGuide || []).filter((item) => item.id !== id) });
+    if (editingShoppingGuideId === id) resetShoppingGuideDraft();
+    showToast("逛街地點已刪除");
   };
   const importBusanBackupsToFavorites = () => {
     const names = new Set(favorites.map((item) => item.name.trim().toLowerCase()));
@@ -4329,6 +4366,10 @@ export default function App() {
       const count = activeTrip.backupPlans?.length || 0;
       return count ? `${count} 組替代方案` : "尚未建立這趟旅行的備案";
     }
+    if (title === "逛街攻略") {
+      const count = activeTrip.shoppingGuide?.length || 0;
+      return count ? `${count} 個逛街地點` : "尚未建立這趟旅行的逛街攻略";
+    }
     if (title === "天氣") return `查看 ${activeTrip.destination} 即時天氣`;
     if (title === "匯率") return `${currencyForTrip.code} → TWD 快速換算`;
     if (title === "必買商品") return isKoreaTrip ? "韓國採買清單" : `${activeTrip.destination} 尚未建立清單`;
@@ -5455,6 +5496,46 @@ export default function App() {
                   {!(activeTrip.backupPlans || []).length && <Text style={styles.emptyListText}>尚未建立備案，請按「＋ 新增備案」。</Text>}
                 </View>
               )}
+              {selectedTool === "逛街攻略" && (
+                <View style={styles.detailBlock}>
+                  <View style={styles.shoppingGuideHeading}>
+                    <View style={styles.toolText}>
+                      <Text style={styles.detailTitle}>這趟旅行的逛街攻略</Text>
+                      <Text style={styles.detailHint}>依大地區整理商場、街區與特色店，所有旅伴都會同步看到。</Text>
+                    </View>
+                    <Pressable style={styles.reservationAddButton} onPress={() => openShoppingGuideEditor()}><Text style={styles.reservationAddText}>＋ 新增地點</Text></Pressable>
+                  </View>
+                  {shoppingGuideEditing && (
+                    <View style={styles.shoppingGuideEditor}>
+                      <Text style={styles.fieldLabel}>大地區 *</Text>
+                      <TextInput value={shoppingGuideRegionDraft} onChangeText={setShoppingGuideRegionDraft} placeholder="例如：南部、中部、海雲台" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                      <Text style={styles.fieldLabel}>地點名稱 *</Text>
+                      <TextInput value={shoppingGuideNameDraft} onChangeText={setShoppingGuideNameDraft} placeholder="例如：國際通" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                      <Text style={styles.fieldLabel}>備註</Text>
+                      <TextInput value={shoppingGuideNoteDraft} onChangeText={setShoppingGuideNoteDraft} multiline placeholder="推薦店家、樓層、營業提醒、想逛的品牌……" placeholderTextColor="#AAA198" style={styles.noteInput} />
+                      <View style={styles.shoppingGuideEditorActions}>
+                        <Pressable style={styles.cancelButton} onPress={resetShoppingGuideDraft}><Text style={styles.cancelText}>取消</Text></Pressable>
+                        <Pressable style={[styles.primaryButton, styles.shoppingGuideSaveButton]} onPress={saveShoppingGuidePlace}><Text style={styles.primaryButtonText}>儲存</Text></Pressable>
+                      </View>
+                    </View>
+                  )}
+                  {[...new Set((activeTrip.shoppingGuide || []).map((item) => item.region))].map((region) => (
+                    <View key={region} style={styles.shoppingGuideRegion}>
+                      <View style={styles.shoppingGuideRegionHeader}>
+                        <Text style={styles.shoppingGuideRegionTitle}>{region}</Text>
+                        <Pressable onPress={() => openShoppingGuideEditor(undefined, region)}><Text style={styles.shoppingGuideRegionAdd}>＋ 加到這區</Text></Pressable>
+                      </View>
+                      {(activeTrip.shoppingGuide || []).filter((item) => item.region === region).map((item) => (
+                        <Pressable key={item.id} style={styles.shoppingGuidePlace} onPress={() => openShoppingGuideEditor(item)}>
+                          <View style={styles.toolText}><Text style={styles.shoppingGuidePlaceName}>{item.name}</Text>{!!item.note && <Text style={styles.shoppingGuidePlaceNote}>{item.note}</Text>}</View>
+                          <Pressable style={styles.shoppingGuideDelete} onPress={(event) => { event.stopPropagation(); removeShoppingGuidePlace(item.id); }}><Text style={styles.shoppingGuideDeleteText}>×</Text></Pressable>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ))}
+                  {!(activeTrip.shoppingGuide || []).length && !shoppingGuideEditing && <Text style={styles.emptyListText}>尚未建立逛街攻略，請按「＋ 新增地點」。</Text>}
+                </View>
+              )}
               {selectedTool === "天氣" && (
                 <View style={styles.detailBlock}>
                   {weatherLoading && <Text style={styles.weatherLoading}>正在整理這趟旅行各地天氣……</Text>}
@@ -6504,6 +6585,19 @@ const styles = createDouyouStyles({
   addressLookupButton: { alignSelf: "flex-start", backgroundColor: "#E9EDF5", borderRadius: 11, paddingHorizontal: 14, paddingVertical: 10, marginTop: 8 },
   addressLookupText: { color: "#536783", fontSize: 11, fontWeight: "900" },
   addressFoundText: { color: "#718099", fontSize: 10, marginTop: 7 },
+  shoppingGuideHeading: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 12 },
+  shoppingGuideEditor: { backgroundColor: "#F7F8FB", borderRadius: 18, borderWidth: 1, borderColor: "#DDE3EE", padding: 14, marginBottom: 16 },
+  shoppingGuideEditorActions: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 },
+  shoppingGuideSaveButton: { flex: 1 },
+  shoppingGuideRegion: { backgroundColor: "#F2F4F8", borderRadius: 18, padding: 14, marginBottom: 13, borderWidth: 1, borderColor: "#DDE3EE" },
+  shoppingGuideRegionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 9 },
+  shoppingGuideRegionTitle: { color: "#536783", fontSize: 15, fontWeight: "900" },
+  shoppingGuideRegionAdd: { color: "#536783", fontSize: 10, fontWeight: "900" },
+  shoppingGuidePlace: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#FFFFFF", borderRadius: 14, borderWidth: 1, borderColor: "#E1E6EF", padding: 13, marginTop: 7 },
+  shoppingGuidePlaceName: { color: "#2D3440", fontSize: 14, fontWeight: "900" },
+  shoppingGuidePlaceNote: { color: "#777F8C", fontSize: 11, lineHeight: 17, marginTop: 5 },
+  shoppingGuideDelete: { width: 30, height: 30, borderRadius: 15, backgroundColor: "#EEF1F6", alignItems: "center", justifyContent: "center" },
+  shoppingGuideDeleteText: { color: "#8792A3", fontSize: 19, lineHeight: 21 },
   insertPositionList: { gap: 7, marginTop: 7, marginBottom: 4 },
   insertPositionChoice: { borderWidth: 1, borderColor: "#DED8D0", backgroundColor: "#F5F2EE", borderRadius: 12, paddingHorizontal: 13, paddingVertical: 10 },
   insertPositionChoiceActive: { backgroundColor: "#536783", borderColor: "#536783" },

@@ -6,5 +6,6 @@ export const toolboxItems = [
   { icon: "☂️", title: "備案", subtitle: "下雨、額滿與行程延誤的替代方案", tint: "#E8E7F4" },
   { icon: "🌦️", title: "天氣", subtitle: "目的地即時預報", tint: "#DFF0E8" },
   { icon: "₩", title: "匯率", subtitle: "旅行幣別快速換算", tint: "#F1E4F5" },
-  { icon: "🛍️", title: "必買商品", subtitle: "共享與個人採買清單", tint: "#FFF0C9" }
+  { icon: "🛍️", title: "必買商品", subtitle: "共享與個人採買清單", tint: "#FFF0C9" },
+  { icon: "🗺️", title: "逛街攻略", subtitle: "依區域整理商場、街區與特色店", tint: "#E3EBFA" }
 ];
