@@ -451,7 +451,7 @@ const formatCloudDateTime = (value: unknown) => {
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date).replace(" ", " ");
 };
 
-const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string; durationMinutes?: number; transitMinutes?: number; reservationRequired?: boolean; reservationNote?: string; reservationSuggestedDate?: string; reservationSuggestedTime?: string; reservationCompleted?: boolean } => {
+const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: string; openingHoursSource?: string; durationMinutes?: number; transitMinutes?: number; reservationRequired?: boolean; reservationNote?: string; reservationSuggestedDate?: string; reservationSuggestedTime?: string; reservationCompleted?: boolean; shoppingGuidePlaceId?: string } => {
   if (!value) return {};
   try {
     const parsed = JSON.parse(String(value));
@@ -465,7 +465,8 @@ const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: 
       reservationNote: typeof parsed.reservationNote === "string" ? parsed.reservationNote : undefined,
       reservationSuggestedDate: typeof parsed.reservationSuggestedDate === "string" ? parsed.reservationSuggestedDate : undefined,
       reservationSuggestedTime: typeof parsed.reservationSuggestedTime === "string" ? parsed.reservationSuggestedTime : undefined,
-      reservationCompleted: parsed.reservationCompleted === true
+      reservationCompleted: parsed.reservationCompleted === true,
+      shoppingGuidePlaceId: typeof parsed.shoppingGuidePlaceId === "string" ? parsed.shoppingGuidePlaceId : undefined
     };
   } catch {
     return {};
@@ -538,7 +539,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   },
   itinerary: trip.days.flatMap((day) => day.stops.map((stop, index) => ({
     "日期ID": day.id, "景點ID": stop.id, "日期": day.date, "開始時間": stop.time,
-    "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "", durationMinutes: stop.durationMinutes || 0, transitMinutes: stop.transitMinutes || 0, reservationRequired: !!stop.reservationRequired, reservationNote: stop.reservationNote || "", reservationSuggestedDate: stop.reservationSuggestedDate || "", reservationSuggestedTime: stop.reservationSuggestedTime || "", reservationCompleted: !!stop.reservationCompleted }), "景點名稱": stop.title, "地址": stop.address,
+    "結束時間": JSON.stringify({ routeMode: stop.routeMode || "driving", openingHours: stop.openingHours || "", openingHoursSource: stop.openingHoursSource || "", durationMinutes: stop.durationMinutes || 0, transitMinutes: stop.transitMinutes || 0, reservationRequired: !!stop.reservationRequired, reservationNote: stop.reservationNote || "", reservationSuggestedDate: stop.reservationSuggestedDate || "", reservationSuggestedTime: stop.reservationSuggestedTime || "", reservationCompleted: !!stop.reservationCompleted, shoppingGuidePlaceId: stop.shoppingGuidePlaceId || "" }), "景點名稱": stop.title, "地址": stop.address,
     "交通方式": stop.transport, "備註": stop.note, "緯度": stop.latitude ?? "",
     "經度": stop.longitude ?? "", "排序": index
   }))),
@@ -615,7 +616,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
           transport: String(row["交通方式"] || "尚未安排"), transportMode: "其他" as const,
           note: String(row["備註"] || ""), latitude: row["緯度"] === "" ? undefined : Number(row["緯度"]),
           longitude: row["經度"] === "" ? undefined : Number(row["經度"]),
-          routeMode: meta.routeMode || "driving", openingHours: meta.openingHours || "", openingHoursSource: meta.openingHoursSource || "", durationMinutes: meta.durationMinutes || 0, transitMinutes: meta.transitMinutes || 0, reservationRequired: meta.reservationRequired, reservationNote: meta.reservationNote || "", reservationSuggestedDate: meta.reservationSuggestedDate || "", reservationSuggestedTime: meta.reservationSuggestedTime || "", reservationCompleted: meta.reservationCompleted
+          routeMode: meta.routeMode || "driving", openingHours: meta.openingHours || "", openingHoursSource: meta.openingHoursSource || "", durationMinutes: meta.durationMinutes || 0, transitMinutes: meta.transitMinutes || 0, reservationRequired: meta.reservationRequired, reservationNote: meta.reservationNote || "", reservationSuggestedDate: meta.reservationSuggestedDate || "", reservationSuggestedTime: meta.reservationSuggestedTime || "", reservationCompleted: meta.reservationCompleted, shoppingGuidePlaceId: meta.shoppingGuidePlaceId
         };
       })
     };
@@ -869,6 +870,7 @@ export default function App() {
   const [draftLongitude, setDraftLongitude] = useState<number | undefined>();
   const [draftCoordinateStatus, setDraftCoordinateStatus] = useState<"idle" | "loading" | "found" | "error">("idle");
   const [draftCoordinateMessage, setDraftCoordinateMessage] = useState("");
+  const [draftShoppingGuidePlaceId, setDraftShoppingGuidePlaceId] = useState("");
   const [creatingTrip, setCreatingTrip] = useState(false);
   const [newTripName, setNewTripName] = useState("");
   const [newDestination, setNewDestination] = useState("");
@@ -2449,7 +2451,8 @@ export default function App() {
         reservationRequired: draftReservationRequired,
         reservationSuggestedDate: draftReservationRequired ? draftReservationDate.trim() : "",
         reservationSuggestedTime: draftReservationRequired ? draftReservationTime.trim() : "",
-        reservationNote: draftReservationRequired ? draftReservationNote.trim() : ""
+        reservationNote: draftReservationRequired ? draftReservationNote.trim() : "",
+        shoppingGuidePlaceId: draftShoppingGuidePlaceId || undefined
       } : stop
     );
     const index = next.findIndex((stop) => stop.id === editing.id);
@@ -2473,6 +2476,12 @@ export default function App() {
     const next = [...selectedDay.stops];
     [next[index], next[nextIndex]] = [next[nextIndex]!, next[index]!];
     updateStops(next);
+  };
+
+  const openLinkedShoppingGuide = () => {
+    setEditing(null);
+    setTab("toolbox");
+    setSelectedTool("逛街攻略");
   };
 
   const refreshDraftCoordinates = async () => {
@@ -4432,6 +4441,7 @@ export default function App() {
     const nextStop = selectedDay.stops[index + 1];
     const legMode: RouteMode = item.routeMode || (item.transport.includes("步行") ? "walking" : item.transport.includes("地鐵") || item.transport.includes("公車") ? "transit" : item.transport.includes("計程車") ? "taxi" : "driving");
     const legMinutes = nextStop ? estimatedLegMinutes(item, nextStop, legMode) : null;
+    const linkedShoppingGuidePlace = (activeTrip.shoppingGuide || []).find((place) => place.id === item.shoppingGuidePlaceId);
     return (
       <View style={[styles.stopWrap, isActive && styles.dragging]}>
         <View style={styles.timeline}>
@@ -4461,6 +4471,7 @@ export default function App() {
             setDraftLongitude(item.longitude);
             setDraftCoordinateStatus("idle");
             setDraftCoordinateMessage("");
+            setDraftShoppingGuidePlaceId(item.shoppingGuidePlaceId || "");
           }}
         >
           <View style={styles.stopTop}>
@@ -4514,6 +4525,7 @@ export default function App() {
           )}
           <Text style={styles.openingHours}>營業時間｜{item.openingHours || "尚未查證"}</Text>
           {!!item.durationMinutes && <Text style={styles.openingHours}>停留時間｜約 {item.durationMinutes} 分鐘</Text>}
+          {!!linkedShoppingGuidePlace && <Pressable onPress={(event) => { event.stopPropagation(); openLinkedShoppingGuide(); }} style={styles.stopShoppingGuideLink}><Text style={styles.stopShoppingGuideLinkText}>🛍️ 逛街攻略｜{linkedShoppingGuidePlace.region}・{linkedShoppingGuidePlace.name} ›</Text></Pressable>}
           {!!item.note && <Text style={styles.note} numberOfLines={2}>備註｜{item.note}</Text>}
           <View style={styles.cardBottom}>
             {item.pass ? <Text style={styles.pass}>{item.pass}</Text> : <View />}
@@ -5258,6 +5270,20 @@ export default function App() {
                 placeholderTextColor="#A49C90"
                 style={styles.noteInput}
               />
+              <Text style={styles.fieldLabel}>連結逛街攻略</Text>
+              <Text style={styles.routeFieldHint}>選擇工具箱內的逛街地點；攻略修改名稱或備註後，這裡會同步更新。</Text>
+              <View style={styles.shoppingGuideLinkChoices}>
+                <Pressable onPress={() => setDraftShoppingGuidePlaceId("")} style={[styles.shoppingGuideLinkChoice, !draftShoppingGuidePlaceId && styles.shoppingGuideLinkChoiceActive]}>
+                  <Text style={[styles.shoppingGuideLinkChoiceText, !draftShoppingGuidePlaceId && styles.shoppingGuideLinkChoiceTextActive]}>不連結</Text>
+                </Pressable>
+                {(activeTrip.shoppingGuide || []).map((place) => (
+                  <Pressable key={place.id} onPress={() => setDraftShoppingGuidePlaceId(place.id)} style={[styles.shoppingGuideLinkChoice, draftShoppingGuidePlaceId === place.id && styles.shoppingGuideLinkChoiceActive]}>
+                    <Text style={[styles.shoppingGuideLinkChoiceText, draftShoppingGuidePlaceId === place.id && styles.shoppingGuideLinkChoiceTextActive]}>{place.region}・{place.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              {!(activeTrip.shoppingGuide || []).length && <Text style={styles.emptyListText}>逛街攻略目前沒有地點，請先到工具箱新增。</Text>}
+              {!!draftShoppingGuidePlaceId && <Pressable style={styles.shoppingGuideOpenButton} onPress={openLinkedShoppingGuide}><Text style={styles.shoppingGuideOpenButtonText}>查看已連結的逛街攻略 ↗</Text></Pressable>}
               <Pressable style={styles.favoriteFromStopButton} onPress={() => editing && addStopToFavorites(editing)}><Text style={styles.favoriteFromStopText}>♡ 加入個人收藏</Text></Pressable>
               <Pressable style={styles.primaryButton} onPress={saveNote}><Text style={styles.primaryButtonText}>儲存景點資料</Text></Pressable>
               <Pressable style={styles.deleteStopButton} onPress={deleteEditingStop}><Text style={styles.deleteStopText}>刪除此景點</Text></Pressable>
@@ -5571,7 +5597,7 @@ export default function App() {
                   <View style={styles.reservationHeading}><View style={styles.toolText}><Text style={styles.detailTitle}>這趟旅行的預約提醒</Text><Text style={styles.detailHint}>系統會依行程日期提供建議預約日；按下「已完成」後，所有旅伴都會同步看到完成狀態。</Text></View><Pressable style={styles.reservationAddButton} onPress={openNewReservation}><Text style={styles.reservationAddText}>＋ 新增預約</Text></Pressable></View>
                   {reservationStops.map(({ day, stop, info }) => (
                     <View key={stop.id} style={[styles.toolCard, stop.reservationCompleted && styles.reservationCompletedCard]}>
-                      <View style={styles.toolText}><Text style={styles.toolTitle}>{reservationDateLabel(day.date)}・{stop.time} {stopDisplayTitle(stop)}</Text><Text style={styles.toolSub}>{info.suggestedDate ? `建議於 ${reservationDateLabel(info.suggestedDate)}${info.suggestedTime ? ` ${info.suggestedTime}` : ""} 預約` : "建議盡早確認預約"}</Text><Text style={styles.toolSub}>{info.note}</Text>{!!reservationWebsiteUrl(`${stop.reservationNote || ""} ${stop.note || ""}`) && <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(reservationWebsiteUrl(`${stop.reservationNote || ""} ${stop.note || ""}`))}><Text style={styles.reservationWebsiteText}>開啟預約網站 ↗</Text></Pressable>}{!!info.suggestedDate && <View style={styles.calendarActions}><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationGoogleCalendarUrl(stopDisplayTitle(stop), info.suggestedDate || "", info.note, info.suggestedTime || ""))}><Text style={styles.calendarButtonText}>Google 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => openReservationIphoneCalendar(stopDisplayTitle(stop), info.suggestedDate || "", info.note, info.suggestedTime || "").catch(() => showToast("無法建立 iPhone 行事曆檔，請確認建議預約日期。"))}><Text style={styles.calendarButtonText}>iPhone 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => { setSelectedDayId(day.id); setEditing(stop); setDraftTitle(stop.title); setDraftTime(stop.time || ""); setDraftAddress(stop.address === "地址待補" ? "" : stop.address); setDraftNote(stop.note); setDraftOpeningHours(stop.openingHours || ""); setDraftDuration(String(stop.durationMinutes || "")); setDraftTransitMinutes(String(stop.transitMinutes || "")); setDraftTransport(stop.transport || ""); setDraftRouteMode(stop.routeMode || "transit"); setDraftReservationRequired(true); setDraftReservationDate(stop.reservationSuggestedDate || ""); setDraftReservationTime(stop.reservationSuggestedTime || ""); setDraftReservationNote(stop.reservationNote || ""); setSelectedTool(null); }}><Text style={styles.calendarButtonText}>編輯</Text></Pressable></View>}</View>
+                      <View style={styles.toolText}><Text style={styles.toolTitle}>{reservationDateLabel(day.date)}・{stop.time} {stopDisplayTitle(stop)}</Text><Text style={styles.toolSub}>{info.suggestedDate ? `建議於 ${reservationDateLabel(info.suggestedDate)}${info.suggestedTime ? ` ${info.suggestedTime}` : ""} 預約` : "建議盡早確認預約"}</Text><Text style={styles.toolSub}>{info.note}</Text>{!!reservationWebsiteUrl(`${stop.reservationNote || ""} ${stop.note || ""}`) && <Pressable style={styles.reservationWebsiteButton} onPress={() => Linking.openURL(reservationWebsiteUrl(`${stop.reservationNote || ""} ${stop.note || ""}`))}><Text style={styles.reservationWebsiteText}>開啟預約網站 ↗</Text></Pressable>}{!!info.suggestedDate && <View style={styles.calendarActions}><Pressable style={styles.calendarButton} onPress={() => Linking.openURL(reservationGoogleCalendarUrl(stopDisplayTitle(stop), info.suggestedDate || "", info.note, info.suggestedTime || ""))}><Text style={styles.calendarButtonText}>Google 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => openReservationIphoneCalendar(stopDisplayTitle(stop), info.suggestedDate || "", info.note, info.suggestedTime || "").catch(() => showToast("無法建立 iPhone 行事曆檔，請確認建議預約日期。"))}><Text style={styles.calendarButtonText}>iPhone 行事曆</Text></Pressable><Pressable style={styles.calendarButton} onPress={() => { setSelectedDayId(day.id); setEditing(stop); setDraftTitle(stop.title); setDraftTime(stop.time || ""); setDraftAddress(stop.address === "地址待補" ? "" : stop.address); setDraftNote(stop.note); setDraftOpeningHours(stop.openingHours || ""); setDraftDuration(String(stop.durationMinutes || "")); setDraftTransitMinutes(String(stop.transitMinutes || "")); setDraftTransport(stop.transport || ""); setDraftRouteMode(stop.routeMode || "transit"); setDraftReservationRequired(true); setDraftReservationDate(stop.reservationSuggestedDate || ""); setDraftReservationTime(stop.reservationSuggestedTime || ""); setDraftReservationNote(stop.reservationNote || ""); setDraftShoppingGuidePlaceId(stop.shoppingGuidePlaceId || ""); setSelectedTool(null); }}><Text style={styles.calendarButtonText}>編輯</Text></Pressable></View>}</View>
                       <Pressable style={[styles.reservationCheckButton, stop.reservationCompleted && styles.reservationCheckButtonDone]} onPress={() => toggleReservationCompleted(day.id, stop.id)}><Text style={[styles.reservationCheckText, stop.reservationCompleted && styles.reservationCheckTextDone]}>{stop.reservationCompleted ? "✓ 已完成" : "○ 待預約"}</Text></Pressable>
                     </View>
                   ))}
@@ -6598,6 +6624,15 @@ const styles = createDouyouStyles({
   shoppingGuidePlaceNote: { color: "#777F8C", fontSize: 11, lineHeight: 17, marginTop: 5 },
   shoppingGuideDelete: { width: 30, height: 30, borderRadius: 15, backgroundColor: "#EEF1F6", alignItems: "center", justifyContent: "center" },
   shoppingGuideDeleteText: { color: "#8792A3", fontSize: 19, lineHeight: 21 },
+  shoppingGuideLinkChoices: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 8, marginBottom: 4 },
+  shoppingGuideLinkChoice: { borderWidth: 1, borderColor: "#D8DFEA", backgroundColor: "#F7F8FB", borderRadius: 11, paddingHorizontal: 11, paddingVertical: 9 },
+  shoppingGuideLinkChoiceActive: { backgroundColor: "#536783", borderColor: "#536783" },
+  shoppingGuideLinkChoiceText: { color: "#66758C", fontSize: 10, fontWeight: "900" },
+  shoppingGuideLinkChoiceTextActive: { color: "#FFFFFF" },
+  shoppingGuideOpenButton: { alignSelf: "flex-start", marginTop: 8, marginBottom: 5 },
+  shoppingGuideOpenButtonText: { color: "#4F73B2", fontSize: 11, fontWeight: "900" },
+  stopShoppingGuideLink: { alignSelf: "stretch", backgroundColor: "#EEF3FB", borderRadius: 11, paddingHorizontal: 11, paddingVertical: 9, marginTop: 9 },
+  stopShoppingGuideLinkText: { color: "#536F9F", fontSize: 11, fontWeight: "900" },
   insertPositionList: { gap: 7, marginTop: 7, marginBottom: 4 },
   insertPositionChoice: { borderWidth: 1, borderColor: "#DED8D0", backgroundColor: "#F5F2EE", borderRadius: 12, paddingHorizontal: 13, paddingVertical: 10 },
   insertPositionChoiceActive: { backgroundColor: "#536783", borderColor: "#536783" },

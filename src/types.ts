@@ -29,6 +29,7 @@ export type Stop = {
   reservationSuggestedDate?: string;
   reservationSuggestedTime?: string;
   reservationCompleted?: boolean;
+  shoppingGuidePlaceId?: string;
 };
 
 export type TripDay = {
