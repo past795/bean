@@ -982,6 +982,7 @@ export default function App() {
     if (count) setNewDayCount(String(Math.min(14, count)));
   }, [newStartDate, newEndDate]);
   const [addingShoppingItem, setAddingShoppingItem] = useState(false);
+  const [editingShoppingItemId, setEditingShoppingItemId] = useState<string | null>(null);
   const [shoppingName, setShoppingName] = useState("");
   const [shoppingPrice, setShoppingPrice] = useState("");
   const [shoppingCurrency, setShoppingCurrency] = useState("KRW");
@@ -4253,19 +4254,43 @@ export default function App() {
     showToast("已取消所有晚間住宿設定");
   };
 
+  const resetShoppingItemDraft = () => {
+    setAddingShoppingItem(false);
+    setEditingShoppingItemId(null);
+    setShoppingName(""); setShoppingPrice(""); setShoppingCurrency("KRW"); setShoppingCategory(""); setShoppingImageUrl("");
+    setShoppingScope("shared");
+  };
+
+  const openNewShoppingItem = () => {
+    resetShoppingItemDraft();
+    setAddingShoppingItem(true);
+  };
+
+  const openShoppingItemEditor = (id: string) => {
+    const item = activeTrip.shopping.find((entry) => entry.id === id);
+    if (!item) return;
+    setEditingShoppingItemId(item.id);
+    setShoppingName(item.name);
+    setShoppingPrice(item.price || "");
+    setShoppingCurrency(item.currency || "KRW");
+    setShoppingCategory(item.category || "");
+    setShoppingImageUrl(item.imageUrl || "");
+    setShoppingScope(item.scope || "shared");
+    setAddingShoppingItem(true);
+  };
+
   const createShoppingItem = () => {
     if (!shoppingName.trim()) {
       Alert.alert("請填寫商品名稱");
       return;
     }
-    updateActiveTrip({ shopping: [...activeTrip.shopping, {
-      id: `shopping-${Date.now()}`, name: shoppingName.trim(), price: shoppingPrice.trim(),
-      currency: shoppingCurrency, category: shoppingCategory.trim(), imageUrl: shoppingImageUrl.trim(),
-      scope: shoppingScope, owner: shoppingScope === "personal" ? (myDisplayName || "") : ""
-    }] });
-    setAddingShoppingItem(false);
-    setShoppingName(""); setShoppingPrice(""); setShoppingCurrency("KRW"); setShoppingCategory(""); setShoppingImageUrl("");
-    setShoppingScope("shared");
+    const values = { name: shoppingName.trim(), price: shoppingPrice.trim(), currency: shoppingCurrency, category: shoppingCategory.trim(), imageUrl: shoppingImageUrl.trim(), scope: shoppingScope, owner: shoppingScope === "personal" ? (myDisplayName || "") : "" };
+    updateActiveTrip({ shopping: editingShoppingItemId
+      ? activeTrip.shopping.map((item) => item.id === editingShoppingItemId ? { ...item, ...values } : item)
+      : [...activeTrip.shopping, { id: `shopping-${Date.now()}`, ...values }]
+    });
+    showToast(editingShoppingItemId ? "商品已更新" : "商品已新增");
+    resetShoppingItemDraft();
   };
 
   const deleteShoppingItem = (id: string) => {
@@ -5656,12 +5681,12 @@ export default function App() {
                     <Pressable style={styles.imageSearchButton} onPress={() => Linking.openURL(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(shoppingName || activeTrip.destination + " 必買商品")}`)}>
                       <Text style={styles.imageSearchText}>在 Google 查看參考圖片 ↗</Text>
                     </Pressable>
-                    <Pressable style={styles.primaryButton} onPress={createShoppingItem}><Text style={styles.primaryButtonText}>儲存商品</Text></Pressable>
-                    <Pressable style={styles.cancelButton} onPress={() => setAddingShoppingItem(false)}><Text style={styles.cancelText}>返回必買清單</Text></Pressable>
+                    <Pressable style={styles.primaryButton} onPress={createShoppingItem}><Text style={styles.primaryButtonText}>{editingShoppingItemId ? "儲存商品修改" : "儲存商品"}</Text></Pressable>
+                    <Pressable style={styles.cancelButton} onPress={resetShoppingItemDraft}><Text style={styles.cancelText}>返回必買清單</Text></Pressable>
                   </> : <>
                     <View style={styles.shoppingHeader}>
                       <View><Text style={styles.detailTitle}>{activeTrip.destination} 必買清單</Text><Text style={styles.detailHint}>新增商品時可決定是否共享給旅伴</Text></View>
-                      <Pressable style={styles.smallAddButton} onPress={() => setAddingShoppingItem(true)}><Text style={styles.smallAddButtonText}>＋</Text></Pressable>
+                      <Pressable style={styles.smallAddButton} onPress={openNewShoppingItem}><Text style={styles.smallAddButtonText}>＋</Text></Pressable>
                     </View>
                     <View style={styles.sourceTabs}>
                       <Pressable onPress={() => setShoppingView("shared")} style={[styles.sourceTab, shoppingView === "shared" && styles.sourceTabActive]}><Text style={[styles.sourceTabText, shoppingView === "shared" && styles.sourceTabTextActive]}>共享清單</Text></Pressable>
@@ -5676,6 +5701,7 @@ export default function App() {
                         {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
                         <View style={styles.shoppingInfo}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.owner ? `${item.owner}・` : ""}{item.category || "未分類"}</Text></View>
                         <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
+                        <Pressable onPress={() => openShoppingItemEditor(item.id)}><Text style={styles.shoppingEdit}>編輯</Text></Pressable>
                         <Pressable onPress={() => deleteShoppingItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
                       </View>
                     ))}
@@ -5688,6 +5714,7 @@ export default function App() {
                         {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
                         <View style={styles.shoppingInfo}><Text style={[styles.shoppingName, styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>已購買</Text></View>
                         <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
+                        <Pressable onPress={() => openShoppingItemEditor(item.id)}><Text style={styles.shoppingEdit}>編輯</Text></Pressable>
                         <Pressable onPress={() => deleteShoppingItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
                       </View>
                     ))}
@@ -6553,6 +6580,7 @@ const styles = createDouyouStyles({
   shoppingName: { color: "#302B27", fontWeight: "800", fontSize: 13, lineHeight: 18 },
   shoppingCategory: { color: "#9A9188", fontSize: 10, marginTop: 3 },
   shoppingPrice: { color: "#9A6248", fontWeight: "900", fontSize: 11, maxWidth: 105, textAlign: "right" },
+  shoppingEdit: { color: "#536783", fontSize: 10, fontWeight: "900", paddingHorizontal: 6, paddingVertical: 7 },
   expenseHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", position: "relative", minHeight: 196 },
   totalCard: { borderRadius: 24, padding: 21, marginBottom: 18 },
   totalLabel: { color: "rgba(255,255,255,.72)", fontSize: 11, fontWeight: "800" },
