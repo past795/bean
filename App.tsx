@@ -5699,9 +5699,8 @@ export default function App() {
                           <Text style={styles.shoppingCheckText}>{item.purchased ? "✓" : ""}</Text>
                         </Pressable>
                         {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
-                        <View style={styles.shoppingInfo}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.owner ? `${item.owner}・` : ""}{item.category || "未分類"}</Text></View>
+                        <Pressable style={styles.shoppingInfo} onPress={() => openShoppingItemEditor(item.id)}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.owner ? `${item.owner}・` : ""}{item.category || "未分類"}</Text><Text style={styles.shoppingEdit}>✎ 編輯商品</Text></Pressable>
                         <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
-                        <Pressable onPress={() => openShoppingItemEditor(item.id)}><Text style={styles.shoppingEdit}>編輯</Text></Pressable>
                         <Pressable onPress={() => deleteShoppingItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
                       </View>
                     ))}
@@ -5712,9 +5711,8 @@ export default function App() {
                           <Text style={styles.shoppingCheckText}>✓</Text>
                         </Pressable>
                         {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
-                        <View style={styles.shoppingInfo}><Text style={[styles.shoppingName, styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>已購買</Text></View>
+                        <Pressable style={styles.shoppingInfo} onPress={() => openShoppingItemEditor(item.id)}><Text style={[styles.shoppingName, styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>已購買</Text><Text style={styles.shoppingEdit}>✎ 編輯商品</Text></Pressable>
                         <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
-                        <Pressable onPress={() => openShoppingItemEditor(item.id)}><Text style={styles.shoppingEdit}>編輯</Text></Pressable>
                         <Pressable onPress={() => deleteShoppingItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
                       </View>
                     ))}
@@ -6580,7 +6578,7 @@ const styles = createDouyouStyles({
   shoppingName: { color: "#302B27", fontWeight: "800", fontSize: 13, lineHeight: 18 },
   shoppingCategory: { color: "#9A9188", fontSize: 10, marginTop: 3 },
   shoppingPrice: { color: "#9A6248", fontWeight: "900", fontSize: 11, maxWidth: 105, textAlign: "right" },
-  shoppingEdit: { color: "#536783", fontSize: 10, fontWeight: "900", paddingHorizontal: 6, paddingVertical: 7 },
+  shoppingEdit: { color: "#536783", fontSize: 10, fontWeight: "900", marginTop: 6 },
   expenseHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", position: "relative", minHeight: 196 },
   totalCard: { borderRadius: 24, padding: 21, marginBottom: 18 },
   totalLabel: { color: "rgba(255,255,255,.72)", fontSize: 11, fontWeight: "800" },
