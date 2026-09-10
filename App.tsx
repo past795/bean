@@ -924,6 +924,7 @@ export default function App() {
   const [shoppingGuideNameDraft, setShoppingGuideNameDraft] = useState("");
   const [shoppingGuideNoteDraft, setShoppingGuideNoteDraft] = useState("");
   const [collapsedShoppingGuideRegions, setCollapsedShoppingGuideRegions] = useState<string[]>([]);
+  const [collapsedShoppingGuidePlaces, setCollapsedShoppingGuidePlaces] = useState<string[]>([]);
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
   const [addingExpense, setAddingExpense] = useState(false);
   const [expenseTitle, setExpenseTitle] = useState("");
@@ -5401,7 +5402,8 @@ export default function App() {
         </Modal>
 
         <Modal visible={!!selectedTool && !addingBackupPlan} animationType="slide" transparent onRequestClose={() => setSelectedTool(null)}>
-          <Pressable style={styles.modalShade} onPress={() => { setAddingFlight(false); setAddingAccommodation(false); setAddingShoppingItem(false); setSelectedTool(null); }}>
+          <View style={styles.modalShade}>
+            <Pressable accessibilityLabel="點擊空白處關閉" style={styles.toolBackdropCloseArea} onPress={() => { setAddingFlight(false); setAddingAccommodation(false); resetShoppingItemDraft(); setSelectedTool(null); }} />
             <Pressable style={[styles.sheet, styles.toolSheet]} onPress={(event) => event.stopPropagation()}>
               <View style={styles.sheetHandle} />
               <View style={styles.toolSheetHeader}>
@@ -5584,16 +5586,25 @@ export default function App() {
                     <View key={region} style={styles.shoppingGuideRegion}>
                       <View style={styles.shoppingGuideRegionHeader}>
                         <Pressable style={styles.shoppingGuideRegionToggle} onPress={() => setCollapsedShoppingGuideRegions((current) => current.includes(region) ? current.filter((item) => item !== region) : [...current, region])}>
+                          <Text style={styles.shoppingGuideRegionArrow}>{collapsedShoppingGuideRegions.includes(region) ? "▸" : "▾"}</Text>
                           <Text style={styles.shoppingGuideRegionTitle}>{region}</Text>
-                          <Text style={styles.shoppingGuideRegionArrow}>{collapsedShoppingGuideRegions.includes(region) ? "⌄" : "⌃"}</Text>
                         </Pressable>
                         <Pressable onPress={() => openShoppingGuideEditor(undefined, region)}><Text style={styles.shoppingGuideRegionAdd}>＋ 加到這區</Text></Pressable>
                       </View>
                       {!collapsedShoppingGuideRegions.includes(region) && (activeTrip.shoppingGuide || []).filter((item) => item.region === region).map((item) => (
-                        <Pressable key={item.id} style={styles.shoppingGuidePlace} onPress={() => openShoppingGuideEditor(item)}>
-                          <View style={styles.toolText}><Text style={styles.shoppingGuidePlaceName}>{item.name}</Text>{!!item.note && <Text style={styles.shoppingGuidePlaceNote}>{item.note}</Text>}</View>
-                          <Pressable style={styles.shoppingGuideDelete} onPress={(event) => { event.stopPropagation(); removeShoppingGuidePlace(item.id); }}><Text style={styles.shoppingGuideDeleteText}>×</Text></Pressable>
-                        </Pressable>
+                        <View key={item.id} style={styles.shoppingGuidePlace}>
+                          <Pressable style={styles.shoppingGuidePlaceToggle} onPress={() => setCollapsedShoppingGuidePlaces((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}>
+                            <Text style={styles.shoppingGuidePlaceArrow}>{collapsedShoppingGuidePlaces.includes(item.id) ? "▸" : "▾"}</Text>
+                            <Text style={styles.shoppingGuidePlaceName}>{item.name}</Text>
+                          </Pressable>
+                          {!collapsedShoppingGuidePlaces.includes(item.id) && <>
+                            {!!item.note && <Text style={styles.shoppingGuidePlaceNote}>{item.note}</Text>}
+                            <View style={styles.shoppingGuidePlaceActions}>
+                              <Pressable style={styles.shoppingGuideEditButton} onPress={() => openShoppingGuideEditor(item)}><Text style={styles.shoppingGuideEditText}>✎ 編輯</Text></Pressable>
+                              <Pressable style={styles.shoppingGuideDelete} onPress={() => removeShoppingGuidePlace(item.id)}><Text style={styles.shoppingGuideDeleteText}>× 刪除</Text></Pressable>
+                            </View>
+                          </>}
+                        </View>
                       ))}
                     </View>
                   ))}
@@ -5674,6 +5685,13 @@ export default function App() {
                       ))}
                     </View>
                     <Text style={styles.fieldLabel}>分類</Text><TextInput value={shoppingCategory} onChangeText={setShoppingCategory} placeholder="伴手禮／藥妝／食品" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                    <View style={styles.shoppingCategoryPresets}>
+                      {["OLIVE YOUNG", "藥局", "服飾", "美妝", "食品", "伴手禮"].map((category) => (
+                        <Pressable key={category} onPress={() => setShoppingCategory(category)} style={[styles.shoppingCategoryPreset, shoppingCategory === category && styles.shoppingCategoryPresetActive]}>
+                          <Text style={[styles.shoppingCategoryPresetText, shoppingCategory === category && styles.shoppingCategoryPresetTextActive]}>{category}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
                     <Text style={styles.fieldLabel}>商品圖片</Text>
                     {!!shoppingImageUrl && <Image source={{ uri: shoppingImageUrl }} style={styles.uploadPreview} resizeMode="contain" />}
                     <Pressable style={styles.addressLookupButton} onPress={async () => {
@@ -5714,7 +5732,7 @@ export default function App() {
                         {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
                         <Pressable style={styles.shoppingInfo} onPress={() => openShoppingItemEditor(item.id)}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.owner ? `${item.owner}・` : ""}{item.category || "未分類"}</Text><Text style={styles.shoppingEdit}>✎ 編輯商品</Text></Pressable>
                         <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
-                        <Pressable onPress={() => deleteShoppingItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
+                        <Pressable style={styles.shoppingDeleteButton} onPress={() => deleteShoppingItem(item.id)}><Text style={styles.shoppingDeleteText}>×</Text></Pressable>
                       </View>
                     ))}
                     {!!visibleShoppingItems.filter((item) => item.purchased).length && <Text style={styles.shoppingSectionTitle}>已購買</Text>}
@@ -5726,7 +5744,7 @@ export default function App() {
                         {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
                         <Pressable style={styles.shoppingInfo} onPress={() => openShoppingItemEditor(item.id)}><Text style={[styles.shoppingName, styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>已購買</Text><Text style={styles.shoppingEdit}>✎ 編輯商品</Text></Pressable>
                         <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
-                        <Pressable onPress={() => deleteShoppingItem(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
+                        <Pressable style={styles.shoppingDeleteButton} onPress={() => deleteShoppingItem(item.id)}><Text style={styles.shoppingDeleteText}>×</Text></Pressable>
                       </View>
                     ))}
                     {visibleShoppingItems.length === 0 && <Text style={styles.emptyListText}>這個清單目前沒有商品，點右上角 ＋ 新增。</Text>}
@@ -5759,7 +5777,7 @@ export default function App() {
               {!addingFlight && !addingAccommodation && !addingShoppingItem && <Pressable style={styles.cancelButton} onPress={() => setSelectedTool(null)}><Text style={styles.cancelText}>關閉</Text></Pressable>}
               </ScrollView>
             </Pressable>
-          </Pressable>
+          </View>
         </Modal>
 
         <Modal visible={addingExpense} animationType="slide" transparent onRequestClose={() => setAddingExpense(false)}>
@@ -6472,6 +6490,7 @@ const styles = createDouyouStyles({
   chevron: { fontSize: 28, color: "#B7B0A8" },
   emptyPage: { flex: 1, padding: 24, paddingTop: 45 },
   modalShade: { flex: 1, backgroundColor: "rgba(20,18,16,.35)", justifyContent: "flex-end" },
+  toolBackdropCloseArea: { position: "absolute", left: 0, right: 0, top: 0, height: "10%" },
   sheet: { backgroundColor: "#FBFAF7", borderTopLeftRadius: 30, borderTopRightRadius: 30, padding: 22, paddingBottom: 34 },
   editingSheet: { maxHeight: "92%" },
   editingSheetContent: { paddingBottom: 34 },
@@ -6589,6 +6608,13 @@ const styles = createDouyouStyles({
   shoppingCategory: { color: "#9A9188", fontSize: 10, marginTop: 3 },
   shoppingPrice: { color: "#9A6248", fontWeight: "900", fontSize: 11, maxWidth: 105, textAlign: "right" },
   shoppingEdit: { color: "#536783", fontSize: 10, fontWeight: "900", marginTop: 6 },
+  shoppingDeleteButton: { width: 32, height: 32, flexShrink: 0, borderRadius: 16, backgroundColor: "#F2ECE8", alignItems: "center", justifyContent: "center" },
+  shoppingDeleteText: { color: "#A26C5D", fontSize: 18, fontWeight: "800", lineHeight: 20 },
+  shoppingCategoryPresets: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 8, marginBottom: 5 },
+  shoppingCategoryPreset: { borderWidth: 1, borderColor: "#DED8D0", backgroundColor: "#F5F2EE", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
+  shoppingCategoryPresetActive: { backgroundColor: "#536783", borderColor: "#536783" },
+  shoppingCategoryPresetText: { color: "#746C64", fontSize: 10, fontWeight: "900" },
+  shoppingCategoryPresetTextActive: { color: "#FFFFFF" },
   expenseHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", position: "relative", minHeight: 196 },
   totalCard: { borderRadius: 24, padding: 21, marginBottom: 18 },
   totalLabel: { color: "rgba(255,255,255,.72)", fontSize: 11, fontWeight: "800" },
@@ -6653,15 +6679,20 @@ const styles = createDouyouStyles({
   shoppingGuideSaveButton: { flex: 1 },
   shoppingGuideRegion: { backgroundColor: "#F2F4F8", borderRadius: 18, padding: 14, marginBottom: 13, borderWidth: 1, borderColor: "#DDE3EE" },
   shoppingGuideRegionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 9 },
-  shoppingGuideRegionToggle: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4, paddingRight: 12 },
+  shoppingGuideRegionToggle: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4, paddingRight: 12 },
   shoppingGuideRegionTitle: { color: "#536783", fontSize: 15, fontWeight: "900" },
   shoppingGuideRegionArrow: { color: "#536783", fontSize: 18, fontWeight: "900" },
   shoppingGuideRegionAdd: { color: "#536783", fontSize: 10, fontWeight: "900" },
-  shoppingGuidePlace: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#FFFFFF", borderRadius: 14, borderWidth: 1, borderColor: "#E1E6EF", padding: 13, marginTop: 7 },
+  shoppingGuidePlace: { backgroundColor: "#FFFFFF", borderRadius: 14, borderWidth: 1, borderColor: "#E1E6EF", padding: 13, marginTop: 7 },
+  shoppingGuidePlaceToggle: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28 },
+  shoppingGuidePlaceArrow: { color: "#718099", fontSize: 14, width: 14 },
   shoppingGuidePlaceName: { color: "#2D3440", fontSize: 14, fontWeight: "900" },
   shoppingGuidePlaceNote: { color: "#777F8C", fontSize: 11, lineHeight: 17, marginTop: 5 },
-  shoppingGuideDelete: { width: 30, height: 30, borderRadius: 15, backgroundColor: "#EEF1F6", alignItems: "center", justifyContent: "center" },
-  shoppingGuideDeleteText: { color: "#8792A3", fontSize: 19, lineHeight: 21 },
+  shoppingGuidePlaceActions: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
+  shoppingGuideEditButton: { borderRadius: 10, backgroundColor: "#E9EEF7", paddingHorizontal: 12, paddingVertical: 8 },
+  shoppingGuideEditText: { color: "#536783", fontSize: 10, fontWeight: "900" },
+  shoppingGuideDelete: { borderRadius: 10, backgroundColor: "#F6ECE9", paddingHorizontal: 12, paddingVertical: 8 },
+  shoppingGuideDeleteText: { color: "#A26C5D", fontSize: 10, fontWeight: "900" },
   shoppingGuideLinkChoices: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 8, marginBottom: 4 },
   shoppingGuideLinkChoice: { borderWidth: 1, borderColor: "#D8DFEA", backgroundColor: "#F7F8FB", borderRadius: 11, paddingHorizontal: 11, paddingVertical: 9 },
   shoppingGuideLinkChoiceActive: { backgroundColor: "#536783", borderColor: "#536783" },
