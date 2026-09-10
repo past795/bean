@@ -992,6 +992,7 @@ export default function App() {
   const [shoppingImageUrl, setShoppingImageUrl] = useState("");
   const [shoppingScope, setShoppingScope] = useState<"shared" | "personal">("shared");
   const [shoppingView, setShoppingView] = useState<"shared" | "mine">("shared");
+  const [collapsedShoppingCategories, setCollapsedShoppingCategories] = useState<string[]>([]);
   const [checklistText, setChecklistText] = useState("");
   const [checklistError, setChecklistError] = useState("");
   const [previousStops, setPreviousStops] = useState<Stop[] | null>(null);
@@ -4321,6 +4322,9 @@ export default function App() {
       ? (item.scope || "shared") === "shared"
       : item.scope === "personal" && item.owner === myDisplayName
   );
+  const shoppingCategoryGroups = [...new Set(visibleShoppingItems.map((item) => item.category?.trim() || "未分類"))]
+    .sort((left, right) => left === "未分類" ? 1 : right === "未分類" ? -1 : left.localeCompare(right, "zh-Hant"))
+    .map((category) => ({ category, items: visibleShoppingItems.filter((item) => (item.category?.trim() || "未分類") === category) }));
 
   const createChecklistItem = () => {
     const text = checklistText.trim();
@@ -5723,30 +5727,28 @@ export default function App() {
                       <Pressable onPress={() => setShoppingView("shared")} style={[styles.sourceTab, shoppingView === "shared" && styles.sourceTabActive]}><Text style={[styles.sourceTabText, shoppingView === "shared" && styles.sourceTabTextActive]}>共享清單</Text></Pressable>
                       <Pressable onPress={() => setShoppingView("mine")} style={[styles.sourceTab, shoppingView === "mine" && styles.sourceTabActive]}><Text style={[styles.sourceTabText, shoppingView === "mine" && styles.sourceTabTextActive]}>我的商品</Text></Pressable>
                     </View>
-                    {!!visibleShoppingItems.filter((item) => !item.purchased).length && <Text style={styles.shoppingSectionTitle}>待購買</Text>}
-                    {visibleShoppingItems.filter((item) => !item.purchased).map((item) => (
-                      <View key={item.id} style={[styles.shoppingItem, item.purchased && styles.shoppingItemPurchased]}>
-                        <Pressable accessibilityLabel={item.purchased ? "取消已購買" : "標記已購買"} onPress={() => toggleShoppingItem(item.id)} style={[styles.shoppingCheck, item.purchased && styles.shoppingCheckActive]}>
-                          <Text style={styles.shoppingCheckText}>{item.purchased ? "✓" : ""}</Text>
+                    {shoppingCategoryGroups.map(({ category, items }) => {
+                      const collapsed = collapsedShoppingCategories.includes(category);
+                      const purchasedCount = items.filter((item) => item.purchased).length;
+                      return <View key={category} style={styles.shoppingCategoryGroup}>
+                        <Pressable style={styles.shoppingCategoryHeader} onPress={() => setCollapsedShoppingCategories((current) => current.includes(category) ? current.filter((value) => value !== category) : [...current, category])}>
+                          <Text style={styles.shoppingCategoryArrow}>{collapsed ? "▸" : "▾"}</Text>
+                          <Text style={styles.shoppingCategoryTitle}>{category}</Text>
+                          <Text style={styles.shoppingCategoryCount}>{items.length} 項{purchasedCount ? `・已買 ${purchasedCount}` : ""}</Text>
                         </Pressable>
-                        {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
-                        <Pressable style={styles.shoppingInfo} onPress={() => openShoppingItemEditor(item.id)}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.owner ? `${item.owner}・` : ""}{item.category || "未分類"}</Text><Text style={styles.shoppingEdit}>✎ 編輯商品</Text></Pressable>
-                        <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
-                        <Pressable style={styles.shoppingDeleteButton} onPress={() => deleteShoppingItem(item.id)}><Text style={styles.shoppingDeleteText}>×</Text></Pressable>
-                      </View>
-                    ))}
-                    {!!visibleShoppingItems.filter((item) => item.purchased).length && <Text style={styles.shoppingSectionTitle}>已購買</Text>}
-                    {visibleShoppingItems.filter((item) => item.purchased).map((item) => (
-                      <View key={item.id} style={[styles.shoppingItem, styles.shoppingItemPurchased]}>
-                        <Pressable accessibilityLabel="取消已購買" onPress={() => toggleShoppingItem(item.id)} style={[styles.shoppingCheck, styles.shoppingCheckActive]}>
-                          <Text style={styles.shoppingCheckText}>✓</Text>
-                        </Pressable>
-                        {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
-                        <Pressable style={styles.shoppingInfo} onPress={() => openShoppingItemEditor(item.id)}><Text style={[styles.shoppingName, styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>已購買</Text><Text style={styles.shoppingEdit}>✎ 編輯商品</Text></Pressable>
-                        <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
-                        <Pressable style={styles.shoppingDeleteButton} onPress={() => deleteShoppingItem(item.id)}><Text style={styles.shoppingDeleteText}>×</Text></Pressable>
-                      </View>
-                    ))}
+                        {!collapsed && items.map((item) => (
+                          <View key={item.id} style={[styles.shoppingItem, item.purchased && styles.shoppingItemPurchased]}>
+                            <Pressable accessibilityLabel={item.purchased ? "取消已購買" : "標記已購買"} onPress={() => toggleShoppingItem(item.id)} style={[styles.shoppingCheck, item.purchased && styles.shoppingCheckActive]}>
+                              <Text style={styles.shoppingCheckText}>{item.purchased ? "✓" : ""}</Text>
+                            </Pressable>
+                            {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
+                            <Pressable style={styles.shoppingInfo} onPress={() => openShoppingItemEditor(item.id)}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.owner ? `${item.owner}・` : ""}{item.purchased ? "已購買" : "待購買"}</Text><Text style={styles.shoppingEdit}>✎ 編輯商品</Text></Pressable>
+                            <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
+                            <Pressable style={styles.shoppingDeleteButton} onPress={() => deleteShoppingItem(item.id)}><Text style={styles.shoppingDeleteText}>×</Text></Pressable>
+                          </View>
+                        ))}
+                      </View>;
+                    })}
                     {visibleShoppingItems.length === 0 && <Text style={styles.emptyListText}>這個清單目前沒有商品，點右上角 ＋ 新增。</Text>}
                   </>}
                 </View>
@@ -6579,6 +6581,11 @@ const styles = createDouyouStyles({
   shoppingWrap: { marginTop: 16, minHeight: 360 },
   shoppingHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 9 },
   shoppingSectionTitle: { color: "#536783", fontSize: 12, fontWeight: "900", backgroundColor: "#EDF1F7", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, marginTop: 9 },
+  shoppingCategoryGroup: { marginTop: 10, borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: "#E1E6EF", backgroundColor: "#FFFFFF" },
+  shoppingCategoryHeader: { minHeight: 46, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, paddingVertical: 10, backgroundColor: "#EDF1F7" },
+  shoppingCategoryArrow: { width: 22, color: "#536783", fontSize: 16, fontWeight: "900" },
+  shoppingCategoryTitle: { flex: 1, color: "#536783", fontSize: 13, fontWeight: "900" },
+  shoppingCategoryCount: { color: "#8792A3", fontSize: 10, fontWeight: "800" },
   shoppingColumns: { flexDirection: "row", alignItems: "center", paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: "#DDD6CD" },
   shoppingColumnCheck: { width: 64, color: "#887E74", fontSize: 10, fontWeight: "800" },
   shoppingColumnName: { flex: 1, color: "#887E74", fontSize: 10, fontWeight: "800" },
