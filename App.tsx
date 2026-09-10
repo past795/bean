@@ -923,6 +923,7 @@ export default function App() {
   const [shoppingGuideRegionDraft, setShoppingGuideRegionDraft] = useState("");
   const [shoppingGuideNameDraft, setShoppingGuideNameDraft] = useState("");
   const [shoppingGuideNoteDraft, setShoppingGuideNoteDraft] = useState("");
+  const [collapsedShoppingGuideRegions, setCollapsedShoppingGuideRegions] = useState<string[]>([]);
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
   const [addingExpense, setAddingExpense] = useState(false);
   const [expenseTitle, setExpenseTitle] = useState("");
@@ -1016,6 +1017,7 @@ export default function App() {
   const cloudLinksRef = useRef<CloudLinks>({});
   const itineraryListRef = useRef<any>(null);
   const geocodedDaysRef = useRef<Set<string>>(new Set());
+  const [coordinateRefreshNonce, setCoordinateRefreshNonce] = useState(0);
   const firestoreStartedRef = useRef("");
   const firestoreStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firestoreSeededTripsRef = useRef<Set<string>>(new Set());
@@ -2266,7 +2268,7 @@ export default function App() {
       if (resolved.some((stop) => stop.latitude == null || stop.longitude == null)) geocodedDaysRef.current.delete(geocodeKey);
     })();
     return () => { cancelled = true; };
-  }, [activeTrip.id, selectedDay?.id, selectedDayGeocodeSignature]);
+  }, [activeTrip.id, selectedDay?.id, selectedDayGeocodeSignature, coordinateRefreshNonce]);
 
   // Finish repairing the rest of a trip in the background as well.  Previously
   // only the day currently on screen was enriched, which left older imported
@@ -2321,7 +2323,15 @@ export default function App() {
       if (repairedStops.some((stop) => stop.latitude == null || stop.longitude == null)) geocodedDaysRef.current.delete(repairKey);
     })();
     return () => { cancelled = true; };
-  }, [activeTrip.id, selectedDay?.id, tripCoordinateSignature]);
+  }, [activeTrip.id, selectedDay?.id, tripCoordinateSignature, coordinateRefreshNonce]);
+
+  const refreshAllTripCoordinates = () => {
+    const missing = activeTrip.days.reduce((count, day) => count + day.stops.filter((stop) => stop.latitude == null || stop.longitude == null).length, 0);
+    if (!missing) { showToast("這趟旅行的景點座標都已齊全"); return; }
+    geocodedDaysRef.current.clear();
+    setCoordinateRefreshNonce((value) => value + 1);
+    showToast(`正在背景更新 ${missing} 個景點座標，完成後會自動串接路線`);
+  };
 
   const updateActiveTrip = (changes: Partial<TripPlan>) => {
     persistTrips(trips.map((trip) => trip.id === activeTrip.id ? { ...trip, ...changes } : trip));
@@ -4728,12 +4738,15 @@ export default function App() {
                       <Text style={styles.mapFooterTitle}>今日移動路線</Text>
                       <Text style={styles.mapFooterText}>地圖可拖曳、放大與縮小；每一段可在下方景點卡片分別選擇開車或步行。</Text>
                       <Text style={styles.smartSortLabel}>一鍵排行程</Text>
-                      <View style={styles.smartSortRow}>
+                  <View style={styles.smartSortRow}>
                         <Pressable onPress={sortByOpeningHours} style={styles.smartSortButton}>
                           <Text style={styles.smartSortText}>🕒 依營業時間</Text>
                         </Pressable>
                         <Pressable onPress={sortByShortestRoute} style={styles.smartSortButton}>
                           <Text style={styles.smartSortText}>↗ 依最短動線</Text>
+                        </Pressable>
+                        <Pressable onPress={refreshAllTripCoordinates} style={styles.smartSortButton}>
+                          <Text style={styles.smartSortText}>⌖ 更新全旅程座標</Text>
                         </Pressable>
                         {previousStops && (
                           <Pressable onPress={undoSmartSort} style={styles.undoSortButton}>
@@ -5229,9 +5242,6 @@ export default function App() {
                 ] as [RouteMode, string][]).map(([mode, label]) => (
                   <Pressable key={mode} onPress={() => {
                     setDraftRouteMode(mode);
-                    if (!draftTransport.trim() || draftTransport === "尚未安排") {
-                      setDraftTransport(mode === "driving" ? "開車" : mode === "walking" ? "步行" : mode === "transit" ? "大眾運輸" : "計程車");
-                    }
                   }} style={[styles.legModeButton, draftRouteMode === mode && styles.legModeButtonActive]}>
                     <Text style={[styles.legModeText, draftRouteMode === mode && styles.legModeTextActive]}>{label}</Text>
                   </Pressable>
@@ -5573,10 +5583,13 @@ export default function App() {
                   {[...new Set((activeTrip.shoppingGuide || []).map((item) => item.region))].map((region) => (
                     <View key={region} style={styles.shoppingGuideRegion}>
                       <View style={styles.shoppingGuideRegionHeader}>
-                        <Text style={styles.shoppingGuideRegionTitle}>{region}</Text>
+                        <Pressable style={styles.shoppingGuideRegionToggle} onPress={() => setCollapsedShoppingGuideRegions((current) => current.includes(region) ? current.filter((item) => item !== region) : [...current, region])}>
+                          <Text style={styles.shoppingGuideRegionTitle}>{region}</Text>
+                          <Text style={styles.shoppingGuideRegionArrow}>{collapsedShoppingGuideRegions.includes(region) ? "⌄" : "⌃"}</Text>
+                        </Pressable>
                         <Pressable onPress={() => openShoppingGuideEditor(undefined, region)}><Text style={styles.shoppingGuideRegionAdd}>＋ 加到這區</Text></Pressable>
                       </View>
-                      {(activeTrip.shoppingGuide || []).filter((item) => item.region === region).map((item) => (
+                      {!collapsedShoppingGuideRegions.includes(region) && (activeTrip.shoppingGuide || []).filter((item) => item.region === region).map((item) => (
                         <Pressable key={item.id} style={styles.shoppingGuidePlace} onPress={() => openShoppingGuideEditor(item)}>
                           <View style={styles.toolText}><Text style={styles.shoppingGuidePlaceName}>{item.name}</Text>{!!item.note && <Text style={styles.shoppingGuidePlaceNote}>{item.note}</Text>}</View>
                           <Pressable style={styles.shoppingGuideDelete} onPress={(event) => { event.stopPropagation(); removeShoppingGuidePlace(item.id); }}><Text style={styles.shoppingGuideDeleteText}>×</Text></Pressable>
@@ -6048,9 +6061,6 @@ export default function App() {
                       ] as [RouteMode, string][]).map(([mode, label]) => (
                         <Pressable key={mode} onPress={() => {
                           setNewStopRouteMode(mode);
-                          if (!newStopTransport.trim() || newStopTransport === "尚未安排") {
-                            setNewStopTransport(mode === "driving" ? "開車" : mode === "walking" ? "步行" : mode === "transit" ? "大眾運輸" : "計程車");
-                          }
                         }} style={[styles.legModeButton, newStopRouteMode === mode && styles.legModeButtonActive]}>
                           <Text style={[styles.legModeText, newStopRouteMode === mode && styles.legModeTextActive]}>{label}</Text>
                         </Pressable>
@@ -6643,7 +6653,9 @@ const styles = createDouyouStyles({
   shoppingGuideSaveButton: { flex: 1 },
   shoppingGuideRegion: { backgroundColor: "#F2F4F8", borderRadius: 18, padding: 14, marginBottom: 13, borderWidth: 1, borderColor: "#DDE3EE" },
   shoppingGuideRegionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 9 },
+  shoppingGuideRegionToggle: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4, paddingRight: 12 },
   shoppingGuideRegionTitle: { color: "#536783", fontSize: 15, fontWeight: "900" },
+  shoppingGuideRegionArrow: { color: "#536783", fontSize: 18, fontWeight: "900" },
   shoppingGuideRegionAdd: { color: "#536783", fontSize: 10, fontWeight: "900" },
   shoppingGuidePlace: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#FFFFFF", borderRadius: 14, borderWidth: 1, borderColor: "#E1E6EF", padding: 13, marginTop: 7 },
   shoppingGuidePlaceName: { color: "#2D3440", fontSize: 14, fontWeight: "900" },
