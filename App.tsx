@@ -2360,7 +2360,7 @@ export default function App() {
   const askDouyouAi = async () => {
     const message = aiPrompt.trim();
     if (!message) {
-      setAiError("請先輸入想問豆遊小助手的問題。");
+      setAiError("請先輸入想問小助手的問題。");
       return;
     }
     setAiLoading(true);
@@ -2387,7 +2387,7 @@ export default function App() {
         }))
       };
       const groundedMessage = [
-        "你是豆遊小助手。以下 JSON 是使用者 App 內的唯一可信旅行資料。",
+        "你是小助手。以下 JSON 是使用者 App 內的唯一可信旅行資料。",
         "規則：優先引用 JSON；不得把模型記憶當成最新事實；JSON 沒有的營業時間、票價、班次、地址與即時路線，一律寫『尚未查證』；不可捏造來源或網址；資訊不足時先說明缺少什麼。",
         `使用者問題：${message}`,
         `豆遊旅行資料：${JSON.stringify(tripContext)}`
@@ -2419,7 +2419,7 @@ export default function App() {
       if (!response.ok) throw new Error(String(data?.error || "小助手暫時無法回覆"));
       setAiAnswer(String(data?.answer || "目前沒有取得回覆，請再試一次。"));
     } catch (error: any) {
-      setAiError(error?.message || "豆遊小助手暫時無法回覆，請稍後再試。");
+      setAiError(error?.message || "小助手暫時無法回覆，請稍後再試。");
     } finally {
       setAiLoading(false);
     }
@@ -4788,7 +4788,7 @@ export default function App() {
 
         {tab === "favorites" && (
           <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
-            <View style={styles.favoriteHeader}><View><Text style={styles.eyebrow}>MY SAVED PLACES</Text><Text style={styles.pageTitle}>景點收藏</Text><Text style={styles.pageSubtitle}>個人收藏會依國家與城市自動整理。</Text></View><View style={styles.favoriteHeaderActions}><Pressable style={styles.favoriteBatchButton} onPress={importBusanBackupsToFavorites}><Text style={styles.favoriteBatchButtonText}>釜山備案</Text></Pressable><Pressable style={styles.favoriteBatchButton} onPress={() => setBatchFavoriteVisible(true)}><Text style={styles.favoriteBatchButtonText}>批次匯入</Text></Pressable><Pressable style={styles.addTripButton} onPress={() => openFavoriteEditor()}><Text style={styles.addTripPlus}>＋</Text></Pressable></View></View>
+            <View style={styles.favoriteHeader}><View><Text style={styles.eyebrow}>MY SAVED PLACES</Text><Text style={styles.pageTitle}>景點收藏</Text><Text style={styles.pageSubtitle}>個人收藏會依國家與城市自動整理。</Text></View><View style={styles.favoriteHeaderActions}><Pressable style={styles.favoriteBatchButton} onPress={() => setBatchFavoriteVisible(true)}><Text style={styles.favoriteBatchButtonText}>批次匯入</Text></Pressable><Pressable style={styles.addTripButton} onPress={() => openFavoriteEditor()}><Text style={styles.addTripPlus}>＋</Text></Pressable></View></View>
             <Pressable disabled={favoriteBulkUpdating} style={[styles.favoriteBulkUpdateButton, favoriteBulkUpdating && styles.buttonDisabled]} onPress={updateAllFavoriteCoordinates}><Text style={styles.favoriteBulkUpdateText}>{favoriteBulkUpdating ? "正在更新全部收藏座標…" : "⌖ 更新全部收藏座標"}</Text></Pressable>
             <View style={styles.favoritePlanner}>
               <Text style={styles.favoritePlannerTitle}>✨ 已選 {selectedFavorites.length} 個景點</Text>
@@ -5056,7 +5056,7 @@ export default function App() {
 
         <Pressable style={[styles.aiFloatingButton, previousStops && styles.aiFloatingButtonRaised]} onPress={() => openAiAssistant()}>
           <Text style={styles.aiFloatingIcon}>✦</Text>
-          <Text style={styles.aiFloatingText}>豆遊小助手</Text>
+          <Text style={styles.aiFloatingText}>小助手</Text>
         </Pressable>
 
         <View style={styles.bottomBar}>
@@ -5352,7 +5352,7 @@ export default function App() {
               <View style={styles.aiHeader}>
                 <View>
                   <Text style={styles.sheetEyebrow}>DOUYOU AI</Text>
-                  <Text style={styles.sheetTitle}>豆遊小助手</Text>
+                  <Text style={styles.sheetTitle}>小助手</Text>
                   <Text style={styles.sheetAddress}>{aiFocusStop ? `正在協助：${aiFocusStop.title}` : `目前旅行：${activeTrip.title}`}</Text>
                 </View>
                 <Pressable style={styles.sheetCloseButton} onPress={() => setAiAssistantVisible(false)}><Text style={styles.closeButtonText}>×</Text></Pressable>
@@ -5368,7 +5368,7 @@ export default function App() {
               />
               {!!aiError && <Text style={styles.aiError}>{aiError}</Text>}
               <Pressable style={[styles.primaryButton, aiLoading && styles.disabledButton]} disabled={aiLoading} onPress={askDouyouAi}>
-                <Text style={styles.primaryButtonText}>{aiLoading ? "豆遊小助手思考中…" : "✦ 問問豆遊小助手"}</Text>
+                <Text style={styles.primaryButtonText}>{aiLoading ? "小助手思考中…" : "✦ 問問小助手"}</Text>
               </Pressable>
               {!!aiAnswer && <ScrollView style={styles.aiAnswerBox} contentContainerStyle={styles.aiAnswerContent}><Text style={styles.aiAnswerText}>{aiAnswer}</Text></ScrollView>}
             </View>
