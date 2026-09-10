@@ -993,6 +993,7 @@ export default function App() {
   const [shoppingScope, setShoppingScope] = useState<"shared" | "personal">("shared");
   const [shoppingView, setShoppingView] = useState<"shared" | "mine">("shared");
   const [collapsedShoppingCategories, setCollapsedShoppingCategories] = useState<string[]>([]);
+  const [failedShoppingImages, setFailedShoppingImages] = useState<string[]>([]);
   const [checklistText, setChecklistText] = useState("");
   const [checklistError, setChecklistError] = useState("");
   const [previousStops, setPreviousStops] = useState<Stop[] | null>(null);
@@ -4322,9 +4323,21 @@ export default function App() {
       ? (item.scope || "shared") === "shared"
       : item.scope === "personal" && item.owner === myDisplayName
   );
-  const shoppingCategoryGroups = [...new Set(visibleShoppingItems.map((item) => item.category?.trim() || "未分類"))]
-    .sort((left, right) => left === "未分類" ? 1 : right === "未分類" ? -1 : left.localeCompare(right, "zh-Hant"))
-    .map((category) => ({ category, items: visibleShoppingItems.filter((item) => (item.category?.trim() || "未分類") === category) }));
+  const shoppingAreaOrder = ["OLIVE YOUNG", "藥局", "服飾", "美妝", "食品", "伴手禮", "未分類"];
+  const shoppingAreaForItem = (item: typeof visibleShoppingItems[number]) => {
+    const catalogItem = shoppingItems.find((entry) => entry.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+    if (catalogItem?.source === "Olive Young") return "OLIVE YOUNG";
+    if (catalogItem?.source === "韓國藥局") return "藥局";
+    return item.category?.trim() || "未分類";
+  };
+  const shoppingCategoryGroups = [...new Set(visibleShoppingItems.map(shoppingAreaForItem))]
+    .sort((left, right) => {
+      const leftIndex = shoppingAreaOrder.indexOf(left);
+      const rightIndex = shoppingAreaOrder.indexOf(right);
+      if (leftIndex >= 0 || rightIndex >= 0) return (leftIndex < 0 ? shoppingAreaOrder.length - 1 : leftIndex) - (rightIndex < 0 ? shoppingAreaOrder.length - 1 : rightIndex);
+      return left.localeCompare(right, "zh-Hant");
+    })
+    .map((category) => ({ category, items: visibleShoppingItems.filter((item) => shoppingAreaForItem(item) === category) }));
 
   const createChecklistItem = () => {
     const text = checklistText.trim();
@@ -5688,7 +5701,7 @@ export default function App() {
                         </Pressable>
                       ))}
                     </View>
-                    <Text style={styles.fieldLabel}>分類</Text><TextInput value={shoppingCategory} onChangeText={setShoppingCategory} placeholder="伴手禮／藥妝／食品" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                    <Text style={styles.fieldLabel}>購買區域</Text><TextInput value={shoppingCategory} onChangeText={setShoppingCategory} placeholder="例如：OLIVE YOUNG、藥局、服飾" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                     <View style={styles.shoppingCategoryPresets}>
                       {["OLIVE YOUNG", "藥局", "服飾", "美妝", "食品", "伴手禮"].map((category) => (
                         <Pressable key={category} onPress={() => setShoppingCategory(category)} style={[styles.shoppingCategoryPreset, shoppingCategory === category && styles.shoppingCategoryPresetActive]}>
@@ -5741,7 +5754,7 @@ export default function App() {
                             <Pressable accessibilityLabel={item.purchased ? "取消已購買" : "標記已購買"} onPress={() => toggleShoppingItem(item.id)} style={[styles.shoppingCheck, item.purchased && styles.shoppingCheckActive]}>
                               <Text style={styles.shoppingCheckText}>{item.purchased ? "✓" : ""}</Text>
                             </Pressable>
-                            {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
+                            {item.imageUrl && !failedShoppingImages.includes(`${item.id}:${item.imageUrl}`) ? <Image source={{ uri: item.imageUrl.startsWith("data:image/") ? item.imageUrl : `https://images.weserv.nl/?url=${encodeURIComponent(item.imageUrl)}&w=160&h=160&fit=contain&output=webp` }} onError={() => setFailedShoppingImages((current) => [...new Set([...current, `${item.id}:${item.imageUrl}`])])} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
                             <Pressable style={styles.shoppingInfo} onPress={() => openShoppingItemEditor(item.id)}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.owner ? `${item.owner}・` : ""}{item.purchased ? "已購買" : "待購買"}</Text><Text style={styles.shoppingEdit}>✎ 編輯商品</Text></Pressable>
                             <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
                             <Pressable style={styles.shoppingDeleteButton} onPress={() => deleteShoppingItem(item.id)}><Text style={styles.shoppingDeleteText}>×</Text></Pressable>
@@ -6598,7 +6611,7 @@ const styles = createDouyouStyles({
   sourceTabText: { color: "#8B837A", fontWeight: "800", fontSize: 12 },
   sourceTabTextActive: { color: "#536783" },
   shoppingList: { marginTop: 10 },
-  shoppingItem: { flexDirection: "row", gap: 12, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: "#ECE7E0", alignItems: "center" },
+  shoppingItem: { flexDirection: "row", gap: 12, paddingHorizontal: 13, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: "#ECE7E0", alignItems: "center" },
   shoppingItemPurchased: { opacity: .6, backgroundColor: "#F2F4F8" },
   shoppingCheck: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: "#B9B1A8", alignItems: "center", justifyContent: "center" },
   shoppingCheckActive: { backgroundColor: "#536783", borderColor: "#536783" },
