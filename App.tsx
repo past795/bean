@@ -827,10 +827,15 @@ const upgradeBusanItinerary = (trip: TripPlan): TripPlan => {
   const backupPlans = trip.backupPlans?.length ? trip.backupPlans : busanBackupDefaults();
   if ((trip.busanItineraryVersion || 0) >= BUSAN_ITINERARY_VERSION) return { ...trip, backupPlans };
   if ((trip.busanItineraryVersion || 0) >= 2026091101) {
-    const revisedLunch = busanInitialTrip.find((day) => day.id === "day3")?.stops.find((stop) => stop.id === "d3-lunch");
+    const revisedStops = new Map((busanInitialTrip.find((day) => day.id === "day3")?.stops || []).map((stop) => [stop.id, stop]));
     return {
       ...trip,
-      days: trip.days.map((day) => day.id === "day3" && revisedLunch ? { ...day, stops: day.stops.map((stop) => stop.id === "d3-lunch" ? revisedLunch : stop) } : day),
+      days: trip.days.map((day) => day.id === "day3" ? { ...day, stops: day.stops.map((stop) => {
+        const revised = revisedStops.get(stop.id);
+        if (!revised) return stop;
+        if (stop.id === "d3-lunch") return revised;
+        return { ...stop, latitude: revised.latitude, longitude: revised.longitude };
+      }) } : day),
       backupPlans,
       busanItineraryVersion: BUSAN_ITINERARY_VERSION
     };
