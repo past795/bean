@@ -318,6 +318,38 @@ const localizedPlaceName = (place: any) => {
   }
   return rawName;
 };
+
+const geocodePlaces = async (queries: string[], destination: string, limit = 5): Promise<any[]> => {
+  const isKorea = /韓國|釜山|首爾|濟州|大邱|仁川|busan|seoul|jeju/i.test(destination);
+  const isJapan = /日本|沖繩|東京|大阪|京都|北海道|福岡|japan|okinawa|tokyo|osaka|kyoto/i.test(destination);
+  const countryFilter = isKorea ? "&countrycodes=kr" : isJapan ? "&countrycodes=jp" : "";
+  const bounds = /釜山|busan/i.test(destination) ? "&viewbox=128.75,35.40,129.35,34.85&bounded=1" : "";
+  const uniqueQueries = [...new Set(queries.map((value) => value.trim()).filter(Boolean))];
+  for (const query of uniqueQueries) {
+    for (const locationFilter of bounds ? [bounds, ""] : [""]) {
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=${limit}&addressdetails=1&extratags=1&namedetails=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryFilter}${locationFilter}`);
+        const rows = response.ok ? await response.json() : [];
+        if (Array.isArray(rows) && rows.length) return rows;
+      } catch { /* Continue with the next query or provider. */ }
+    }
+  }
+  for (const query of uniqueQueries) {
+    try {
+      const response = await fetch(`https://photon.komoot.io/api/?limit=${limit}&q=${encodeURIComponent(query)}`);
+      const data = response.ok ? await response.json() : null;
+      const rows = (data?.features || []).map((feature: any, index: number) => {
+        const properties = feature.properties || {};
+        const coordinates = feature.geometry?.coordinates || [];
+        const name = properties.name || properties.street || properties.city || query;
+        const address = [properties.name, properties.street, properties.housenumber, properties.district, properties.city, properties.state, properties.country].filter(Boolean).join(", ");
+        return { place_id: `photon-${index}-${coordinates.join("-")}`, lat: coordinates[1], lon: coordinates[0], display_name: address || name, namedetails: { name }, type: properties.osm_value || properties.type || "place", category: properties.osm_key || "place", extratags: {} };
+      }).filter((row: any) => Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lon)));
+      if (rows.length) return rows;
+    } catch { /* No more providers to try. */ }
+  }
+  return [];
+};
 const screenWidth = Dimensions.get("window").width;
 const KNOWN_COORDINATES: Record<string, [number, number]> = {
   "d4-1": [35.1690, 129.1292], "d4-2": [35.1690, 129.1292],
@@ -2576,13 +2608,12 @@ export default function App() {
     setDraftCoordinateMessage("正在重新搜尋座標……");
     try {
       const destination = activeTrip.destination;
-      const isKorea = /韓國|釜山|首爾|濟州|大邱|仁川|busan|seoul|jeju/i.test(destination);
-      const isJapan = /日本|沖繩|東京|大阪|京都|北海道|福岡|japan|okinawa|tokyo|osaka|kyoto/i.test(destination);
-      const countryFilter = isKorea ? "&countrycodes=kr" : isJapan ? "&countrycodes=jp" : "";
-      const busanBounds = /釜山|busan/i.test(destination) ? "&viewbox=128.75,35.40,129.35,34.85&bounded=1" : "";
-      const query = [title, address, destination].filter(Boolean).join(" ");
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryFilter}${busanBounds}`);
-      const rows = response.ok ? await response.json() : [];
+      const rows = await geocodePlaces([
+        address,
+        [address, destination].filter(Boolean).join(" "),
+        [title, address].filter(Boolean).join(" "),
+        [title, destination].filter(Boolean).join(" ")
+      ], destination, 1);
       const match = rows?.[0];
       if (!match || !Number.isFinite(Number(match.lat)) || !Number.isFinite(Number(match.lon))) throw new Error("not-found");
       setDraftLatitude(Number(match.lat));
@@ -3920,36 +3951,27 @@ export default function App() {
 
   const findStopAddress = async () => {
     const title = newStopTitle.trim();
-    if (!title) {
-      Alert.alert("請先輸入景點名稱");
+    const address = newStopAddress.trim();
+    if (!title && !address) {
+      Alert.alert("請先輸入景點名稱或地址");
       return;
     }
     setAddressLookupStatus("loading");
-    setAddressLookupMessage(`正在搜尋「${title}」……`);
+    setAddressLookupMessage(`正在搜尋「${title || address}」……`);
     try {
       const destination = activeTrip.destination;
-      const isKorea = /韓國|釜山|首爾|濟州|大邱|仁川|busan|seoul|jeju/i.test(destination);
-      const isJapan = /日本|沖繩|東京|大阪|京都|北海道|福岡|japan|okinawa|tokyo|osaka|kyoto/i.test(destination);
-      const countryCode = isKorea ? "kr" : isJapan ? "jp" : "";
-      const busanBounds = /釜山|busan/i.test(destination) ? "&viewbox=128.75,35.40,129.35,34.85&bounded=1" : "";
       const compactTitle = title.replace(/\s+/g, "");
       const searchTitle = /釜山?樂天百貨|樂天百貨/.test(compactTitle) ? "Lotte Department Store Busan"
         : /釜山車站|釜山站/.test(compactTitle) ? "Busan Station"
         : /金海機場/.test(compactTitle) ? "Gimhae International Airport"
         : /新世界百貨/.test(compactTitle) ? "Shinsegae Department Store Centum City"
         : title;
-      const query = `${searchTitle} ${destination}`.trim();
-      const countryFilter = countryCode ? `&countrycodes=${countryCode}` : "";
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 12000);
-      let response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&addressdetails=1&extratags=1&namedetails=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryFilter}${busanBounds}`, { signal: controller.signal });
-      if (!response.ok) throw new Error("搜尋服務暫時無法使用");
-      let rows = await response.json();
-      if (!rows?.length && busanBounds) {
-        response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&addressdetails=1&extratags=1&namedetails=1&accept-language=zh-TW&q=${encodeURIComponent(query)}${countryFilter}`, { signal: controller.signal });
-        rows = response.ok ? await response.json() : [];
-      }
-      clearTimeout(timeout);
+      const rows = await geocodePlaces([
+        address,
+        [address, destination].filter(Boolean).join(" "),
+        [searchTitle, address].filter(Boolean).join(" "),
+        [searchTitle, destination].filter(Boolean).join(" ")
+      ], destination);
       const match = rows?.[0];
       if (!match?.display_name) {
         setAddressLookupStatus("error");
@@ -3957,6 +3979,7 @@ export default function App() {
         return;
       }
       setNewStopAddress(String(match.display_name));
+      if (!title) setNewStopTitle(localizedPlaceName(match));
       setNewStopLatitude(Number(match.lat));
       setNewStopLongitude(Number(match.lon));
       const hours = String(match.extratags?.opening_hours || "");
@@ -6229,9 +6252,9 @@ export default function App() {
                   </View>
                 </View>
                 <Text style={styles.fieldLabel}>地址</Text>
-                <TextInput value={newStopAddress} onChangeText={setNewStopAddress} placeholder="貼上地址或地標名稱" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                <TextInput value={newStopAddress} onChangeText={(text) => { setNewStopAddress(text); setNewStopLatitude(undefined); setNewStopLongitude(undefined); setAddressLookupStatus("idle"); setAddressLookupMessage(""); }} placeholder="貼上地址；只填地址也能反查地點" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                 <Pressable disabled={addressLookupStatus === "loading"} style={styles.addressLookupButton} onPress={findStopAddress}>
-                  <Text style={styles.addressLookupText}>{addressLookupStatus === "loading" ? "正在搜尋地址……" : "⌖ 幫我找地址"}</Text>
+                  <Text style={styles.addressLookupText}>{addressLookupStatus === "loading" ? "正在搜尋地點與地址……" : "⌖ 幫我找地點／地址並更新座標"}</Text>
                 </Pressable>
                 {!!addressLookupMessage && <Text style={addressLookupStatus === "error" ? styles.placeSearchError : styles.addressFoundText}>{addressLookupStatus === "found" ? "✓ " : ""}{addressLookupMessage}</Text>}
                 <Text style={styles.fieldLabel}>預計停留時間（分鐘）</Text>
