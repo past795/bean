@@ -320,10 +320,6 @@ const localizedPlaceName = (place: any) => {
 };
 const screenWidth = Dimensions.get("window").width;
 const KNOWN_COORDINATES: Record<string, [number, number]> = {
-  "d3-1": [35.1712, 129.1277], "d3-2": [35.0770, 129.0208],
-  "d3-3": [35.0775, 129.0234], "d3-4": [35.0627, 129.0165],
-  "d3-5": [35.1552, 129.0647], "d3-6": [35.1568, 129.0575],
-  "d3-7": [35.1547, 129.0636],
   "d4-1": [35.1690, 129.1292], "d4-2": [35.1690, 129.1292],
   "d4-3": [35.1690, 129.1292], "d4-4": [35.1516, 129.1165],
   "d4-5": [35.1439, 129.1106], "d4-6": [35.1532, 129.1187],
@@ -353,16 +349,11 @@ const VERIFIED_OPENING_HOURS: Record<string, { hours: string; source: string }> 
   "d2-6": { hours: "公共海灘・全天開放", source: "Visit Busan" },
   "d2-7": { hours: "10:00–21:00", source: "Busan X the SKY 官方網站" },
   "d2-8": { hours: "依預約航班報到時間", source: "Diamond Bay 遊艇公開預約資訊" },
-  "d2-9": { hours: "午餐至晚間營業（需確認廣安分店當日時間）", source: "味贊王鹽烤肉店家公開資訊" },
-  "d2-10": { hours: "公共海灘・全天開放", source: "Visit Busan" },
-  "d2-11": { hours: "櫃檯 24 小時・入住 15:00 起", source: "Avani Central Busan 官方資料" },
-  "d3-1": { hours: "10:00–19:00", source: "Museum 1／VISITKOREA（平日）" },
-  "d3-2": { hours: "午餐至晚間營業（需確認指定烤貝店）", source: "松島烤貝村店家公開資訊" },
-  "d3-3": { hours: "09:00–21:00", source: "Busan Air Cruise 官方網站（10月）" },
-  "d3-4": { hours: "戶外公園・全天開放", source: "Visit Busan" },
-  "d3-5": { hours: "咖啡廳日間至晚間營業（出發前確認店家公告）", source: "Cuoiano 店家公開資訊" },
-  "d3-6": { hours: "尚缺確切店名，無法對應正確分店", source: "原行程僅寫「西面豬肉湯飯」" },
-  "d3-7": { hours: "公共街區・全天可通行（店家各自營業）", source: "Visit Busan" },
+  "d2-9": { hours: "10:00–20:00（週一公休）", source: "D’art Coffee Larim 店家公開資訊" },
+  "d2-10": { hours: "週二 11:30–15:00、17:00–22:30", source: "Busan 市餐飲資訊" },
+  "d3-6": { hours: "12:00–20:00（週三公休）", source: "KIDA 官方網站" },
+  "d3-paper-garden": { hours: "11:00–22:00", source: "Visit Busan" },
+  "d3-bracket-table": { hours: "12:00–20:00", source: "店家公開資訊" },
   "d4-1": { hours: "08:00–23:00・最晚入場 22:00", source: "新世界百貨 SPA LAND 官方網站" },
   "d4-2": { hours: "約 10:30–20:00（依百貨當日公告）", source: "新世界百貨 Centum City 官方網站" },
   "d4-3": { hours: "約 10:30–20:00（依百貨當日公告）", source: "新世界百貨 Centum City 官方網站" },
@@ -835,6 +826,15 @@ const upgradeBusanItinerary = (trip: TripPlan): TripPlan => {
   if (!isBusanTrip) return trip;
   const backupPlans = trip.backupPlans?.length ? trip.backupPlans : busanBackupDefaults();
   if ((trip.busanItineraryVersion || 0) >= BUSAN_ITINERARY_VERSION) return { ...trip, backupPlans };
+  if ((trip.busanItineraryVersion || 0) >= 2026090201) {
+    const revisedDays = new Map(busanInitialTrip.filter((day) => day.id === "day2" || day.id === "day3").map((day) => [day.id, day]));
+    return {
+      ...trip,
+      days: trip.days.map((day) => revisedDays.get(day.id) || day),
+      backupPlans,
+      busanItineraryVersion: BUSAN_ITINERARY_VERSION
+    };
+  }
   return {
     ...trip,
     startDate: "2026-10-04",
@@ -2615,6 +2615,10 @@ export default function App() {
     "d3-1": "아바니 센트럴 부산 부산 남구 전포대로 133", "d3-2": "서면역 부산",
     "d3-3": "서면지하도상가 부산", "d3-4": "서면역 부산", "d3-5": "젝시믹스 부산 서면",
     "d3-6": "키다 전포 부산", "d3-7": "전포카페거리 부산", "d3-8": "아바니 센트럴 부산 부산 남구 전포대로 133",
+    "d3-xexymix": "젝시믹스 커넥트현대 부산점", "d3-lunch": "서면 맛집 부산",
+    "d3-dustwood": "더스트우드 부산 부산진구 동성로49번길 40", "d3-paper-garden": "페이퍼가든 부산 부산진구 전포대로210번길 8",
+    "d3-bracket-table": "브라켓테이블 부산 부산진구 서전로68번길 109", "d3-free-shopping": "전포카페거리 소품샵",
+    "d2-group-dinner": "부산",
     "d4-1": "송도해상케이블카 부산 서구 송도해변로 171", "d4-2": "송도해상케이블카 부산 서구 송도해변로 171",
     "d4-3": "암남공원 부산", "d4-4": "런닝맨 부산점 삼정타워", "d4-5": "런닝맨 부산점 부산 부산진구 중앙대로 672 삼정타워",
     "d4-6": "서면역 부산", "d4-7": "해운대블루라인파크 미포정거장", "d4-8": "해운대블루라인파크 미포정거장 부산 해운대구 달맞이길62번길 13",
