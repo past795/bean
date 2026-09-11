@@ -410,7 +410,7 @@ const tripExportSheets = (trip: TripPlan, tripExpenses: Expense[]) => {
   ];
   const flights = [["航線", "航班編號", "出發", "抵達", "航廈", "備註"], ...trip.flights.map((item) => [item.route, item.flightNumber, item.departure, item.arrival, item.terminal || "", item.note || ""])];
   const stays = [["住宿", "住宿期間", "地址", "入住", "退房", "設施", "櫃檯", "備註"], ...trip.accommodations.map((item) => [item.name, item.period, item.address || "", item.checkIn || "", item.checkOut || "", item.facilities || "", item.frontDesk || "", item.note || ""])];
-  const shopping = [["商品", "價格", "幣別", "分類", "已購買", "範圍", "擁有者"], ...trip.shopping.map((item) => [item.name, item.price || "", item.currency || "", item.category || "", item.purchased ? "是" : "否", item.scope === "shared" ? "共享" : "個人", item.owner || ""])];
+  const shopping = [["商品", "數量", "價格", "幣別", "商品類別", "購買區域", "已購買", "範圍", "擁有者"], ...trip.shopping.map((item) => [item.name, String(item.quantity || 1), item.price || "", item.currency || "", item.category || "", item.purchaseArea || "", item.purchased ? "是" : "否", item.scope === "shared" ? "共享" : "個人", item.owner || ""])];
   const accounting = [["品項", "金額", "幣別", "付款人", "分帳成員"], ...tripExpenses.map((item) => [item.title, String(item.amount), item.currency || "", item.payer, (item.splitBetween || []).join("、")])];
   return [{ name: "旅行資訊", rows: overview }, { name: "每日行程", rows: itinerary }, { name: "班機", rows: flights }, { name: "住宿", rows: stays }, { name: "必買清單", rows: shopping }, { name: "記帳", rows: accounting }];
 };
@@ -464,15 +464,16 @@ const parseStopMeta = (value: unknown): { routeMode?: RouteMode; openingHours?: 
   }
 };
 
-const parseListMeta = (value: unknown): { scope?: "shared" | "personal"; owner?: string } => {
+const parseListMeta = (value: unknown): { scope?: "shared" | "personal"; owner?: string; quantity?: number } => {
   try {
     const parsed = JSON.parse(String(value || "{}"));
     return {
       scope: parsed.scope === "personal" ? "personal" : "shared",
-      owner: typeof parsed.owner === "string" ? parsed.owner : ""
+      owner: typeof parsed.owner === "string" ? parsed.owner : "",
+      quantity: Math.max(1, Number(parsed.quantity) || 1)
     };
   } catch {
-    return { scope: "shared", owner: "" };
+    return { scope: "shared", owner: "", quantity: 1 };
   }
 };
 
@@ -549,7 +550,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   shopping: trip.shopping.map((item) => ({
     "商品ID": item.id, "商品名稱": item.name, "分類": item.category || "",
     "價格": item.price || "", "幣別": item.currency || "", "圖片網址": item.imageUrl || "",
-    "購買地點": "", "備註": JSON.stringify({ scope: item.scope || "shared", owner: item.owner || "" }), "已購買": !!item.purchased
+    "購買地點": item.purchaseArea || "", "備註": JSON.stringify({ scope: item.scope || "shared", owner: item.owner || "", quantity: item.quantity || 1 }), "已購買": !!item.purchased
   })).concat([{
     "商品ID": `trip-meta-${trip.id}`, "商品名稱": "旅行設定", "分類": "__TRIP_META__", "價格": "", "幣別": "",
     "圖片網址": "", "購買地點": "", "備註": JSON.stringify({
@@ -656,7 +657,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
       const meta = parseListMeta(row["備註"]);
       return {
         id: String(row["商品ID"]), name: String(row["商品名稱"] || ""), price: String(row["價格"] || ""),
-        currency: String(row["幣別"] || ""), category: String(row["分類"] || ""), imageUrl: String(row["圖片網址"] || ""),
+        currency: String(row["幣別"] || ""), category: String(row["分類"] || ""), purchaseArea: String(row["購買地點"] || ""), quantity: meta.quantity || 1, imageUrl: String(row["圖片網址"] || ""),
         purchased: row["已購買"] === true || String(row["已購買"]).toUpperCase() === "TRUE",
         scope: meta.scope, owner: meta.owner
       };
@@ -1055,11 +1056,14 @@ export default function App() {
   const [shoppingPrice, setShoppingPrice] = useState("");
   const [shoppingCurrency, setShoppingCurrency] = useState("KRW");
   const [shoppingCategory, setShoppingCategory] = useState("");
+  const [shoppingPurchaseArea, setShoppingPurchaseArea] = useState("");
+  const [shoppingQuantity, setShoppingQuantity] = useState("1");
   const [shoppingImageUrl, setShoppingImageUrl] = useState("");
   const [shoppingScope, setShoppingScope] = useState<"shared" | "personal">("shared");
   const [shoppingView, setShoppingView] = useState<"shared" | "mine">("shared");
   const [collapsedShoppingCategories, setCollapsedShoppingCategories] = useState<string[]>([]);
   const [failedShoppingImages, setFailedShoppingImages] = useState<string[]>([]);
+  const [enlargedShoppingImage, setEnlargedShoppingImage] = useState<{ uri: string; name: string } | null>(null);
   const [checklistText, setChecklistText] = useState("");
   const [checklistError, setChecklistError] = useState("");
   const [previousStops, setPreviousStops] = useState<Stop[] | null>(null);
@@ -2603,6 +2607,8 @@ export default function App() {
       price: item.price.replace(/^₩\s*/, ""),
       currency: "KRW",
       category: item.category,
+      purchaseArea: item.source === "Olive Young" ? "OLIVE YOUNG" : "藥局",
+      quantity: 1,
       imageUrl: item.imageUrl,
       purchased: false,
       scope: "shared" as const,
@@ -4372,7 +4378,7 @@ export default function App() {
   const resetShoppingItemDraft = () => {
     setAddingShoppingItem(false);
     setEditingShoppingItemId(null);
-    setShoppingName(""); setShoppingPrice(""); setShoppingCurrency("KRW"); setShoppingCategory(""); setShoppingImageUrl("");
+    setShoppingName(""); setShoppingPrice(""); setShoppingCurrency("KRW"); setShoppingCategory(""); setShoppingPurchaseArea(""); setShoppingQuantity("1"); setShoppingImageUrl("");
     setShoppingScope("shared");
   };
 
@@ -4389,6 +4395,9 @@ export default function App() {
     setShoppingPrice(item.price || "");
     setShoppingCurrency(item.currency || "KRW");
     setShoppingCategory(item.category || "");
+    const catalogItem = shoppingItems.find((entry) => entry.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+    setShoppingPurchaseArea(item.purchaseArea || (catalogItem?.source === "Olive Young" ? "OLIVE YOUNG" : catalogItem?.source === "韓國藥局" ? "藥局" : ""));
+    setShoppingQuantity(String(item.quantity || 1));
     setShoppingImageUrl(item.imageUrl || "");
     setShoppingScope(item.scope || "shared");
     setAddingShoppingItem(true);
@@ -4399,7 +4408,7 @@ export default function App() {
       Alert.alert("請填寫商品名稱");
       return;
     }
-    const values = { name: shoppingName.trim(), price: shoppingPrice.trim(), currency: shoppingCurrency, category: shoppingCategory.trim(), imageUrl: shoppingImageUrl.trim(), scope: shoppingScope, owner: shoppingScope === "personal" ? (myDisplayName || "") : "" };
+    const values = { name: shoppingName.trim(), price: shoppingPrice.trim(), currency: shoppingCurrency, category: shoppingCategory.trim(), purchaseArea: shoppingPurchaseArea.trim(), quantity: Math.max(1, Math.floor(Number(shoppingQuantity) || 1)), imageUrl: shoppingImageUrl.trim(), scope: shoppingScope, owner: shoppingScope === "personal" ? (myDisplayName || "") : "" };
     updateActiveTrip({ shopping: editingShoppingItemId
       ? activeTrip.shopping.map((item) => item.id === editingShoppingItemId ? { ...item, ...values } : item)
       : [...activeTrip.shopping, { id: `shopping-${Date.now()}`, ...values }]
@@ -4427,10 +4436,11 @@ export default function App() {
   );
   const shoppingAreaOrder = ["OLIVE YOUNG", "藥局", "服飾", "美妝", "食品", "伴手禮", "未分類"];
   const shoppingAreaForItem = (item: typeof visibleShoppingItems[number]) => {
+    if (item.purchaseArea?.trim()) return item.purchaseArea.trim();
     const catalogItem = shoppingItems.find((entry) => entry.name.trim().toLowerCase() === item.name.trim().toLowerCase());
     if (catalogItem?.source === "Olive Young") return "OLIVE YOUNG";
     if (catalogItem?.source === "韓國藥局") return "藥局";
-    return item.category?.trim() || "未分類";
+    return "未分類";
   };
   const shoppingCategoryGroups = [...new Set(visibleShoppingItems.map(shoppingAreaForItem))]
     .sort((left, right) => {
@@ -5794,6 +5804,7 @@ export default function App() {
                 <View style={styles.shoppingWrap}>
                   {addingShoppingItem ? <>
                     <Text style={styles.fieldLabel}>商品名稱 *</Text><TextInput value={shoppingName} onChangeText={setShoppingName} placeholder="例如：沖繩黑糖" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                    <Text style={styles.fieldLabel}>數量</Text><TextInput value={shoppingQuantity} onChangeText={(value) => setShoppingQuantity(value.replace(/[^0-9]/g, ""))} onBlur={() => setShoppingQuantity(String(Math.max(1, Math.floor(Number(shoppingQuantity) || 1))))} keyboardType="number-pad" placeholder="1" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                     <Text style={styles.fieldLabel}>預估價格</Text><TextInput value={shoppingPrice} onChangeText={setShoppingPrice} placeholder="例如：800" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                     <Text style={styles.fieldLabel}>幣別</Text>
                     <View style={styles.currencyChoices}>
@@ -5803,16 +5814,17 @@ export default function App() {
                         </Pressable>
                       ))}
                     </View>
-                    <Text style={styles.fieldLabel}>購買區域</Text><TextInput value={shoppingCategory} onChangeText={setShoppingCategory} placeholder="例如：OLIVE YOUNG、藥局、服飾" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                    <Text style={styles.fieldLabel}>商品類別</Text><TextInput value={shoppingCategory} onChangeText={setShoppingCategory} placeholder="例如：防曬、面膜、保健食品" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                    <Text style={styles.fieldLabel}>購買區域</Text><TextInput value={shoppingPurchaseArea} onChangeText={setShoppingPurchaseArea} placeholder="例如：OLIVE YOUNG、藥局、服飾" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                     <View style={styles.shoppingCategoryPresets}>
-                      {["OLIVE YOUNG", "藥局", "服飾", "美妝", "食品", "伴手禮"].map((category) => (
-                        <Pressable key={category} onPress={() => setShoppingCategory(category)} style={[styles.shoppingCategoryPreset, shoppingCategory === category && styles.shoppingCategoryPresetActive]}>
-                          <Text style={[styles.shoppingCategoryPresetText, shoppingCategory === category && styles.shoppingCategoryPresetTextActive]}>{category}</Text>
+                      {["OLIVE YOUNG", "藥局", "服飾", "美妝", "食品", "伴手禮"].map((area) => (
+                        <Pressable key={area} onPress={() => setShoppingPurchaseArea(area)} style={[styles.shoppingCategoryPreset, shoppingPurchaseArea === area && styles.shoppingCategoryPresetActive]}>
+                          <Text style={[styles.shoppingCategoryPresetText, shoppingPurchaseArea === area && styles.shoppingCategoryPresetTextActive]}>{area}</Text>
                         </Pressable>
                       ))}
                     </View>
                     <Text style={styles.fieldLabel}>商品圖片</Text>
-                    {!!shoppingImageUrl && <Image source={{ uri: shoppingImageUrl }} style={styles.uploadPreview} resizeMode="contain" />}
+                    {!!shoppingImageUrl && <Pressable accessibilityLabel="放大商品圖片" onPress={() => setEnlargedShoppingImage({ uri: shoppingImageUrl, name: shoppingName || "商品圖片" })}><Image source={{ uri: shoppingImageUrl }} style={styles.uploadPreview} resizeMode="contain" /></Pressable>}
                     <Pressable style={styles.addressLookupButton} onPress={async () => {
                       try { setShoppingImageUrl(await pickCompressedImage()); } catch (error: any) { if (error?.message !== "未選擇照片") Alert.alert("無法上傳", error?.message); }
                     }}><Text style={styles.addressLookupText}>＋ 從手機／電腦上傳照片</Text></Pressable>
@@ -5856,8 +5868,8 @@ export default function App() {
                             <Pressable accessibilityLabel={item.purchased ? "取消已購買" : "標記已購買"} onPress={() => toggleShoppingItem(item.id)} style={[styles.shoppingCheck, item.purchased && styles.shoppingCheckActive]}>
                               <Text style={styles.shoppingCheckText}>{item.purchased ? "✓" : ""}</Text>
                             </Pressable>
-                            {item.imageUrl && !failedShoppingImages.includes(`${item.id}:${item.imageUrl}`) ? <Image source={{ uri: item.imageUrl.startsWith("data:image/") ? item.imageUrl : `https://images.weserv.nl/?url=${encodeURIComponent(item.imageUrl)}&w=160&h=160&fit=contain&output=webp` }} onError={() => setFailedShoppingImages((current) => [...new Set([...current, `${item.id}:${item.imageUrl}`])])} style={styles.productImage} resizeMode="contain" /> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
-                            <Pressable style={styles.shoppingInfo} onPress={() => openShoppingItemEditor(item.id)}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.owner ? `${item.owner}・` : ""}{item.purchased ? "已購買" : "待購買"}</Text><Text style={styles.shoppingEdit}>✎ 編輯商品</Text></Pressable>
+                            {item.imageUrl && !failedShoppingImages.includes(`${item.id}:${item.imageUrl}`) ? <Pressable accessibilityLabel={`放大 ${item.name} 圖片`} onPress={() => setEnlargedShoppingImage({ uri: item.imageUrl?.startsWith("data:image/") ? item.imageUrl : `https://images.weserv.nl/?url=${encodeURIComponent(item.imageUrl || "")}&w=1200&h=1200&fit=contain&output=webp`, name: item.name })}><Image source={{ uri: item.imageUrl.startsWith("data:image/") ? item.imageUrl : `https://images.weserv.nl/?url=${encodeURIComponent(item.imageUrl)}&w=160&h=160&fit=contain&output=webp` }} onError={() => setFailedShoppingImages((current) => [...new Set([...current, `${item.id}:${item.imageUrl}`])])} style={styles.productImage} resizeMode="contain" /></Pressable> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
+                            <Pressable style={styles.shoppingInfo} onPress={() => openShoppingItemEditor(item.id)}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.owner ? `${item.owner}・` : ""}{item.category || "未設定類別"}・數量 {item.quantity || 1}・{item.purchased ? "已購買" : "待購買"}</Text><Text style={styles.shoppingEdit}>✎ 編輯商品</Text></Pressable>
                             <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
                             <Pressable style={styles.shoppingDeleteButton} onPress={() => deleteShoppingItem(item.id)}><Text style={styles.shoppingDeleteText}>×</Text></Pressable>
                           </View>
@@ -5895,6 +5907,15 @@ export default function App() {
               </ScrollView>
             </Pressable>
           </View>
+        </Modal>
+
+        <Modal visible={!!enlargedShoppingImage} animationType="fade" transparent onRequestClose={() => setEnlargedShoppingImage(null)}>
+          <Pressable accessibilityLabel="關閉放大圖片" style={styles.imageLightboxBackdrop} onPress={() => setEnlargedShoppingImage(null)}>
+            <Pressable style={styles.imageLightboxCard} onPress={(event) => event.stopPropagation()}>
+              <Image source={{ uri: enlargedShoppingImage?.uri || "" }} style={styles.imageLightboxImage} resizeMode="contain" />
+              <Text style={styles.imageLightboxTitle}>{enlargedShoppingImage?.name}</Text>
+            </Pressable>
+          </Pressable>
         </Modal>
 
         <Modal visible={addingExpense} animationType="slide" transparent onRequestClose={() => setAddingExpense(false)}>
@@ -6722,6 +6743,10 @@ const styles = createDouyouStyles({
   productImage: { width: 58, height: 58, borderRadius: 12, backgroundColor: "#FFF" },
   productImageFallback: { width: 58, height: 58, borderRadius: 12, backgroundColor: "#F2EEE8", alignItems: "center", justifyContent: "center" },
   productImageEmoji: { fontSize: 24 },
+  imageLightboxBackdrop: { flex: 1, backgroundColor: "rgba(18,17,16,.82)", alignItems: "center", justifyContent: "center", padding: 22 },
+  imageLightboxCard: { width: "100%", maxWidth: 460, maxHeight: "82%", borderRadius: 24, backgroundColor: "#FBFAF7", padding: 14, alignItems: "center" },
+  imageLightboxImage: { width: "100%", height: 430, maxHeight: "72%", borderRadius: 16, backgroundColor: "#FFFFFF" },
+  imageLightboxTitle: { color: "#39342F", fontSize: 13, fontWeight: "900", textAlign: "center", marginTop: 12, marginBottom: 2 },
   findImageText: { color: "#8D6B59", fontSize: 10, fontWeight: "900" },
   imageSearchButton: { height: 42, borderRadius: 12, borderWidth: 1, borderColor: "#D8CFC4", alignItems: "center", justifyContent: "center", marginTop: 10 },
   imageSearchText: { color: "#775A49", fontSize: 11, fontWeight: "800" },

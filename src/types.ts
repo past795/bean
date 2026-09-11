@@ -70,6 +70,8 @@ export type TripShoppingItem = {
   price?: string;
   currency?: string;
   category?: string;
+  purchaseArea?: string;
+  quantity?: number;
   imageUrl?: string;
   purchased?: boolean;
   scope?: "shared" | "personal";
