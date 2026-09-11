@@ -826,6 +826,15 @@ const upgradeBusanItinerary = (trip: TripPlan): TripPlan => {
   if (!isBusanTrip) return trip;
   const backupPlans = trip.backupPlans?.length ? trip.backupPlans : busanBackupDefaults();
   if ((trip.busanItineraryVersion || 0) >= BUSAN_ITINERARY_VERSION) return { ...trip, backupPlans };
+  if ((trip.busanItineraryVersion || 0) >= 2026091101) {
+    const revisedLunch = busanInitialTrip.find((day) => day.id === "day3")?.stops.find((stop) => stop.id === "d3-lunch");
+    return {
+      ...trip,
+      days: trip.days.map((day) => day.id === "day3" && revisedLunch ? { ...day, stops: day.stops.map((stop) => stop.id === "d3-lunch" ? revisedLunch : stop) } : day),
+      backupPlans,
+      busanItineraryVersion: BUSAN_ITINERARY_VERSION
+    };
+  }
   if ((trip.busanItineraryVersion || 0) >= 2026090201) {
     const revisedDays = new Map(busanInitialTrip.filter((day) => day.id === "day2" || day.id === "day3").map((day) => [day.id, day]));
     return {
@@ -2615,7 +2624,7 @@ export default function App() {
     "d3-1": "아바니 센트럴 부산 부산 남구 전포대로 133", "d3-2": "서면역 부산",
     "d3-3": "서면지하도상가 부산", "d3-4": "서면역 부산", "d3-5": "젝시믹스 부산 서면",
     "d3-6": "키다 전포 부산", "d3-7": "전포카페거리 부산", "d3-8": "아바니 센트럴 부산 부산 남구 전포대로 133",
-    "d3-xexymix": "젝시믹스 커넥트현대 부산점", "d3-lunch": "서면 맛집 부산",
+    "d3-xexymix": "젝시믹스 커넥트현대 부산점", "d3-lunch": "기장손칼국수 부산 부산진구 서면로 56",
     "d3-dustwood": "더스트우드 부산 부산진구 동성로49번길 40", "d3-paper-garden": "페이퍼가든 부산 부산진구 전포대로210번길 8",
     "d3-bracket-table": "브라켓테이블 부산 부산진구 서전로68번길 109", "d3-free-shopping": "전포카페거리 소품샵",
     "d2-group-dinner": "부산",

@@ -15,7 +15,7 @@ const s = (
   return { id, time, title, address, transport, transportMode, note, pass, latitude, longitude, ...extras };
 };
 
-export const BUSAN_ITINERARY_VERSION = 2026091101;
+export const BUSAN_ITINERARY_VERSION = 2026091102;
 
 export const initialTrip: TripDay[] = [
   {
@@ -58,7 +58,7 @@ export const initialTrip: TripDay[] = [
       s("d3-1", "09:30", "Avani 出發", "부산광역시 남구 전포대로 133", "步行", "睡飽後開始西面、田浦購物日。", undefined, 35.14875, 129.065277),
       s("d3-xexymix", "10:00", "XEXYMIX｜Connect Hyundai 釜山店", "부산광역시 동구 범일로 125 커넥트현대 6층", "地鐵／步行", "從 Avani 先往凡一方向，逛完再接西面，避免下午折返。"),
       s("d3-3", "11:15", "西面地下街", "부산광역시 부산진구 중앙대로 지하", "地鐵／步行", "服飾、鞋包與小物，預留約 75 分鐘。"),
-      s("d3-lunch", "12:30", "西面午餐（現場決定）", "부산광역시 부산진구 서면", "步行", "團體聚餐已移至前一晚，今天午餐保留彈性。"),
+      s("d3-lunch", "12:30", "機張手工刀切麵｜기장손칼국수", "부산광역시 부산진구 서면로 56 (부전동 256-6)", "步行", "位於西面市場內；電話 051-806-6832，Google 店家資訊顯示營業至 20:00。", undefined, 35.15566, 129.05815),
       s("d3-6", "13:45", "KIDA", "부산광역시 부산진구 전포대로186번길 46 1층", "步行", "服飾店；官方資訊為 12:00–20:00，週三公休。"),
       s("d3-dustwood", "14:30", "DUSTWOOD", "부산광역시 부산진구 동성로49번길 40 1층", "步行", "服飾與雜貨選物。"),
       s("d2-9", "15:00", "D'art Coffee Larim", "부산광역시 부산진구 동성로49번길 17 4층", "步行", "由 10/5 移至 10/6；同一街區休息約 50 分鐘。"),
