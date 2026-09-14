@@ -1,6 +1,6 @@
 import { AccommodationInfo, FlightInfo, Stop, TransportMode, TripDay, TripPlan } from "../types";
 
-export const OITA_ITINERARY_VERSION = 2026091401;
+export const OITA_ITINERARY_VERSION = 2026091402;
 type Row = [string, string, string, string, string, number?, number?];
 const makeStop = (day: number, row: Row, index: number): Stop => {
   const [time, title, address, transport, note, transitMinutes = 0, durationMinutes = 0] = row;
@@ -91,15 +91,27 @@ OITA_DAYS[2]!.stops = [
 ];
 
 export const upgradeOitaItinerary = (trip: TripPlan): TripPlan => {
-  if (trip.id !== "trip-1786446683379" || (trip.oitaItineraryVersion || 0) >= OITA_ITINERARY_VERSION) return trip;
+  const isKnownTrip = trip.id === "trip-1786446683379";
+  const isMatchingOitaPlan = /大分|Oita/i.test(`${trip.title} ${trip.destination}`)
+    && trip.days.length === 5
+    && /11[/-]28/.test(`${trip.startDate || ""} ${trip.days[0]?.date || ""}`);
+  if (!isKnownTrip && !isMatchingOitaPlan) return trip;
+  const hasEmptyDay = trip.days.some((day) => day.stops.length === 0);
+  if (!hasEmptyDay && (trip.oitaItineraryVersion || 0) >= OITA_ITINERARY_VERSION) return trip;
+  const days = trip.days.length === 5
+    ? trip.days.map((existingDay, index) => {
+        const template = OITA_DAYS[index]!;
+        return existingDay.stops.length ? existingDay : { ...existingDay, title: template.title, stops: template.stops };
+      })
+    : OITA_DAYS;
   return {
     ...trip,
     title: trip.title || "大分旅行",
-    destination: "大分・由布院・別府・九重",
-    period: "2026/11/28－12/02",
-    startDate: "2026-11-28",
-    endDate: "2026-12-02",
-    days: OITA_DAYS,
+    destination: trip.destination || "大分・由布院・別府・九重",
+    period: trip.period || "2026/11/28－12/02",
+    startDate: trip.startDate || "2026-11-28",
+    endDate: trip.endDate || "2026-12-02",
+    days,
     flights: trip.flights?.length ? trip.flights : OITA_FLIGHTS,
     accommodations: trip.accommodations?.length ? trip.accommodations : OITA_ACCOMMODATIONS,
     oitaItineraryVersion: OITA_ITINERARY_VERSION
