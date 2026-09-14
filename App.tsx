@@ -2147,8 +2147,8 @@ export default function App() {
       return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
     };
     const travelMinutes = (from: Stop, to: Stop) => {
-      if ((from.transitMinutes || 0) > 0) return from.transitMinutes!;
-      const mode = from.routeMode || "driving";
+      if ((to.transitMinutes || 0) > 0) return to.transitMinutes!;
+      const mode = to.routeMode || "driving";
       const distance = distanceKm(from, to);
       if (distance == null) return mode === "walking" ? 15 : mode === "transit" ? 35 : 20;
       const minutes = mode === "walking" ? distance / 4.5 * 60
@@ -2585,14 +2585,15 @@ export default function App() {
       } : stop
     );
     const index = next.findIndex((stop) => stop.id === editing.id);
-    const current = next[index];
-    const following = next[index + 1];
-    if (current && following) {
-      const travelMinutes = estimatedLegMinutes(current, following, current.routeMode || "driving");
-      const match = current.time.match(/^(\d{1,2}):([0-5]\d)$/);
+    const arrivalIndex = index > 0 && (transitMinutes !== (editing.transitMinutes || 0) || draftRouteMode !== editing.routeMode) ? index : index + 1;
+    const previous = next[arrivalIndex - 1];
+    const arrival = next[arrivalIndex];
+    if (previous && arrival) {
+      const travelMinutes = estimatedLegMinutes(previous, arrival, arrival.routeMode || "driving");
+      const match = previous.time.match(/^(\d{1,2}):([0-5]\d)$/);
       if (travelMinutes != null && match) {
-        const total = (Number(match[1]) * 60 + Number(match[2]) + durationMinutes + travelMinutes) % 1440;
-        next[index + 1] = { ...following, time: `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}` };
+        const total = (Number(match[1]) * 60 + Number(match[2]) + (previous.durationMinutes || 0) + travelMinutes) % 1440;
+        next[arrivalIndex] = { ...arrival, time: `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}` };
       }
     }
     updateStops(next);
@@ -2769,9 +2770,10 @@ export default function App() {
     if (index < 0) return;
     const current = selectedDay.stops[index]!;
     const nextStop = selectedDay.stops[index + 1];
-    const next = selectedDay.stops.map((stop) => stop.id === stopId ? { ...stop, routeMode } : stop);
+    if (!nextStop) return;
+    const next = selectedDay.stops.map((stop) => stop.id === nextStop.id ? { ...stop, routeMode, transitMinutes: 0 } : stop);
     if (nextStop) {
-      const minutes = estimatedLegMinutes(current, nextStop, routeMode);
+      const minutes = estimatedLegMinutes(current, { ...nextStop, transitMinutes: 0 }, routeMode);
       const match = current.time.match(/^(\d{1,2}):([0-5]\d)$/);
       if (minutes != null && match) {
         const total = (Number(match[1]) * 60 + Number(match[2]) + (current.durationMinutes || 0) + minutes) % (24 * 60);
@@ -2811,7 +2813,7 @@ export default function App() {
   };
 
   const estimatedLegMinutes = (from: Stop, to: Stop, mode: RouteMode) => {
-    if ((from.transitMinutes || 0) > 0) return from.transitMinutes!;
+    if ((to.transitMinutes || 0) > 0) return to.transitMinutes!;
     const distance = distanceBetween(from, to);
     if (!Number.isFinite(distance)) return null;
     const minutes =
@@ -4640,7 +4642,7 @@ export default function App() {
   const renderStop = ({ item, drag, isActive, getIndex }: RenderItemParams<Stop>) => {
     const index = getIndex() ?? 0;
     const nextStop = selectedDay.stops[index + 1];
-    const legMode: RouteMode = item.routeMode || (item.transport.includes("步行") ? "walking" : item.transport.includes("地鐵") || item.transport.includes("公車") ? "transit" : item.transport.includes("計程車") ? "taxi" : "driving");
+    const legMode: RouteMode = nextStop?.routeMode || (nextStop?.transport.includes("步行") ? "walking" : nextStop?.transport.includes("地鐵") || nextStop?.transport.includes("公車") ? "transit" : nextStop?.transport.includes("計程車") ? "taxi" : "driving");
     const legMinutes = nextStop ? estimatedLegMinutes(item, nextStop, legMode) : null;
     const linkedShoppingGuidePlace = (activeTrip.shoppingGuide || []).find((place) => place.id === item.shoppingGuidePlaceId);
     return (
@@ -4703,7 +4705,7 @@ export default function App() {
           </View>
           {nextStop && (
             <View style={styles.legRouteBox}>
-              <Text style={styles.legRouteLabel}>這一段要怎麼走？</Text>
+              <Text style={styles.legRouteLabel}>前往下一站「{stopDisplayTitle(nextStop)}」怎麼走？交通資料記在下一站</Text>
               <Text style={styles.legEstimate}>{legMinutes ? `預估約 ${legMinutes} 分鐘・選擇後更新下一站時間` : "確認座標後顯示預計時間"}</Text>
               <View style={styles.legRouteActions}>
                 <Pressable onPress={() => setLegRouteMode(item.id, "driving")} style={[styles.legModeButton, legMode === "driving" && styles.legModeButtonActive]}>
