@@ -2825,7 +2825,7 @@ export default function App() {
   const estimatedLegMinutes = (from: Stop, to: Stop, mode: RouteMode) => {
     if ((to.transitMinutes || 0) > 0) return to.transitMinutes!;
     const distance = distanceBetween(from, to);
-    if (!Number.isFinite(distance)) return null;
+    if (!Number.isFinite(distance)) return mode === "walking" ? 15 : mode === "transit" ? 35 : 20;
     const minutes =
       mode === "walking" ? distance / 4.5 * 60 :
       mode === "transit" ? distance / 22 * 60 + 10 :
@@ -4654,6 +4654,9 @@ export default function App() {
     const nextStop = selectedDay.stops[index + 1];
     const legMode: RouteMode = nextStop?.routeMode || (nextStop?.transport.includes("步行") ? "walking" : nextStop?.transport.includes("地鐵") || nextStop?.transport.includes("公車") ? "transit" : nextStop?.transport.includes("計程車") ? "taxi" : "driving");
     const legMinutes = nextStop ? estimatedLegMinutes(item, nextStop, legMode) : null;
+    const draftLegMinutes = nextStop && editingLegToId === nextStop.id
+      ? estimatedLegMinutes(item, { ...nextStop, transitMinutes: Math.max(0, Number(legMinutesDraft) || 0) }, legModeDraft)
+      : null;
     const linkedShoppingGuidePlace = (activeTrip.shoppingGuide || []).find((place) => place.id === item.shoppingGuidePlaceId);
     return (
       <>
@@ -4736,10 +4739,11 @@ export default function App() {
           {editingLegToId === nextStop.id && <View style={styles.betweenStopsEditor}>
             <Text style={styles.fieldLabel}>交通工具</Text>
             <View style={styles.legRouteActions}>
-              {([ ["driving", "🚗 開車"], ["walking", "🚶 步行"], ["transit", "🚇 大眾運輸"], ["taxi", "🚕 計程車"] ] as [RouteMode, string][]).map(([mode, label]) => <Pressable key={mode} onPress={() => setLegModeDraft(mode)} style={[styles.legModeButton, legModeDraft === mode && styles.legModeButtonActive]}><Text style={[styles.legModeText, legModeDraft === mode && styles.legModeTextActive]}>{label}</Text></Pressable>)}
+              {([ ["driving", "🚗 開車"], ["walking", "🚶 步行"], ["transit", "🚇 大眾運輸"], ["taxi", "🚕 計程車"] ] as [RouteMode, string][]).map(([mode, label]) => <Pressable key={mode} onPress={() => { if (mode !== legModeDraft) setLegMinutesDraft(""); setLegModeDraft(mode); }} style={[styles.legModeButton, legModeDraft === mode && styles.legModeButtonActive]}><Text style={[styles.legModeText, legModeDraft === mode && styles.legModeTextActive]}>{label}</Text></Pressable>)}
             </View>
             <Text style={styles.fieldLabel}>交通時間（分鐘）</Text>
-            <TextInput value={legMinutesDraft} onChangeText={(value) => setLegMinutesDraft(value.replace(/[^0-9]/g, ""))} keyboardType="number-pad" placeholder={legMinutes ? `預估 ${legMinutes} 分鐘` : "例如：20"} placeholderTextColor="#AAA198" style={styles.fieldInput} />
+            <Text style={styles.legEstimate}>{legMinutesDraft ? `手填 ${draftLegMinutes} 分鐘` : `依目前交通工具預估約 ${draftLegMinutes} 分鐘（可手填覆蓋）`}</Text>
+            <TextInput value={legMinutesDraft} onChangeText={(value) => setLegMinutesDraft(value.replace(/[^0-9]/g, ""))} keyboardType="number-pad" placeholder={`預估 ${draftLegMinutes} 分鐘；留空自動計算`} placeholderTextColor="#AAA198" style={styles.fieldInput} />
             <Text style={styles.fieldLabel}>車次／路線／備註</Text>
             <TextInput value={legRouteDraft} onChangeText={setLegRouteDraft} placeholder="例如：地鐵 2 號線、計程車上車點" placeholderTextColor="#AAA198" style={styles.fieldInput} />
             <View style={styles.betweenStopsActions}>
