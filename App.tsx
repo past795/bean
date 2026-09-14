@@ -24,7 +24,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { toolboxItems } from "./src/data/toolbox";
 import { shoppingItems } from "./src/data/shopping";
 import { BUSAN_ITINERARY_VERSION, initialTrip as busanInitialTrip } from "./src/data/trip";
-import { FlightInfo, Stop, TripBackupPlan, TripDay, TripPlan, TripShoppingGuidePlace } from "./src/types";
+import { FlightInfo, Stop, TripBackupPlan, TripDay, TripNote, TripPlan, TripShoppingGuidePlace } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
@@ -1029,6 +1029,11 @@ export default function App() {
   const [shoppingGuideNoteDraft, setShoppingGuideNoteDraft] = useState("");
   const [collapsedShoppingGuideRegions, setCollapsedShoppingGuideRegions] = useState<string[]>([]);
   const [collapsedShoppingGuidePlaces, setCollapsedShoppingGuidePlaces] = useState<string[]>([]);
+  const [noteEditing, setNoteEditing] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [noteTitleDraft, setNoteTitleDraft] = useState("");
+  const [noteContentDraft, setNoteContentDraft] = useState("");
+  const [collapsedNotes, setCollapsedNotes] = useState<string[]>([]);
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
   const [addingExpense, setAddingExpense] = useState(false);
   const [expenseTitle, setExpenseTitle] = useState("");
@@ -1361,6 +1366,34 @@ export default function App() {
     updateActiveTrip({ shoppingGuide: (activeTrip.shoppingGuide || []).filter((item) => item.id !== id) });
     if (editingShoppingGuideId === id) resetShoppingGuideDraft();
     showToast("逛街地點已刪除");
+  };
+  const resetNoteDraft = () => {
+    setNoteEditing(false);
+    setEditingNoteId(null);
+    setNoteTitleDraft("");
+    setNoteContentDraft("");
+  };
+  const openNoteEditor = (item?: TripNote) => {
+    setNoteEditing(true);
+    setEditingNoteId(item?.id || null);
+    setNoteTitleDraft(item?.title || "");
+    setNoteContentDraft(item?.content || "");
+  };
+  const saveTripNote = () => {
+    const title = noteTitleDraft.trim();
+    if (!title) return showToast("請填寫筆記標題");
+    const current = activeTrip.notes || [];
+    const values = { title, content: noteContentDraft.trim() };
+    updateActiveTrip({ notes: editingNoteId
+      ? current.map((item) => item.id === editingNoteId ? { ...item, ...values } : item)
+      : [...current, { id: `note-${Date.now()}`, ...values }]
+    });
+    showToast(editingNoteId ? "筆記已更新" : "筆記已新增");
+    resetNoteDraft();
+  };
+  const removeNote = (id: string) => {
+    updateActiveTrip({ notes: (activeTrip.notes || []).filter((item) => item.id !== id) });
+    if (editingNoteId === id) resetNoteDraft();
   };
   const importBusanBackupsToFavorites = () => {
     const names = new Set(favorites.map((item) => item.name.trim().toLowerCase()));
@@ -4603,6 +4636,10 @@ export default function App() {
     if (title === "天氣") return `查看 ${activeTrip.destination} 即時天氣`;
     if (title === "匯率") return `${currencyForTrip.code} → TWD 快速換算`;
     if (title === "必買商品") return isKoreaTrip ? "韓國採買清單" : `${activeTrip.destination} 尚未建立清單`;
+    if (title === "筆記") {
+      const count = activeTrip.notes?.length || 0;
+      return count ? `${count} 則旅行筆記` : "尚未建立筆記";
+    }
     return fallback;
   };
 
@@ -5133,7 +5170,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.9</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.10</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5594,7 +5631,7 @@ export default function App() {
 
         <Modal visible={!!selectedTool && !addingBackupPlan} animationType="slide" transparent onRequestClose={() => setSelectedTool(null)}>
           <View style={styles.modalShade}>
-            <Pressable accessibilityLabel="點擊空白處關閉" style={styles.toolBackdropCloseArea} onPress={() => { setAddingFlight(false); setAddingAccommodation(false); resetShoppingItemDraft(); setSelectedTool(null); }} />
+            <Pressable accessibilityLabel="點擊空白處關閉" style={styles.toolBackdropCloseArea} onPress={() => { setAddingFlight(false); setAddingAccommodation(false); resetShoppingItemDraft(); resetNoteDraft(); setSelectedTool(null); }} />
             <Pressable style={[styles.sheet, styles.toolSheet]} onPress={(event) => event.stopPropagation()}>
               <View style={styles.sheetHandle} />
               <View style={styles.toolSheetHeader}>
@@ -5605,7 +5642,7 @@ export default function App() {
                 <Pressable
                   accessibilityLabel="關閉工具箱"
                   style={styles.sheetCloseButton}
-                  onPress={() => { setAddingFlight(false); setAddingAccommodation(false); setAddingShoppingItem(false); setSelectedTool(null); }}
+                  onPress={() => { setAddingFlight(false); setAddingAccommodation(false); setAddingShoppingItem(false); resetNoteDraft(); setSelectedTool(null); }}
                 >
                   <View style={styles.closeGlyph} pointerEvents="none">
                     <View style={[styles.closeGlyphLine, styles.closeGlyphLineForward]} />
@@ -5800,6 +5837,43 @@ export default function App() {
                     </View>
                   ))}
                   {!(activeTrip.shoppingGuide || []).length && !shoppingGuideEditing && <Text style={styles.emptyListText}>尚未建立逛街攻略，請按「＋ 新增地點」。</Text>}
+                </View>
+              )}
+              {selectedTool === "筆記" && (
+                <View style={styles.detailBlock}>
+                  <View style={styles.shoppingGuideHeading}>
+                    <View style={styles.toolText}><Text style={styles.detailTitle}>這趟旅行的筆記</Text><Text style={styles.detailHint}>標題會保留在清單上，點一下即可展開或收起內容。</Text></View>
+                    <Pressable style={styles.reservationAddButton} onPress={() => openNoteEditor()}><Text style={styles.reservationAddText}>＋ 新增筆記</Text></Pressable>
+                  </View>
+                  {noteEditing && (
+                    <View style={styles.shoppingGuideEditor}>
+                      <Text style={styles.fieldLabel}>標題 *</Text>
+                      <TextInput value={noteTitleDraft} onChangeText={setNoteTitleDraft} placeholder="例如：飯店入住提醒" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                      <Text style={styles.fieldLabel}>內容</Text>
+                      <TextInput value={noteContentDraft} onChangeText={setNoteContentDraft} multiline textAlignVertical="top" placeholder="輸入想記下的資訊……" placeholderTextColor="#AAA198" style={[styles.noteInput, styles.tripNoteContentInput]} />
+                      <View style={styles.shoppingGuideEditorActions}>
+                        <Pressable style={styles.cancelButton} onPress={resetNoteDraft}><Text style={styles.cancelText}>取消</Text></Pressable>
+                        <Pressable style={[styles.primaryButton, styles.shoppingGuideSaveButton]} onPress={saveTripNote}><Text style={styles.primaryButtonText}>{editingNoteId ? "儲存修改" : "儲存筆記"}</Text></Pressable>
+                      </View>
+                    </View>
+                  )}
+                  {(activeTrip.notes || []).map((item) => {
+                    const collapsed = collapsedNotes.includes(item.id);
+                    return <View key={item.id} style={styles.tripNoteCard}>
+                      <Pressable style={styles.shoppingGuidePlaceToggle} onPress={() => setCollapsedNotes((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}>
+                        <Text style={styles.shoppingGuidePlaceArrow}>{collapsed ? "▸" : "▾"}</Text>
+                        <Text style={styles.tripNoteTitle}>{item.title}</Text>
+                      </Pressable>
+                      {!collapsed && <>
+                        <Text style={styles.tripNoteContent}>{item.content || "尚未填寫內容"}</Text>
+                        <View style={styles.shoppingGuidePlaceActions}>
+                          <Pressable style={styles.shoppingGuideEditButton} onPress={() => openNoteEditor(item)}><Text style={styles.shoppingGuideEditText}>✎ 編輯</Text></Pressable>
+                          <Pressable style={styles.shoppingGuideDelete} onPress={() => removeNote(item.id)}><Text style={styles.shoppingGuideDeleteText}>× 刪除</Text></Pressable>
+                        </View>
+                      </>}
+                    </View>;
+                  })}
+                  {!(activeTrip.notes || []).length && !noteEditing && <Text style={styles.emptyListText}>目前沒有筆記，請按「＋ 新增筆記」。</Text>}
                 </View>
               )}
               {selectedTool === "天氣" && (
@@ -6917,6 +6991,10 @@ const styles = createDouyouStyles({
   shoppingGuideEditText: { color: "#536783", fontSize: 10, fontWeight: "900" },
   shoppingGuideDelete: { borderRadius: 10, backgroundColor: "#F6ECE9", paddingHorizontal: 12, paddingVertical: 8 },
   shoppingGuideDeleteText: { color: "#A26C5D", fontSize: 10, fontWeight: "900" },
+  tripNoteContentInput: { minHeight: 150 },
+  tripNoteCard: { backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E6EF", padding: 14, marginBottom: 10 },
+  tripNoteTitle: { flex: 1, color: "#2D3440", fontSize: 14, fontWeight: "900" },
+  tripNoteContent: { color: "#666F7C", fontSize: 12, lineHeight: 20, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#EEF0F4" },
   shoppingGuideLinkChoices: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 8, marginBottom: 4 },
   shoppingGuideLinkChoice: { borderWidth: 1, borderColor: "#D8DFEA", backgroundColor: "#F7F8FB", borderRadius: 11, paddingHorizontal: 11, paddingVertical: 9 },
   shoppingGuideLinkChoiceActive: { backgroundColor: "#536783", borderColor: "#536783" },
