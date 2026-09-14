@@ -5176,7 +5176,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.11</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.12</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5827,16 +5827,18 @@ export default function App() {
                       </View>
                       {!collapsedShoppingGuideRegions.includes(region) && (activeTrip.shoppingGuide || []).filter((item) => item.region === region).map((item) => (
                         <View key={item.id} style={styles.shoppingGuidePlace}>
-                          <Pressable style={styles.shoppingGuidePlaceToggle} onPress={() => setCollapsedShoppingGuidePlaces((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}>
-                            <Text style={styles.shoppingGuidePlaceArrow}>{collapsedShoppingGuidePlaces.includes(item.id) ? "▸" : "▾"}</Text>
-                            <Text style={styles.shoppingGuidePlaceName}>{item.name}</Text>
-                          </Pressable>
+                          <View style={styles.shoppingGuidePlaceHeader}>
+                            <Pressable style={styles.shoppingGuidePlaceToggle} onPress={() => setCollapsedShoppingGuidePlaces((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}>
+                              <Text style={styles.shoppingGuidePlaceArrow}>{collapsedShoppingGuidePlaces.includes(item.id) ? "▸" : "▾"}</Text>
+                              <Text style={styles.shoppingGuidePlaceName}>{item.name}</Text>
+                            </Pressable>
+                            <View style={styles.shoppingGuidePlaceActionsInline}>
+                              <Pressable style={styles.shoppingGuideEditButtonInline} onPress={() => openShoppingGuideEditor(item)}><Text style={styles.shoppingGuideEditText}>✎ 編輯</Text></Pressable>
+                              <Pressable style={styles.shoppingGuideDeleteInline} onPress={() => removeShoppingGuidePlace(item.id)}><Text style={styles.shoppingGuideDeleteText}>× 刪除</Text></Pressable>
+                            </View>
+                          </View>
                           {!collapsedShoppingGuidePlaces.includes(item.id) && <>
                             {!!item.note && <Text style={styles.shoppingGuidePlaceNote}>{item.note}</Text>}
-                            <View style={styles.shoppingGuidePlaceActions}>
-                              <Pressable style={styles.shoppingGuideEditButton} onPress={() => openShoppingGuideEditor(item)}><Text style={styles.shoppingGuideEditText}>✎ 編輯</Text></Pressable>
-                              <Pressable style={styles.shoppingGuideDelete} onPress={() => removeShoppingGuidePlace(item.id)}><Text style={styles.shoppingGuideDeleteText}>× 刪除</Text></Pressable>
-                            </View>
                           </>}
                         </View>
                       ))}
@@ -5866,16 +5868,18 @@ export default function App() {
                   {(activeTrip.notes || []).map((item) => {
                     const collapsed = collapsedNotes.includes(item.id);
                     return <View key={item.id} style={styles.tripNoteCard}>
-                      <Pressable style={styles.shoppingGuidePlaceToggle} onPress={() => setCollapsedNotes((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}>
-                        <Text style={styles.shoppingGuidePlaceArrow}>{collapsed ? "▸" : "▾"}</Text>
-                        <Text style={styles.tripNoteTitle}>{item.title}</Text>
-                      </Pressable>
+                      <View style={styles.shoppingGuidePlaceHeader}>
+                        <Pressable style={styles.shoppingGuidePlaceToggle} onPress={() => setCollapsedNotes((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}>
+                          <Text style={styles.shoppingGuidePlaceArrow}>{collapsed ? "▸" : "▾"}</Text>
+                          <Text style={styles.tripNoteTitle}>{item.title}</Text>
+                        </Pressable>
+                        <View style={styles.shoppingGuidePlaceActionsInline}>
+                          <Pressable style={styles.shoppingGuideEditButtonInline} onPress={() => openNoteEditor(item)}><Text style={styles.shoppingGuideEditText}>✎ 編輯</Text></Pressable>
+                          <Pressable style={styles.shoppingGuideDeleteInline} onPress={() => removeNote(item.id)}><Text style={styles.shoppingGuideDeleteText}>× 刪除</Text></Pressable>
+                        </View>
+                      </View>
                       {!collapsed && <>
                         <Text style={styles.tripNoteContent}>{item.content || "尚未填寫內容"}</Text>
-                        <View style={styles.shoppingGuidePlaceActions}>
-                          <Pressable style={styles.shoppingGuideEditButton} onPress={() => openNoteEditor(item)}><Text style={styles.shoppingGuideEditText}>✎ 編輯</Text></Pressable>
-                          <Pressable style={styles.shoppingGuideDelete} onPress={() => removeNote(item.id)}><Text style={styles.shoppingGuideDeleteText}>× 刪除</Text></Pressable>
-                        </View>
                       </>}
                     </View>;
                   })}
@@ -6988,11 +6992,15 @@ const styles = createDouyouStyles({
   shoppingGuideRegionArrow: { color: "#536783", fontSize: 18, fontWeight: "900" },
   shoppingGuideRegionAdd: { color: "#536783", fontSize: 10, fontWeight: "900" },
   shoppingGuidePlace: { backgroundColor: "#FFFFFF", borderRadius: 14, borderWidth: 1, borderColor: "#E1E6EF", padding: 13, marginTop: 7 },
-  shoppingGuidePlaceToggle: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28 },
+  shoppingGuidePlaceHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  shoppingGuidePlaceToggle: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minHeight: 32 },
   shoppingGuidePlaceArrow: { color: "#718099", fontSize: 14, width: 14 },
-  shoppingGuidePlaceName: { color: "#2D3440", fontSize: 14, fontWeight: "900" },
+  shoppingGuidePlaceName: { flex: 1, color: "#2D3440", fontSize: 14, fontWeight: "900" },
   shoppingGuidePlaceNote: { color: "#777F8C", fontSize: 11, lineHeight: 17, marginTop: 5 },
   shoppingGuidePlaceActions: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
+  shoppingGuidePlaceActionsInline: { flexDirection: "row", alignItems: "center", gap: 6 },
+  shoppingGuideEditButtonInline: { borderRadius: 9, backgroundColor: "#E9EEF7", paddingHorizontal: 9, paddingVertical: 7 },
+  shoppingGuideDeleteInline: { borderRadius: 9, backgroundColor: "#F6ECE9", paddingHorizontal: 9, paddingVertical: 7 },
   shoppingGuideEditButton: { borderRadius: 10, backgroundColor: "#E9EEF7", paddingHorizontal: 12, paddingVertical: 8 },
   shoppingGuideEditText: { color: "#536783", fontSize: 10, fontWeight: "900" },
   shoppingGuideDelete: { borderRadius: 10, backgroundColor: "#F6ECE9", paddingHorizontal: 12, paddingVertical: 8 },
