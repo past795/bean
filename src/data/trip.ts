@@ -15,7 +15,7 @@ const s = (
   return { id, time, title, address, transport, transportMode, note, pass, latitude, longitude, ...extras };
 };
 
-export const BUSAN_ITINERARY_VERSION = 2026091103;
+export const BUSAN_ITINERARY_VERSION = 2026091401;
 
 export const initialTrip: TripDay[] = [
   {
@@ -38,18 +38,20 @@ export const initialTrip: TripDay[] = [
     ]
   },
   {
-    id: "day2", label: "DAY 2", date: "10/05（一）", title: "甘川・海雲台・田浦",
+    id: "day2", label: "DAY 2", date: "10/05（一）", title: "海雲台・廣安里・團體晚餐",
     stops: [
-      s("d2-1", "09:00", "Avani Central Busan 寄放行李", "釜山廣域市南區田浦大路133", "計程車", "先寄放行李。", undefined, 35.1457, 129.0654),
-      s("d2-2", "09:30", "前往甘川文化村", "釜山廣域市沙下區甘內2路203", "地鐵／公車", "轉乘前往甘川。"),
-      s("d2-3", "10:00", "甘川文化村小博物館", "釜山廣域市沙下區甘內2路203", "步行", "從文化村入口開始散步。"),
-      s("d2-4", "12:00", "甘川午餐", "釜山廣域市沙下區甘川洞", "步行", "依現場候位選餐廳。"),
-      s("d2-5", "13:30", "阿米山觀景台（選配）", "釜山廣域市沙下區多大落照2街77", "計程車", "天候與體力允許再前往。"),
-      s("d2-6", "15:00", "前往海雲台", "釜山廣域市海雲台區", "地鐵／計程車", "移動到海雲台區。"),
-      s("d2-7", "15:45", "冬柏公園", "釜山廣域市海雲台區佑洞708-2", "步行", "海岸步道與 APEC 世峰樓。"),
-      s("d2-8", "16:30", "海雲台海水浴場", "釜山廣域市海雲台區海雲台海邊路264", "步行", "傍晚海灘散步。", undefined, 35.1587, 129.1604),
-      s("d2-group-dinner", "18:00", "團體晚餐（地點待確認）", "부산광역시", "計程車／地鐵", "團體晚餐已改至 10/5；確認餐廳後再更新地址與交通時間。"),
-      s("d2-12", "21:00", "Avani Central Busan Check-in", "釜山廣域市南區田浦大路133", "計程車", "第二至第四晚住宿。", undefined, 35.1457, 129.0654)
+      s("d2-1", "09:30", "Avani Central Busan", "부산광역시 남구 전포대로 133", "住宿出發", "由飯店出發。", undefined, 35.1483093, 129.0653741, { durationMinutes: 5 }),
+      s("d2-2", "10:00", "冬柏公園 & APEC 世峰樓", "부산광역시 해운대구 우동 713", "計程車", "冬柏島海岸步道與 Nurimaru APEC House。", undefined, 35.1523543, 129.151369, { routeMode: "taxi", transitMinutes: 25, durationMinutes: 85 }),
+      s("d2-3", "11:50", "嚴龍白豬肉湯飯 海雲台店", "부산광역시 해운대구 우동 635-6", "步行", "午餐；熱門時段請預留候位時間。", undefined, 35.1609, 129.1582, { routeMode: "walking", transitMinutes: 25, durationMinutes: 75 }),
+      s("d2-4", "13:20", "海雲台海水浴場", "부산광역시 해운대구 우동 1015", "步行", "海灘散步。", undefined, 35.1592859, 129.1586091, { routeMode: "walking", transitMinutes: 15, durationMinutes: 30 }),
+      s("d2-5", "14:00", "釜山 X the SKY 觀景台", "부산광역시 해운대구 달맞이길 30", "步行", "位於 LCT Landmark Tower。", undefined, 35.1598007, 129.169609, { routeMode: "walking", transitMinutes: 10, durationMinutes: 60 }),
+      s("d2-6", "15:15", "尾浦綠色鐵道步道", "부산광역시 해운대구 중동 947-1", "步行", "由尾浦入口散步。", undefined, 35.1635017, 129.1744702, { routeMode: "walking", transitMinutes: 15, durationMinutes: 15 }),
+      s("d2-7", "16:05", "Love Is Giving", "부산광역시 수영구 광남로130번길 9", "計程車", "廣安里選物店。", undefined, 35.1529522, 129.1172652, { routeMode: "taxi", transitMinutes: 35, durationMinutes: 20 }),
+      s("d2-8", "16:35", "Object 廣安店", "부산광역시 수영구 광안해변로 215-1", "步行", "文具與生活選物。", undefined, 35.1531, 129.1182, { routeMode: "walking", transitMinutes: 10, durationMinutes: 15 }),
+      s("d2-9", "17:00", "AOT Coffee", "부산광역시 수영구 광안해변로 237", "步行", "廣安里咖啡休息。", undefined, 35.1544, 129.1212, { routeMode: "walking", transitMinutes: 10, durationMinutes: 30 }),
+      s("d2-10", "17:45", "廣安里海水浴場", "부산광역시 수영구 광안해변로 219", "步行", "傍晚海景與廣安大橋。", undefined, 35.1532, 129.1187, { routeMode: "walking", transitMinutes: 15, durationMinutes: 45 }),
+      s("d2-group-dinner", "19:00", "團體晚餐地點", "부산광역시 부산진구 중앙대로680번가길 38", "計程車", "團體晚餐。", undefined, 35.1551399, 129.061065, { routeMode: "taxi", transitMinutes: 30, durationMinutes: 90 }),
+      s("d2-12", "21:00", "Avani Central Busan", "부산광역시 남구 전포대로 133", "計程車", "返回住宿。", undefined, 35.1483093, 129.0653741, { routeMode: "taxi", transitMinutes: 30, durationMinutes: 0 })
     ]
   },
   {

@@ -861,9 +861,10 @@ const upgradeBusanItinerary = (trip: TripPlan): TripPlan => {
   if ((trip.busanItineraryVersion || 0) >= BUSAN_ITINERARY_VERSION) return { ...trip, backupPlans };
   if ((trip.busanItineraryVersion || 0) >= 2026091101) {
     const revisedStops = new Map((busanInitialTrip.find((day) => day.id === "day3")?.stops || []).map((stop) => [stop.id, stop]));
+    const revisedDayTwo = busanInitialTrip.find((day) => day.id === "day2");
     return {
       ...trip,
-      days: trip.days.map((day) => day.id === "day3" ? { ...day, stops: day.stops.map((stop) => {
+      days: trip.days.map((day) => day.id === "day2" && revisedDayTwo ? revisedDayTwo : day.id === "day3" ? { ...day, stops: day.stops.map((stop) => {
         const revised = revisedStops.get(stop.id);
         if (!revised) return stop;
         return {
@@ -877,8 +878,10 @@ const upgradeBusanItinerary = (trip: TripPlan): TripPlan => {
     };
   }
   if ((trip.busanItineraryVersion || 0) >= 2026090201) {
+    const revisedDayTwo = busanInitialTrip.find((day) => day.id === "day2");
     return {
       ...trip,
+      days: trip.days.map((day) => day.id === "day2" && revisedDayTwo ? revisedDayTwo : day),
       backupPlans,
       busanItineraryVersion: BUSAN_ITINERARY_VERSION
     };
@@ -2180,7 +2183,7 @@ export default function App() {
     }
   };
 
-  const stopsWithEstimatedTimes = (stops: Stop[]) => {
+  const stopsWithEstimatedTimes = (stops: Stop[], recalculateAll = false) => {
     const distanceKm = (from: Stop, to: Stop) => {
       if (from.latitude == null || from.longitude == null || to.latitude == null || to.longitude == null) return null;
       const toRad = (value: number) => value * Math.PI / 180;
@@ -2190,7 +2193,7 @@ export default function App() {
       return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
     };
     const travelMinutes = (from: Stop, to: Stop) => {
-      if ((to.transitMinutes || 0) > 0) return to.transitMinutes!;
+      if (!recalculateAll && (to.transitMinutes || 0) > 0) return to.transitMinutes!;
       const mode = to.routeMode || "driving";
       const distance = distanceKm(from, to);
       if (distance == null) return mode === "walking" ? 15 : mode === "transit" ? 35 : 20;
@@ -2203,7 +2206,7 @@ export default function App() {
     let previousStart: number | null = null;
     return stops.map((stop, index, rows) => {
       const fixed = stop.time?.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
-      if (fixed) {
+      if (fixed && (!recalculateAll || index === 0)) {
         previousStart = Number(fixed[1]) * 60 + Number(fixed[2]);
         return stop;
       }
@@ -2221,6 +2224,12 @@ export default function App() {
       previousStart = start;
       return { ...stop, time: `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}` };
     });
+  };
+
+  const reorderedStopsWithEstimatedTimes = (stops: Stop[]) => {
+    const originalStart = selectedDay.stops[0]?.time;
+    const anchored = stops.map((stop, index) => index === 0 && originalStart ? { ...stop, time: originalStart } : stop);
+    return stopsWithEstimatedTimes(anchored, true);
   };
 
   const updateStops = (stops: Stop[]) => {
@@ -2648,7 +2657,7 @@ export default function App() {
     if (nextIndex < 0 || nextIndex >= selectedDay.stops.length) return;
     const next = [...selectedDay.stops];
     [next[index], next[nextIndex]] = [next[nextIndex]!, next[index]!];
-    updateStops(next);
+    updateStops(reorderedStopsWithEstimatedTimes(next));
   };
 
   const openLinkedShoppingGuide = () => {
@@ -4919,7 +4928,7 @@ export default function App() {
                 containerStyle={styles.itineraryList}
                 data={selectedDay.stops}
                 keyExtractor={(item) => item.id}
-                onDragEnd={({ data }) => updateStops(data)}
+                onDragEnd={({ data }) => updateStops(reorderedStopsWithEstimatedTimes(data))}
                 renderItem={renderStop}
                 contentContainerStyle={styles.listContent}
                 ListEmptyComponent={
@@ -5176,7 +5185,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.12</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.13</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5396,7 +5405,7 @@ export default function App() {
                 data={selectedDay.stops}
                 keyExtractor={(item) => item.id}
                 onDragBegin={() => setPreviousStops([...selectedDay.stops])}
-                onDragEnd={({ data }) => updateStops(data)}
+                onDragEnd={({ data }) => updateStops(reorderedStopsWithEstimatedTimes(data))}
                 activationDistance={4}
                 autoscrollThreshold={90}
                 autoscrollSpeed={140}
