@@ -2825,7 +2825,7 @@ export default function App() {
   const estimatedLegMinutes = (from: Stop, to: Stop, mode: RouteMode) => {
     if ((to.transitMinutes || 0) > 0) return to.transitMinutes!;
     const distance = distanceBetween(from, to);
-    if (!Number.isFinite(distance)) return mode === "walking" ? 15 : mode === "transit" ? 35 : 20;
+    if (!Number.isFinite(distance)) return null;
     const minutes =
       mode === "walking" ? distance / 4.5 * 60 :
       mode === "transit" ? distance / 22 * 60 + 10 :
@@ -4657,6 +4657,10 @@ export default function App() {
     const draftLegMinutes = nextStop && editingLegToId === nextStop.id
       ? estimatedLegMinutes(item, { ...nextStop, transitMinutes: Math.max(0, Number(legMinutesDraft) || 0) }, legModeDraft)
       : null;
+    const previewingLeg = editingLegToId === nextStop?.id;
+    const displayedLegMode = previewingLeg ? legModeDraft : legMode;
+    const displayedLegMinutes = previewingLeg ? draftLegMinutes : legMinutes;
+    const displayedLegIcon = displayedLegMode === "walking" ? "🚶" : displayedLegMode === "transit" ? "🚇" : displayedLegMode === "taxi" ? "🚕" : "🚗";
     const linkedShoppingGuidePlace = (activeTrip.shoppingGuide || []).find((place) => place.id === item.shoppingGuidePlaceId);
     return (
       <>
@@ -4732,7 +4736,7 @@ export default function App() {
         <View style={styles.betweenStopsLine} />
         <View style={styles.betweenStopsCard}>
           <Pressable accessibilityLabel={`編輯前往 ${stopDisplayTitle(nextStop)} 的交通`} onPress={() => editingLegToId === nextStop.id ? setEditingLegToId(null) : openLegEditor(nextStop)} style={styles.betweenStopsHeader}>
-            <Text style={styles.betweenStopsSummary}>{transportIcon(nextStop.transportMode)} 前往「{stopDisplayTitle(nextStop)}」・{legMinutes ? `約 ${legMinutes} 分鐘` : "時間待確認"}</Text>
+            <Text style={styles.betweenStopsSummary}>{displayedLegIcon} 前往「{stopDisplayTitle(nextStop)}」・{displayedLegMinutes != null ? `${legMinutesDraft && previewingLeg ? "手填" : "估算約"} ${displayedLegMinutes} 分鐘` : "座標不足，時間待確認"}{previewingLeg ? "（未儲存）" : ""}</Text>
             <Text style={styles.betweenStopsEdit}>{editingLegToId === nextStop.id ? "收起 ▴" : "編輯 ▾"}</Text>
           </Pressable>
           {!!nextStop.transport && nextStop.transport !== "尚未安排" && <Text style={styles.betweenStopsNote}>{nextStop.transport}</Text>}
@@ -4742,8 +4746,8 @@ export default function App() {
               {([ ["driving", "🚗 開車"], ["walking", "🚶 步行"], ["transit", "🚇 大眾運輸"], ["taxi", "🚕 計程車"] ] as [RouteMode, string][]).map(([mode, label]) => <Pressable key={mode} onPress={() => { if (mode !== legModeDraft) setLegMinutesDraft(""); setLegModeDraft(mode); }} style={[styles.legModeButton, legModeDraft === mode && styles.legModeButtonActive]}><Text style={[styles.legModeText, legModeDraft === mode && styles.legModeTextActive]}>{label}</Text></Pressable>)}
             </View>
             <Text style={styles.fieldLabel}>交通時間（分鐘）</Text>
-            <Text style={styles.legEstimate}>{legMinutesDraft ? `手填 ${draftLegMinutes} 分鐘` : `依目前交通工具預估約 ${draftLegMinutes} 分鐘（可手填覆蓋）`}</Text>
-            <TextInput value={legMinutesDraft} onChangeText={(value) => setLegMinutesDraft(value.replace(/[^0-9]/g, ""))} keyboardType="number-pad" placeholder={`預估 ${draftLegMinutes} 分鐘；留空自動計算`} placeholderTextColor="#AAA198" style={styles.fieldInput} />
+            <Text style={styles.legEstimate}>{legMinutesDraft ? `手填 ${draftLegMinutes} 分鐘` : draftLegMinutes != null ? `直線距離粗估約 ${draftLegMinutes} 分鐘；不是實際班次或道路時間` : "兩站缺少座標，無法估算；請查地圖後手填實際分鐘數"}</Text>
+            <TextInput value={legMinutesDraft} onChangeText={(value) => setLegMinutesDraft(value.replace(/[^0-9]/g, ""))} keyboardType="number-pad" placeholder={draftLegMinutes != null ? `粗估 ${draftLegMinutes} 分鐘；可手填實際時間` : "請填入查證後的交通分鐘數"} placeholderTextColor="#AAA198" style={styles.fieldInput} />
             <Text style={styles.fieldLabel}>車次／路線／備註</Text>
             <TextInput value={legRouteDraft} onChangeText={setLegRouteDraft} placeholder="例如：地鐵 2 號線、計程車上車點" placeholderTextColor="#AAA198" style={styles.fieldInput} />
             <View style={styles.betweenStopsActions}>
