@@ -2776,16 +2776,16 @@ export default function App() {
     setLegRouteDraft(arrival.transport === "尚未安排" ? "" : arrival.transport || "");
   };
 
-  const saveLegEditor = () => {
+  const saveLegEditor = (changes: Partial<Pick<Stop, "routeMode" | "transportMode" | "transitMinutes" | "transport">> = {}) => {
     const index = selectedDay.stops.findIndex((stop) => stop.id === editingLegToId);
     if (index < 1) return;
     const previous = selectedDay.stops[index - 1]!;
     const arrival = selectedDay.stops[index]!;
     const minutes = Math.max(0, Math.floor(Number(legMinutesDraft) || 0));
     const transportMode: Stop["transportMode"] = legModeDraft === "walking" ? "步行" : legModeDraft === "transit" ? "地鐵" : legModeDraft === "taxi" ? "計程車" : "其他";
-    const updatedArrival = { ...arrival, routeMode: legModeDraft, transportMode, transitMinutes: minutes, transport: legRouteDraft.trim() || "尚未安排" };
+    const updatedArrival = { ...arrival, routeMode: legModeDraft, transportMode, transitMinutes: minutes, transport: legRouteDraft.trim() || "尚未安排", ...changes };
     const next = [...selectedDay.stops];
-    const travel = estimatedLegMinutes(previous, updatedArrival, legModeDraft);
+    const travel = estimatedLegMinutes(previous, updatedArrival, updatedArrival.routeMode || "transit");
     const match = previous.time.match(/^(\d{1,2}):([0-5]\d)$/);
     if (travel != null && match) {
       const total = (Number(match[1]) * 60 + Number(match[2]) + (previous.durationMinutes || 0) + travel) % 1440;
@@ -2793,7 +2793,15 @@ export default function App() {
     }
     next[index] = updatedArrival;
     updateStops(next);
-    setEditingLegToId(null);
+  };
+
+  const applyLegModeImmediately = (mode: RouteMode) => {
+    const modeText = mode === "walking" ? "步行" : mode === "transit" ? "大眾運輸" : mode === "taxi" ? "計程車" : "開車";
+    const transportMode: Stop["transportMode"] = mode === "walking" ? "步行" : mode === "transit" ? "地鐵" : mode === "taxi" ? "計程車" : "其他";
+    setLegModeDraft(mode);
+    setLegMinutesDraft("");
+    setLegRouteDraft(modeText);
+    saveLegEditor({ routeMode: mode, transportMode, transitMinutes: 0, transport: modeText });
   };
 
   const openingMinutes = (stop: Stop) => {
@@ -4736,23 +4744,23 @@ export default function App() {
         <View style={styles.betweenStopsLine} />
         <View style={styles.betweenStopsCard}>
           <Pressable accessibilityLabel={`編輯前往 ${stopDisplayTitle(nextStop)} 的交通`} onPress={() => editingLegToId === nextStop.id ? setEditingLegToId(null) : openLegEditor(nextStop)} style={styles.betweenStopsHeader}>
-            <Text style={styles.betweenStopsSummary}>{displayedLegIcon} 前往「{stopDisplayTitle(nextStop)}」・{displayedLegMinutes != null ? `${legMinutesDraft && previewingLeg ? "手填" : "估算約"} ${displayedLegMinutes} 分鐘` : "座標不足，時間待確認"}{previewingLeg ? "（未儲存）" : ""}</Text>
+            <Text style={styles.betweenStopsSummary}>{displayedLegIcon} 前往「{stopDisplayTitle(nextStop)}」・{displayedLegMinutes != null ? `${legMinutesDraft && previewingLeg ? "手填" : "估算約"} ${displayedLegMinutes} 分鐘` : "座標不足，時間待確認"}</Text>
             <Text style={styles.betweenStopsEdit}>{editingLegToId === nextStop.id ? "收起 ▴" : "編輯 ▾"}</Text>
           </Pressable>
           {!!nextStop.transport && nextStop.transport !== "尚未安排" && <Text style={styles.betweenStopsNote}>{nextStop.transport}</Text>}
           {editingLegToId === nextStop.id && <View style={styles.betweenStopsEditor}>
             <Text style={styles.fieldLabel}>交通工具</Text>
             <View style={styles.legRouteActions}>
-              {([ ["driving", "🚗 開車"], ["walking", "🚶 步行"], ["transit", "🚇 大眾運輸"], ["taxi", "🚕 計程車"] ] as [RouteMode, string][]).map(([mode, label]) => <Pressable key={mode} onPress={() => { if (mode !== legModeDraft) setLegMinutesDraft(""); setLegModeDraft(mode); }} style={[styles.legModeButton, legModeDraft === mode && styles.legModeButtonActive]}><Text style={[styles.legModeText, legModeDraft === mode && styles.legModeTextActive]}>{label}</Text></Pressable>)}
+              {([ ["driving", "🚗 開車"], ["walking", "🚶 步行"], ["transit", "🚇 大眾運輸"], ["taxi", "🚕 計程車"] ] as [RouteMode, string][]).map(([mode, label]) => <Pressable key={mode} onPress={() => applyLegModeImmediately(mode)} style={[styles.legModeButton, legModeDraft === mode && styles.legModeButtonActive]}><Text style={[styles.legModeText, legModeDraft === mode && styles.legModeTextActive]}>{label}</Text></Pressable>)}
             </View>
             <Text style={styles.fieldLabel}>交通時間（分鐘）</Text>
-            <Text style={styles.legEstimate}>{legMinutesDraft ? `手填 ${draftLegMinutes} 分鐘` : draftLegMinutes != null ? `直線距離粗估約 ${draftLegMinutes} 分鐘；不是實際班次或道路時間` : "兩站缺少座標，無法估算；請查地圖後手填實際分鐘數"}</Text>
-            <TextInput value={legMinutesDraft} onChangeText={(value) => setLegMinutesDraft(value.replace(/[^0-9]/g, ""))} keyboardType="number-pad" placeholder={draftLegMinutes != null ? `粗估 ${draftLegMinutes} 分鐘；可手填實際時間` : "請填入查證後的交通分鐘數"} placeholderTextColor="#AAA198" style={styles.fieldInput} />
+            <Text style={styles.legEstimate}>{legMinutesDraft ? `手填 ${draftLegMinutes} 分鐘` : draftLegMinutes != null ? `預估約 ${draftLegMinutes} 分鐘；可手填實際時間` : "兩站缺少座標，請查地圖後手填時間"}</Text>
+            <TextInput value={legMinutesDraft} onChangeText={(value) => setLegMinutesDraft(value.replace(/[^0-9]/g, ""))} onEndEditing={() => saveLegEditor()} keyboardType="number-pad" placeholder={draftLegMinutes != null ? `粗估 ${draftLegMinutes} 分鐘；可手填實際時間` : "請填入查證後的交通分鐘數"} placeholderTextColor="#AAA198" style={styles.fieldInput} />
             <Text style={styles.fieldLabel}>車次／路線／備註</Text>
-            <TextInput value={legRouteDraft} onChangeText={setLegRouteDraft} placeholder="例如：地鐵 2 號線、計程車上車點" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+            <TextInput value={legRouteDraft} onChangeText={setLegRouteDraft} onEndEditing={() => saveLegEditor()} placeholder="例如：地鐵 2 號線、計程車上車點" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+            <Text style={styles.routeFieldHint}>交通工具點下即同步；分鐘與備註輸入完成後自動同步。</Text>
             <View style={styles.betweenStopsActions}>
               <Pressable style={styles.fastRouteButton} onPress={() => openGoogleRoute(item, nextStop, legModeDraft)}><Text style={styles.fastRouteButtonText}>查看路線 ↗</Text></Pressable>
-              <Pressable style={styles.betweenStopsSave} onPress={saveLegEditor}><Text style={styles.betweenStopsSaveText}>儲存交通</Text></Pressable>
             </View>
           </View>}
         </View>
@@ -5125,7 +5133,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.08.11.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.7</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5217,10 +5225,13 @@ export default function App() {
           </Pressable>
         )}
 
-        <Pressable style={[styles.aiFloatingButton, previousStops && styles.aiFloatingButtonRaised]} onPress={() => openAiAssistant()}>
+        <Pressable style={[styles.aiFloatingButton, tab === "itinerary" && styles.aiFloatingButtonBesideAdd, previousStops && styles.aiFloatingButtonRaised]} onPress={() => openAiAssistant()}>
           <Text style={styles.aiFloatingIcon}>✦</Text>
           <Text style={styles.aiFloatingText}>小助手</Text>
         </Pressable>
+        {tab === "itinerary" && <Pressable accessibilityLabel="新增景點" style={[styles.addStopFloatingButton, previousStops && styles.addStopFloatingButtonRaised]} onPress={() => { setNewStopInsertIndex(selectedDay.stops.length); setAddingStop(true); }}>
+          <Text style={styles.addStopFloatingText}>＋</Text>
+        </Pressable>}
 
         <View style={styles.bottomBar}>
           <TabButton icon="home" label="首頁" active={tab === "home"} onPress={() => setTab("home")} />
@@ -6501,12 +6512,12 @@ const styles = createDouyouStyles({
   stopCard: { flex: 1, backgroundColor: "#FFF", borderRadius: 20, padding: 15, marginBottom: 12, borderWidth: 1, borderColor: "#EEE8E0" },
   betweenStopsRow: { flexDirection: "row", marginTop: -7, marginBottom: 12 },
   betweenStopsLine: { width: 2, backgroundColor: "#D9D4CC", marginLeft: 17, marginRight: 17 },
-  betweenStopsCard: { flex: 1, borderRadius: 14, borderWidth: 1, borderColor: "#DDE3EE", backgroundColor: "#F4F7FB", paddingHorizontal: 12, paddingVertical: 10 },
+  betweenStopsCard: { flex: 1, borderRadius: 16, borderWidth: 1, borderColor: "#DDE3EE", backgroundColor: "#F4F7FB", paddingHorizontal: 14, paddingVertical: 12 },
   betweenStopsHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-  betweenStopsSummary: { flex: 1, color: "#536783", fontSize: 11, fontWeight: "900" },
-  betweenStopsEdit: { color: "#65758E", fontSize: 10, fontWeight: "900" },
-  betweenStopsNote: { color: "#766F68", fontSize: 10, marginTop: 5 },
-  betweenStopsEditor: { marginTop: 8, borderTopWidth: 1, borderTopColor: "#DDE3EE", paddingTop: 4 },
+  betweenStopsSummary: { flex: 1, color: "#536783", fontSize: 13, lineHeight: 19, fontWeight: "900" },
+  betweenStopsEdit: { color: "#65758E", fontSize: 11, fontWeight: "900" },
+  betweenStopsNote: { color: "#766F68", fontSize: 11, lineHeight: 17, marginTop: 6 },
+  betweenStopsEditor: { marginTop: 10, borderTopWidth: 1, borderTopColor: "#DDE3EE", paddingTop: 8 },
   betweenStopsActions: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 11 },
   betweenStopsSave: { flex: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, alignItems: "center", backgroundColor: "#536783" },
   betweenStopsSaveText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
@@ -6554,9 +6565,13 @@ const styles = createDouyouStyles({
   floatingUndoButton: { position: "absolute", right: 20, bottom: 92, zIndex: 120, elevation: 25, backgroundColor: "#9C613F", borderRadius: 999, paddingHorizontal: 17, height: 42, alignItems: "center", justifyContent: "center", shadowColor: "#3A2419", shadowOpacity: .22, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
   floatingUndoText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
   aiFloatingButton: { position: "absolute", right: 18, bottom: 92, zIndex: 119, elevation: 24, flexDirection: "row", alignItems: "center", gap: 6, height: 42, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#536783", shadowColor: "#26354C", shadowOpacity: .24, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  aiFloatingButtonBesideAdd: { right: 70 },
   aiFloatingButtonRaised: { bottom: 142 },
   aiFloatingIcon: { color: "#FFE2A6", fontSize: 16, fontWeight: "900", fontFamily: "Noto Serif TC" },
   aiFloatingText: { color: "#FFF", fontSize: 11, fontWeight: "900", fontFamily: "Noto Serif TC" },
+  addStopFloatingButton: { position: "absolute", right: 18, bottom: 92, zIndex: 120, elevation: 25, width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#9C613F", shadowColor: "#3A2419", shadowOpacity: .22, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  addStopFloatingButtonRaised: { bottom: 142 },
+  addStopFloatingText: { color: "#FFFFFF", fontSize: 27, lineHeight: 30, fontWeight: "500" },
   tabButton: { flex: 1, alignItems: "center", justifyContent: "center" },
   tabIconFrame: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
   tabIconImage: { width: 22, height: 22 },
