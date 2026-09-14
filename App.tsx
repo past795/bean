@@ -3613,7 +3613,7 @@ export default function App() {
     } catch (error: any) {
       const code = String(error?.code || "");
       const message = code === "auth/unauthorized-domain"
-        ? "Firebase 尚未允許 past795.github.io。請到 Firebase Authentication 的已授權網域加入 past795.github.io。"
+        ? `Firebase 尚未允許 ${String((globalThis as any)?.location?.hostname || "目前網域")}。請到 Firebase Authentication 的已授權網域加入這個網址。`
         : code === "auth/operation-not-allowed"
           ? "Firebase 尚未啟用 Google 登入。請到 Authentication → 登入方式 → Google 啟用。"
           : code === "auth/popup-blocked"
