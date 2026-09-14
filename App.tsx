@@ -2771,7 +2771,9 @@ export default function App() {
     const current = selectedDay.stops[index]!;
     const nextStop = selectedDay.stops[index + 1];
     if (!nextStop) return;
-    const next = selectedDay.stops.map((stop) => stop.id === nextStop.id ? { ...stop, routeMode, transitMinutes: 0 } : stop);
+    const modeText = routeMode === "walking" ? "步行" : routeMode === "transit" ? "大眾運輸" : routeMode === "taxi" ? "計程車" : "開車";
+    const transportMode: Stop["transportMode"] = routeMode === "walking" ? "步行" : routeMode === "transit" ? "地鐵" : routeMode === "taxi" ? "計程車" : "其他";
+    const next = selectedDay.stops.map((stop) => stop.id === nextStop.id ? { ...stop, routeMode, transportMode, transport: modeText, transitMinutes: 0 } : stop);
     if (nextStop) {
       const minutes = estimatedLegMinutes(current, { ...nextStop, transitMinutes: 0 }, routeMode);
       const match = current.time.match(/^(\d{1,2}):([0-5]\d)$/);
