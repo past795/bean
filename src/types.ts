@@ -154,5 +154,6 @@ export type TripPlan = {
   shoppingGuide?: TripShoppingGuidePlace[];
   notes?: TripNote[];
   oitaDay3TransitVersion?: number;
+  oitaItineraryVersion?: number;
   busanItineraryVersion?: number;
 };

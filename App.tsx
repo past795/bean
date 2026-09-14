@@ -24,6 +24,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { toolboxItems } from "./src/data/toolbox";
 import { shoppingItems } from "./src/data/shopping";
 import { BUSAN_ITINERARY_VERSION, initialTrip as busanInitialTrip } from "./src/data/trip";
+import { upgradeOitaItinerary } from "./src/data/oitaTrip";
 import { FlightInfo, Stop, TripBackupPlan, TripDay, TripNote, TripPlan, TripShoppingGuidePlace } from "./src/types";
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
@@ -602,6 +603,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
       accommodationByNight: trip.accommodationByNight || {},
       shoppingCatalogImported: !!trip.shoppingCatalogImported,
       oitaDay3TransitVersion: trip.oitaDay3TransitVersion || 0,
+      oitaItineraryVersion: trip.oitaItineraryVersion || 0,
       unscheduledPlaces: trip.unscheduledPlaces || [],
       reservations: trip.reservations || [],
       days: trip.days.map((day) => ({ id: day.id, date: day.date, title: day.title }))
@@ -676,6 +678,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
     })(),
     shoppingCatalogImported: !!tripMeta.shoppingCatalogImported,
     oitaDay3TransitVersion: Number(tripMeta.oitaDay3TransitVersion || 0),
+    oitaItineraryVersion: Number(tripMeta.oitaItineraryVersion || 0),
     unscheduledPlaces: Array.isArray(tripMeta.unscheduledPlaces) ? tripMeta.unscheduledPlaces : [],
     reservations: Array.isArray(tripMeta.reservations) ? tripMeta.reservations : [],
     period: startDate
@@ -1473,7 +1476,7 @@ export default function App() {
     return listenFirestoreTrip(activeTrip.id, (incomingTrip, incomingExpenses) => {
       if (firestorePendingTripRef.current === activeTrip.id || Date.now() - localMutationAtRef.current < 1800) return;
       const rawTrip = incomingTrip as TripPlan;
-      const normalizedTrip = normalizeTripSchedule(upgradeBusanItinerary(rawTrip));
+      const normalizedTrip = normalizeTripSchedule(upgradeOitaItinerary(upgradeBusanItinerary(rawTrip)));
       if (JSON.stringify(rawTrip) !== JSON.stringify(normalizedTrip) && googleUser?.firebaseUid) {
         const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
         updateFirestoreTripState(personId, normalizedTrip, incomingExpenses).catch(() => undefined);
@@ -2088,13 +2091,13 @@ export default function App() {
         ? { ...converted.trip, days: localStopCount > 0 ? localTrip!.days : busanInitialTrip }
         : converted.trip;
       const localPersonalChecklist = (localTrip?.checklist || []).filter((item) => item.scope === "personal");
-      const incomingTrip = {
+      const incomingTrip = upgradeOitaItinerary({
         ...incomingTripBase,
         checklist: [
           ...(incomingTripBase.checklist || []).filter((item) => item.scope !== "personal"),
           ...localPersonalChecklist
         ]
-      };
+      });
       const localSelectedDay = localTrip?.days.find((day) => day.id === selectedDayId);
       const incomingSelectedDay = incomingTrip.days.find((day) => day.id === selectedDayId);
       if (quiet && localSelectedDay && incomingSelectedDay &&
@@ -2122,7 +2125,7 @@ export default function App() {
       });
       setSyncStatus("synced");
       setSyncErrorMessage("");
-      if (shouldRecoverBusan) setTimeout(() => syncTripNow(incomingTrip, converted.expenses), 0);
+      if (shouldRecoverBusan || (incomingTrip.oitaItineraryVersion || 0) > (incomingTripBase.oitaItineraryVersion || 0)) setTimeout(() => syncTripNow(incomingTrip, converted.expenses), 0);
       return incomingTrip;
     } catch (error: any) {
       const link = cloudLinksRef.current[tripId];
@@ -5196,7 +5199,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.14</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.15</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
