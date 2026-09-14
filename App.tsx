@@ -5133,7 +5133,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.7</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.9</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5230,7 +5230,7 @@ export default function App() {
           <Text style={styles.aiFloatingText}>小助手</Text>
         </Pressable>
         {tab === "itinerary" && <Pressable accessibilityLabel="新增景點" style={[styles.addStopFloatingButton, previousStops && styles.addStopFloatingButtonRaised]} onPress={() => { setNewStopInsertIndex(selectedDay.stops.length); setAddingStop(true); }}>
-          <Text style={styles.addStopFloatingText}>＋</Text>
+          <Text style={styles.addStopFloatingText}>＋ 新增</Text>
         </Pressable>}
 
         <View style={styles.bottomBar}>
@@ -6565,13 +6565,13 @@ const styles = createDouyouStyles({
   floatingUndoButton: { position: "absolute", right: 20, bottom: 92, zIndex: 120, elevation: 25, backgroundColor: "#9C613F", borderRadius: 999, paddingHorizontal: 17, height: 42, alignItems: "center", justifyContent: "center", shadowColor: "#3A2419", shadowOpacity: .22, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
   floatingUndoText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
   aiFloatingButton: { position: "absolute", right: 18, bottom: 92, zIndex: 119, elevation: 24, flexDirection: "row", alignItems: "center", gap: 6, height: 42, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#536783", shadowColor: "#26354C", shadowOpacity: .24, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
-  aiFloatingButtonBesideAdd: { right: 66 },
+  aiFloatingButtonBesideAdd: { right: 94 },
   aiFloatingButtonRaised: { bottom: 142 },
   aiFloatingIcon: { color: "#FFE2A6", fontSize: 16, fontWeight: "900", fontFamily: "Noto Serif TC" },
   aiFloatingText: { color: "#FFF", fontSize: 11, fontWeight: "900", fontFamily: "Noto Serif TC" },
-  addStopFloatingButton: { position: "absolute", right: 18, bottom: 92, zIndex: 120, elevation: 24, width: 42, height: 42, borderRadius: 999, alignItems: "center", justifyContent: "center", backgroundColor: "#536783", shadowColor: "#26354C", shadowOpacity: .24, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  addStopFloatingButton: { position: "absolute", right: 18, bottom: 92, zIndex: 120, elevation: 24, flexDirection: "row", alignItems: "center", justifyContent: "center", height: 42, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#536783", shadowColor: "#26354C", shadowOpacity: .24, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
   addStopFloatingButtonRaised: { bottom: 142 },
-  addStopFloatingText: { color: "#FFFFFF", fontSize: 20, lineHeight: 23, fontWeight: "700" },
+  addStopFloatingText: { color: "#FFFFFF", fontSize: 11, lineHeight: 14, fontWeight: "900", fontFamily: "Noto Serif TC" },
   tabButton: { flex: 1, alignItems: "center", justifyContent: "center" },
   tabIconFrame: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
   tabIconImage: { width: 22, height: 22 },
