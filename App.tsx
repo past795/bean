@@ -960,6 +960,10 @@ export default function App() {
   const [draftOpeningHours, setDraftOpeningHours] = useState("");
   const [draftDuration, setDraftDuration] = useState("");
   const [draftTransitMinutes, setDraftTransitMinutes] = useState("");
+  const [editingLegToId, setEditingLegToId] = useState<string | null>(null);
+  const [legModeDraft, setLegModeDraft] = useState<RouteMode>("transit");
+  const [legMinutesDraft, setLegMinutesDraft] = useState("");
+  const [legRouteDraft, setLegRouteDraft] = useState("");
   const [draftTransport, setDraftTransport] = useState("");
   const [draftRouteMode, setDraftRouteMode] = useState<RouteMode>("driving");
   const [draftReservationRequired, setDraftReservationRequired] = useState(false);
@@ -2765,27 +2769,31 @@ export default function App() {
     Linking.openURL(url).catch(() => Alert.alert("無法開啟 Google Maps"));
   };
 
-  const setLegRouteMode = (stopId: string, routeMode: RouteMode) => {
-    const index = selectedDay.stops.findIndex((stop) => stop.id === stopId);
-    if (index < 0) return;
-    const current = selectedDay.stops[index]!;
-    const nextStop = selectedDay.stops[index + 1];
-    if (!nextStop) return;
-    const modeText = routeMode === "walking" ? "步行" : routeMode === "transit" ? "大眾運輸" : routeMode === "taxi" ? "計程車" : "開車";
-    const transportMode: Stop["transportMode"] = routeMode === "walking" ? "步行" : routeMode === "transit" ? "地鐵" : routeMode === "taxi" ? "計程車" : "其他";
-    const next = selectedDay.stops.map((stop) => stop.id === nextStop.id ? { ...stop, routeMode, transportMode, transport: modeText, transitMinutes: 0 } : stop);
-    if (nextStop) {
-      const minutes = estimatedLegMinutes(current, { ...nextStop, transitMinutes: 0 }, routeMode);
-      const match = current.time.match(/^(\d{1,2}):([0-5]\d)$/);
-      if (minutes != null && match) {
-        const total = (Number(match[1]) * 60 + Number(match[2]) + (current.durationMinutes || 0) + minutes) % (24 * 60);
-        next[index + 1] = {
-          ...next[index + 1]!,
-          time: `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`
-        };
-      }
+  const openLegEditor = (arrival: Stop) => {
+    setEditingLegToId(arrival.id);
+    setLegModeDraft(arrival.routeMode || "transit");
+    setLegMinutesDraft(arrival.transitMinutes ? String(arrival.transitMinutes) : "");
+    setLegRouteDraft(arrival.transport === "尚未安排" ? "" : arrival.transport || "");
+  };
+
+  const saveLegEditor = () => {
+    const index = selectedDay.stops.findIndex((stop) => stop.id === editingLegToId);
+    if (index < 1) return;
+    const previous = selectedDay.stops[index - 1]!;
+    const arrival = selectedDay.stops[index]!;
+    const minutes = Math.max(0, Math.floor(Number(legMinutesDraft) || 0));
+    const transportMode: Stop["transportMode"] = legModeDraft === "walking" ? "步行" : legModeDraft === "transit" ? "地鐵" : legModeDraft === "taxi" ? "計程車" : "其他";
+    const updatedArrival = { ...arrival, routeMode: legModeDraft, transportMode, transitMinutes: minutes, transport: legRouteDraft.trim() || "尚未安排" };
+    const next = [...selectedDay.stops];
+    const travel = estimatedLegMinutes(previous, updatedArrival, legModeDraft);
+    const match = previous.time.match(/^(\d{1,2}):([0-5]\d)$/);
+    if (travel != null && match) {
+      const total = (Number(match[1]) * 60 + Number(match[2]) + (previous.durationMinutes || 0) + travel) % 1440;
+      updatedArrival.time = `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
     }
+    next[index] = updatedArrival;
     updateStops(next);
+    setEditingLegToId(null);
   };
 
   const openingMinutes = (stop: Stop) => {
@@ -4648,6 +4656,7 @@ export default function App() {
     const legMinutes = nextStop ? estimatedLegMinutes(item, nextStop, legMode) : null;
     const linkedShoppingGuidePlace = (activeTrip.shoppingGuide || []).find((place) => place.id === item.shoppingGuidePlaceId);
     return (
+      <>
       <View style={[styles.stopWrap, isActive && styles.dragging]}>
         <View style={styles.timeline}>
           <View style={styles.numberDot}><Text style={styles.numberText}>{index + 1}</Text></View>
@@ -4697,37 +4706,6 @@ export default function App() {
               <Pressable onPress={() => copyAddressAndOpenUber(item)} style={styles.addressActionButton}><Text style={styles.addressAction}>打開 Uber ↗</Text></Pressable>
             </View>
           </View>
-          <View style={styles.transportRow}>
-            <Text style={styles.transportIcon}>{transportIcon(item.transportMode)}</Text>
-            <View>
-              <Text style={styles.transportLabel}>交通班次／路線</Text>
-              <Text style={styles.transportText}>{item.transport || "尚未安排"}</Text>
-              {!!item.transitMinutes && <Text style={styles.transportLabel}>預計交通時間｜約 {item.transitMinutes} 分鐘</Text>}
-            </View>
-          </View>
-          {nextStop && (
-            <View style={styles.legRouteBox}>
-              <Text style={styles.legRouteLabel}>前往下一站「{stopDisplayTitle(nextStop)}」怎麼走？交通資料記在下一站</Text>
-              <Text style={styles.legEstimate}>{legMinutes ? `預估約 ${legMinutes} 分鐘・選擇後更新下一站時間` : "確認座標後顯示預計時間"}</Text>
-              <View style={styles.legRouteActions}>
-                <Pressable onPress={() => setLegRouteMode(item.id, "driving")} style={[styles.legModeButton, legMode === "driving" && styles.legModeButtonActive]}>
-                  <Text style={[styles.legModeText, legMode === "driving" && styles.legModeTextActive]}>🚗 開車</Text>
-                </Pressable>
-                <Pressable onPress={() => setLegRouteMode(item.id, "walking")} style={[styles.legModeButton, legMode === "walking" && styles.legModeButtonActive]}>
-                  <Text style={[styles.legModeText, legMode === "walking" && styles.legModeTextActive]}>🚶 步行</Text>
-                </Pressable>
-                <Pressable onPress={() => setLegRouteMode(item.id, "transit")} style={[styles.legModeButton, legMode === "transit" && styles.legModeButtonActive]}>
-                  <Text style={[styles.legModeText, legMode === "transit" && styles.legModeTextActive]}>🚇 大眾運輸</Text>
-                </Pressable>
-                <Pressable onPress={() => setLegRouteMode(item.id, "taxi")} style={[styles.legModeButton, legMode === "taxi" && styles.legModeButtonActive]}>
-                  <Text style={[styles.legModeText, legMode === "taxi" && styles.legModeTextActive]}>🚕 計程車</Text>
-                </Pressable>
-                <Pressable style={styles.fastRouteButton} onPress={() => openGoogleRoute(item, nextStop, legMode)}>
-                  <Text style={styles.fastRouteButtonText}>最快路線 ↗</Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
           <Text style={styles.openingHours}>營業時間｜{item.openingHours || "尚未查證"}</Text>
           {!!item.durationMinutes && <Text style={styles.openingHours}>停留時間｜約 {item.durationMinutes} 分鐘</Text>}
           {!!linkedShoppingGuidePlace && <Pressable onPress={(event) => { event.stopPropagation(); openLinkedShoppingGuide(); }} style={styles.stopShoppingGuideLink}><Text style={styles.stopShoppingGuideLinkText}>🛍️ 逛街攻略｜{linkedShoppingGuidePlace.region}・{linkedShoppingGuidePlace.name} ›</Text></Pressable>}
@@ -4747,6 +4725,31 @@ export default function App() {
           </View>
         </Pressable>
       </View>
+      {nextStop && <View style={styles.betweenStopsRow}>
+        <View style={styles.betweenStopsLine} />
+        <View style={styles.betweenStopsCard}>
+          <Pressable accessibilityLabel={`編輯前往 ${stopDisplayTitle(nextStop)} 的交通`} onPress={() => editingLegToId === nextStop.id ? setEditingLegToId(null) : openLegEditor(nextStop)} style={styles.betweenStopsHeader}>
+            <Text style={styles.betweenStopsSummary}>{transportIcon(nextStop.transportMode)} 前往「{stopDisplayTitle(nextStop)}」・{legMinutes ? `約 ${legMinutes} 分鐘` : "時間待確認"}</Text>
+            <Text style={styles.betweenStopsEdit}>{editingLegToId === nextStop.id ? "收起 ▴" : "編輯 ▾"}</Text>
+          </Pressable>
+          {!!nextStop.transport && nextStop.transport !== "尚未安排" && <Text style={styles.betweenStopsNote}>{nextStop.transport}</Text>}
+          {editingLegToId === nextStop.id && <View style={styles.betweenStopsEditor}>
+            <Text style={styles.fieldLabel}>交通工具</Text>
+            <View style={styles.legRouteActions}>
+              {([ ["driving", "🚗 開車"], ["walking", "🚶 步行"], ["transit", "🚇 大眾運輸"], ["taxi", "🚕 計程車"] ] as [RouteMode, string][]).map(([mode, label]) => <Pressable key={mode} onPress={() => setLegModeDraft(mode)} style={[styles.legModeButton, legModeDraft === mode && styles.legModeButtonActive]}><Text style={[styles.legModeText, legModeDraft === mode && styles.legModeTextActive]}>{label}</Text></Pressable>)}
+            </View>
+            <Text style={styles.fieldLabel}>交通時間（分鐘）</Text>
+            <TextInput value={legMinutesDraft} onChangeText={(value) => setLegMinutesDraft(value.replace(/[^0-9]/g, ""))} keyboardType="number-pad" placeholder={legMinutes ? `預估 ${legMinutes} 分鐘` : "例如：20"} placeholderTextColor="#AAA198" style={styles.fieldInput} />
+            <Text style={styles.fieldLabel}>車次／路線／備註</Text>
+            <TextInput value={legRouteDraft} onChangeText={setLegRouteDraft} placeholder="例如：地鐵 2 號線、計程車上車點" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+            <View style={styles.betweenStopsActions}>
+              <Pressable style={styles.fastRouteButton} onPress={() => openGoogleRoute(item, nextStop, legModeDraft)}><Text style={styles.fastRouteButtonText}>查看路線 ↗</Text></Pressable>
+              <Pressable style={styles.betweenStopsSave} onPress={saveLegEditor}><Text style={styles.betweenStopsSaveText}>儲存交通</Text></Pressable>
+            </View>
+          </View>}
+        </View>
+      </View>}
+      </>
     );
   };
 
@@ -6488,6 +6491,17 @@ const styles = createDouyouStyles({
   numberText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
   timelineLine: { width: 2, backgroundColor: "#D9D4CC", flex: 1 },
   stopCard: { flex: 1, backgroundColor: "#FFF", borderRadius: 20, padding: 15, marginBottom: 12, borderWidth: 1, borderColor: "#EEE8E0" },
+  betweenStopsRow: { flexDirection: "row", marginTop: -7, marginBottom: 12 },
+  betweenStopsLine: { width: 2, backgroundColor: "#D9D4CC", marginLeft: 17, marginRight: 17 },
+  betweenStopsCard: { flex: 1, borderRadius: 14, borderWidth: 1, borderColor: "#DDE3EE", backgroundColor: "#F4F7FB", paddingHorizontal: 12, paddingVertical: 10 },
+  betweenStopsHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  betweenStopsSummary: { flex: 1, color: "#536783", fontSize: 11, fontWeight: "900" },
+  betweenStopsEdit: { color: "#65758E", fontSize: 10, fontWeight: "900" },
+  betweenStopsNote: { color: "#766F68", fontSize: 10, marginTop: 5 },
+  betweenStopsEditor: { marginTop: 8, borderTopWidth: 1, borderTopColor: "#DDE3EE", paddingTop: 4 },
+  betweenStopsActions: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 11 },
+  betweenStopsSave: { flex: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, alignItems: "center", backgroundColor: "#536783" },
+  betweenStopsSaveText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
   stopTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   timePill: { backgroundColor: "#F7E5D6", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 5 },
   timeText: { color: "#A75E3B", fontWeight: "800", fontSize: 12 },
