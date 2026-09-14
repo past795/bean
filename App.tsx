@@ -1542,7 +1542,10 @@ export default function App() {
         tripStops.set(tripId, listenFirestoreTrip(tripId, (incomingTrip, incomingExpenses) => {
           if (firestorePendingTripRef.current === tripId || Date.now() - localMutationAtRef.current < 1800) return;
           const rawTrip = incomingTrip as TripPlan;
-          const trip = normalizeTripSchedule(upgradeBusanItinerary(rawTrip));
+          // The linked-trip listener also receives the same Firestore state.
+          // Apply the one-time Oita import here too, or its raw snapshot can
+          // immediately overwrite the upgraded active-trip state.
+          const trip = normalizeTripSchedule(upgradeOitaItinerary(upgradeBusanItinerary(rawTrip)));
           if (JSON.stringify(rawTrip) !== JSON.stringify(trip)) {
             updateFirestoreTripState(personId, trip, incomingExpenses).catch(() => undefined);
           }
@@ -5199,7 +5202,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.15</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.16</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
