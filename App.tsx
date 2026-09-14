@@ -1006,6 +1006,7 @@ export default function App() {
   const [placeSuggestions, setPlaceSuggestions] = useState<any[]>([]);
   const [placeSuggestionStatus, setPlaceSuggestionStatus] = useState<"idle" | "loading" | "empty">("idle");
   const suppressNextPlaceSearchRef = useRef(false);
+  const toolSheetScrollRef = useRef<any>(null);
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
   const [addingReservation, setAddingReservation] = useState(false);
   const [reservationTitleDraft, setReservationTitleDraft] = useState("");
@@ -1342,12 +1343,16 @@ export default function App() {
     setShoppingGuideNameDraft("");
     setShoppingGuideNoteDraft("");
   };
+  const scrollToolSheetToTop = () => {
+    setTimeout(() => toolSheetScrollRef.current?.scrollTo({ y: 0, animated: true }), 0);
+  };
   const openShoppingGuideEditor = (item?: TripShoppingGuidePlace, region = "") => {
     setShoppingGuideEditing(true);
     setEditingShoppingGuideId(item?.id || null);
     setShoppingGuideRegionDraft(item?.region || region);
     setShoppingGuideNameDraft(item?.name || "");
     setShoppingGuideNoteDraft(item?.note || "");
+    scrollToolSheetToTop();
   };
   const saveShoppingGuidePlace = () => {
     const region = shoppingGuideRegionDraft.trim();
@@ -1378,6 +1383,7 @@ export default function App() {
     setEditingNoteId(item?.id || null);
     setNoteTitleDraft(item?.title || "");
     setNoteContentDraft(item?.content || "");
+    scrollToolSheetToTop();
   };
   const saveTripNote = () => {
     const title = noteTitleDraft.trim();
@@ -5170,7 +5176,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.10</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.11</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5650,7 +5656,7 @@ export default function App() {
                   </View>
                 </Pressable>
               </View>
-              <ScrollView style={styles.toolSheetBody} contentContainerStyle={styles.toolSheetBodyContent} keyboardShouldPersistTaps="always" nestedScrollEnabled>
+              <ScrollView ref={toolSheetScrollRef} style={styles.toolSheetBody} contentContainerStyle={styles.toolSheetBodyContent} keyboardShouldPersistTaps="always" nestedScrollEnabled>
               {selectedTool === "班機" && (
                 <View style={styles.detailBlock}>
                   {addingFlight ? (
