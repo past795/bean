@@ -96,6 +96,9 @@ const AUTH_KEY = "douyou-google-auth-v1";
 const FAVORITES_KEY = "douyou-personal-favorites-v1";
 const FAVORITE_COLLAPSE_KEY = "douyou-favorite-collapse-v1";
 const ALL_DAYS_ID = "__all_days__";
+// Never replace a user's edited Oita itinerary during app startup. The old
+// one-time template migration is retained below only as historical reference.
+const ENABLE_OITA_DAY3_TEMPLATE_MIGRATION = false;
 const DAY_ROUTE_COLORS = ["#E98268", "#5E7FA3", "#D3A54A", "#9A72B5", "#4F9A96", "#C96B8A", "#7F8D4E"];
 const SYNC_URL = "https://script.google.com/macros/s/AKfycbx59WE7iqgehx4nsE4xxxp_Q8-eQrd59VSfR4xSa3IlU7lIBtikr1gvG3EZgxWHEOwj/exec";
 const GOOGLE_CLIENT_ID = "280761518317-gdvrt4provk183vi87j6uoapmu5umn30.apps.googleusercontent.com";
@@ -2275,7 +2278,7 @@ export default function App() {
   useEffect(() => {
     if (!tripsLoaded) return;
     const oitaTrip = trips.find((trip) => trip.id === "trip-1786446683379");
-    if (!oitaTrip || oitaTrip.oitaDay3TransitVersion === 3 || !oitaTrip.days[2]) return;
+    if (!ENABLE_OITA_DAY3_TEMPLATE_MIGRATION || !oitaTrip || oitaTrip.oitaDay3TransitVersion === 3 || !oitaTrip.days[2]) return;
 
     const dayThreeStops: Stop[] = [
       {
