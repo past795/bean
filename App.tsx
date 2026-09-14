@@ -866,18 +866,19 @@ const upgradeBusanItinerary = (trip: TripPlan): TripPlan => {
       days: trip.days.map((day) => day.id === "day3" ? { ...day, stops: day.stops.map((stop) => {
         const revised = revisedStops.get(stop.id);
         if (!revised) return stop;
-        if (stop.id === "d3-lunch") return revised;
-        return { ...stop, latitude: revised.latitude, longitude: revised.longitude };
+        return {
+          ...stop,
+          latitude: stop.latitude ?? revised.latitude,
+          longitude: stop.longitude ?? revised.longitude
+        };
       }) } : day),
       backupPlans,
       busanItineraryVersion: BUSAN_ITINERARY_VERSION
     };
   }
   if ((trip.busanItineraryVersion || 0) >= 2026090201) {
-    const revisedDays = new Map(busanInitialTrip.filter((day) => day.id === "day2" || day.id === "day3").map((day) => [day.id, day]));
     return {
       ...trip,
-      days: trip.days.map((day) => revisedDays.get(day.id) || day),
       backupPlans,
       busanItineraryVersion: BUSAN_ITINERARY_VERSION
     };
@@ -887,7 +888,7 @@ const upgradeBusanItinerary = (trip: TripPlan): TripPlan => {
     startDate: "2026-10-04",
     endDate: "2026-10-08",
     period: "2026.10.04 – 2026.10.08",
-    days: busanInitialTrip,
+    days: trip.days.some((day) => day.stops.length) ? trip.days : busanInitialTrip,
     backupPlans,
     busanItineraryVersion: BUSAN_ITINERARY_VERSION
   };
@@ -1125,6 +1126,8 @@ export default function App() {
   const [coordinateRefreshNonce, setCoordinateRefreshNonce] = useState(0);
   const firestoreStartedRef = useRef("");
   const firestoreStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firestorePendingTripRef = useRef<string | null>(null);
+  const firestoreWriteVersionRef = useRef(0);
   const firestoreSeededTripsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
@@ -1411,7 +1414,7 @@ export default function App() {
   useEffect(() => {
     if (!firestoreConnected || !activeTrip?.id) return;
     return listenFirestoreTrip(activeTrip.id, (incomingTrip, incomingExpenses) => {
-      if (Date.now() - localMutationAtRef.current < 1800) return;
+      if (firestorePendingTripRef.current === activeTrip.id || Date.now() - localMutationAtRef.current < 1800) return;
       const rawTrip = incomingTrip as TripPlan;
       const normalizedTrip = normalizeTripSchedule(upgradeBusanItinerary(rawTrip));
       if (JSON.stringify(rawTrip) !== JSON.stringify(normalizedTrip) && googleUser?.firebaseUid) {
@@ -1477,6 +1480,7 @@ export default function App() {
         }
         if (tripStops.has(tripId)) return;
         tripStops.set(tripId, listenFirestoreTrip(tripId, (incomingTrip, incomingExpenses) => {
+          if (firestorePendingTripRef.current === tripId || Date.now() - localMutationAtRef.current < 1800) return;
           const rawTrip = incomingTrip as TripPlan;
           const trip = normalizeTripSchedule(upgradeBusanItinerary(rawTrip));
           if (JSON.stringify(rawTrip) !== JSON.stringify(trip)) {
@@ -1869,12 +1873,24 @@ export default function App() {
 
   const queueFirestoreState = (trip: TripPlan, tripExpenses: Expense[]) => {
     if (!firestoreConnected || !googleUser?.firebaseUid) return;
+    const writeVersion = ++firestoreWriteVersionRef.current;
+    firestorePendingTripRef.current = trip.id;
+    setSyncStatus("syncing");
+    setSyncErrorMessage("");
     if (firestoreStateTimerRef.current) clearTimeout(firestoreStateTimerRef.current);
     firestoreStateTimerRef.current = setTimeout(() => {
       firestoreStateTimerRef.current = null;
       const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid!);
-      updateFirestoreTripState(personId, trip, tripExpenses).catch((error: any) => {
-        setSyncErrorMessage(`Firebase 同步失敗：${error?.message || "請稍後重試"}`);
+      updateFirestoreTripState(personId, trip, tripExpenses).then(() => {
+        if (writeVersion !== firestoreWriteVersionRef.current) return;
+        firestorePendingTripRef.current = null;
+        tripDirtyRef.current = false;
+        setSyncStatus("synced");
+        setSyncErrorMessage("");
+      }).catch((error: any) => {
+        if (writeVersion !== firestoreWriteVersionRef.current) return;
+        setSyncStatus("error");
+        setSyncErrorMessage(`Firebase 同步失敗，請勿重新整理：${error?.message || "請稍後重試"}`);
       });
     }, 350);
   };
@@ -1882,9 +1898,6 @@ export default function App() {
   const syncTripNow = async (trip: TripPlan, tripExpenses: Expense[]) => {
     queueFirestoreState(trip, tripExpenses);
     if (firestoreConnected) {
-      tripDirtyRef.current = false;
-      setSyncStatus("synced");
-      setSyncErrorMessage("");
       return;
     }
     if (uploadingRef.current) {
