@@ -99,12 +99,20 @@ const ALL_DAYS_ID = "__all_days__";
 const DAY_ROUTE_COLORS = ["#E98268", "#5E7FA3", "#D3A54A", "#9A72B5", "#4F9A96", "#C96B8A", "#7F8D4E"];
 const SYNC_URL = "https://script.google.com/macros/s/AKfycbx59WE7iqgehx4nsE4xxxp_Q8-eQrd59VSfR4xSa3IlU7lIBtikr1gvG3EZgxWHEOwj/exec";
 const GOOGLE_CLIENT_ID = "280761518317-gdvrt4provk183vi87j6uoapmu5umn30.apps.googleusercontent.com";
-const currentWebOrigin = String((globalThis as any)?.location?.origin || "");
-const currentWebPath = String((globalThis as any)?.location?.pathname || "/");
-const currentWebBase = currentWebOrigin && currentWebPath
-  ? `${currentWebOrigin}${currentWebPath.endsWith("/") ? currentWebPath : currentWebPath.replace(/[^/]*$/, "")}`
-  : "https://past795.github.io/bean/";
-const SHARE_URL = `${currentWebBase}?share=2026080212`;
+const currentShareUrl = () => {
+  const location = (globalThis as any)?.location;
+  const origin = String(location?.origin || "");
+  const path = String(location?.pathname || "/");
+  if (!origin) return "";
+  const base = `${origin}${path.endsWith("/") ? path : path.replace(/[^/]*$/, "")}`;
+  return `${base}?share=${Date.now()}`;
+};
+const currentWebBase = (() => {
+  const location = (globalThis as any)?.location;
+  const origin = String(location?.origin || "");
+  const path = String(location?.pathname || "/");
+  return origin ? `${origin}${path.endsWith("/") ? path : path.replace(/[^/]*$/, "")}` : "/";
+})();
 const DOUYOU_AI_URL = "https://throbbing-dust-5d68douyou-ai.past795.workers.dev/chat";
 const BUSAN_BACKUP_FAVORITES: FavoritePlace[] = [
   { id: "busan-backup-film", name: "釜山電影體驗博物館", address: "釜山廣域市中區大廳路126號街12", country: "韓國", city: "釜山", latitude: 35.1017, longitude: 129.0325, note: "Day 1 下雨或炎熱時，可替代太宗台／白淺灘的室內備案。" },
@@ -215,7 +223,7 @@ const buildInviteMessage = (_tripId: string, inviteCode: string) => `一起編�
 4. 按「加入並開始同步」
 
 邀請碼：${inviteCode}
-豆遊網站：${SHARE_URL}
+豆遊網站：${currentShareUrl()}
 
 加入成功後，行程與記帳會自動同步。`;
 const isGoogleTokenFresh = (token: string) => {
@@ -5185,7 +5193,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.13</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.14</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
