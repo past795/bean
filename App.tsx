@@ -2250,10 +2250,33 @@ export default function App() {
     // Times describe positions in the day, not immutable attributes of a
     // place. Clear every moved stop's old time, anchor the new first stop at
     // the day's original start, then calculate the whole sequence again.
-    const anchored = stops.map((stop, index) => ({
-      ...stop,
-      time: index === 0 ? (originalStart || "09:00") : "彈性"
-    }));
+    const anchored = stops.map((stop, index) => {
+      if (index === 0) return { ...stop, time: originalStart || "09:00" };
+      const previous = stops[index - 1]!;
+      const km = (() => {
+        if (previous.latitude == null || previous.longitude == null || stop.latitude == null || stop.longitude == null) return Number.POSITIVE_INFINITY;
+        const toRad = (value: number) => value * Math.PI / 180;
+        const dLat = toRad(stop.latitude - previous.latitude);
+        const dLon = toRad(stop.longitude - previous.longitude);
+        const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(previous.latitude)) * Math.cos(toRad(stop.latitude)) * Math.sin(dLon / 2) ** 2;
+        return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+      })();
+      const samePlace = !!previous.address && previous.address === stop.address;
+      // The old incoming leg no longer describes this pair after reordering.
+      // Only nearby places default to walking; otherwise use public transit.
+      const routeMode: RouteMode = samePlace || (Number.isFinite(km) && km <= 1.2) ? "walking" : "transit";
+      const transportMode: Stop["transportMode"] = routeMode === "walking" ? "步行" : "地鐵";
+      return {
+        ...stop,
+        time: "彈性",
+        ...(keepSavedTransitMinutes ? {} : {
+          routeMode,
+          transportMode,
+          transport: routeMode === "walking" ? "步行" : "大眾運輸",
+          transitMinutes: 0
+        })
+      };
+    });
     return stopsWithEstimatedTimes(anchored, true, keepSavedTransitMinutes);
   };
 
@@ -5218,7 +5241,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.15.2</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.15.3</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
