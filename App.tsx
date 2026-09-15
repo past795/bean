@@ -2202,7 +2202,7 @@ export default function App() {
     }
   };
 
-  const stopsWithEstimatedTimes = (stops: Stop[], recalculateAll = false) => {
+  const stopsWithEstimatedTimes = (stops: Stop[], recalculateAll = false, keepSavedTransitMinutes = false) => {
     const distanceKm = (from: Stop, to: Stop) => {
       if (from.latitude == null || from.longitude == null || to.latitude == null || to.longitude == null) return null;
       const toRad = (value: number) => value * Math.PI / 180;
@@ -2212,7 +2212,7 @@ export default function App() {
       return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
     };
     const travelMinutes = (from: Stop, to: Stop) => {
-      if (!recalculateAll && (to.transitMinutes || 0) > 0) return to.transitMinutes!;
+      if ((!recalculateAll || keepSavedTransitMinutes) && (to.transitMinutes || 0) > 0) return to.transitMinutes!;
       const mode = to.routeMode || "driving";
       const distance = distanceKm(from, to);
       if (distance == null) return mode === "walking" ? 15 : mode === "transit" ? 35 : 20;
@@ -2245,10 +2245,16 @@ export default function App() {
     });
   };
 
-  const reorderedStopsWithEstimatedTimes = (stops: Stop[]) => {
+  const reorderedStopsWithEstimatedTimes = (stops: Stop[], keepSavedTransitMinutes = false) => {
     const originalStart = selectedDay.stops[0]?.time;
-    const anchored = stops.map((stop, index) => index === 0 && originalStart ? { ...stop, time: originalStart } : stop);
-    return stopsWithEstimatedTimes(anchored, true);
+    // Times describe positions in the day, not immutable attributes of a
+    // place. Clear every moved stop's old time, anchor the new first stop at
+    // the day's original start, then calculate the whole sequence again.
+    const anchored = stops.map((stop, index) => ({
+      ...stop,
+      time: index === 0 ? (originalStart || "09:00") : "彈性"
+    }));
+    return stopsWithEstimatedTimes(anchored, true, keepSavedTransitMinutes);
   };
 
   const updateStops = (stops: Stop[]) => {
@@ -2677,6 +2683,7 @@ export default function App() {
     const next = [...selectedDay.stops];
     [next[index], next[nextIndex]] = [next[nextIndex]!, next[index]!];
     updateStops(reorderedStopsWithEstimatedTimes(next));
+    showToast("已依新順序重算時間");
   };
 
   const openLinkedShoppingGuide = () => {
@@ -2859,16 +2866,16 @@ export default function App() {
       updatedArrival.time = `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
     }
     next[index] = updatedArrival;
-    updateStops(next);
+    updateStops(reorderedStopsWithEstimatedTimes(next, true));
+    setEditingLegToId(null);
+    showToast("交通已儲存，後續時間已更新");
   };
 
-  const applyLegModeImmediately = (mode: RouteMode) => {
+  const selectLegModeDraft = (mode: RouteMode) => {
     const modeText = mode === "walking" ? "步行" : mode === "transit" ? "大眾運輸" : mode === "taxi" ? "計程車" : "開車";
-    const transportMode: Stop["transportMode"] = mode === "walking" ? "步行" : mode === "transit" ? "地鐵" : mode === "taxi" ? "計程車" : "其他";
     setLegModeDraft(mode);
     setLegMinutesDraft("");
     setLegRouteDraft(modeText);
-    saveLegEditor({ routeMode: mode, transportMode, transitMinutes: 0, transport: modeText });
   };
 
   const openingMinutes = (stop: Stop) => {
@@ -4828,16 +4835,17 @@ export default function App() {
           {editingLegToId === nextStop.id && <View style={styles.betweenStopsEditor}>
             <Text style={styles.fieldLabel}>交通工具</Text>
             <View style={styles.legRouteActions}>
-              {([ ["driving", "🚗 開車"], ["walking", "🚶 步行"], ["transit", "🚇 大眾運輸"], ["taxi", "🚕 計程車"] ] as [RouteMode, string][]).map(([mode, label]) => <Pressable key={mode} onPress={() => applyLegModeImmediately(mode)} style={[styles.legModeButton, legModeDraft === mode && styles.legModeButtonActive]}><Text style={[styles.legModeText, legModeDraft === mode && styles.legModeTextActive]}>{label}</Text></Pressable>)}
+              {([ ["driving", "🚗 開車"], ["walking", "🚶 步行"], ["transit", "🚇 大眾運輸"], ["taxi", "🚕 計程車"] ] as [RouteMode, string][]).map(([mode, label]) => <Pressable key={mode} onPress={() => selectLegModeDraft(mode)} style={[styles.legModeButton, legModeDraft === mode && styles.legModeButtonActive]}><Text style={[styles.legModeText, legModeDraft === mode && styles.legModeTextActive]}>{label}</Text></Pressable>)}
             </View>
             <Text style={styles.fieldLabel}>交通時間（分鐘）</Text>
             <Text style={styles.legEstimate}>{legMinutesDraft ? `手填 ${draftLegMinutes} 分鐘` : draftLegMinutes != null ? `預估約 ${draftLegMinutes} 分鐘；可手填實際時間` : "兩站缺少座標，請查地圖後手填時間"}</Text>
-            <TextInput value={legMinutesDraft} onChangeText={(value) => setLegMinutesDraft(value.replace(/[^0-9]/g, ""))} onEndEditing={() => saveLegEditor()} keyboardType="number-pad" placeholder={draftLegMinutes != null ? `粗估 ${draftLegMinutes} 分鐘；可手填實際時間` : "請填入查證後的交通分鐘數"} placeholderTextColor="#AAA198" style={styles.fieldInput} />
+            <TextInput value={legMinutesDraft} onChangeText={(value) => setLegMinutesDraft(value.replace(/[^0-9]/g, ""))} keyboardType="number-pad" placeholder={draftLegMinutes != null ? `粗估 ${draftLegMinutes} 分鐘；可手填實際時間` : "請填入查證後的交通分鐘數"} placeholderTextColor="#AAA198" style={styles.fieldInput} />
             <Text style={styles.fieldLabel}>車次／路線／備註</Text>
-            <TextInput value={legRouteDraft} onChangeText={setLegRouteDraft} onEndEditing={() => saveLegEditor()} placeholder="例如：地鐵 2 號線、計程車上車點" placeholderTextColor="#AAA198" style={styles.fieldInput} />
-            <Text style={styles.routeFieldHint}>交通工具點下即同步；分鐘與備註輸入完成後自動同步。</Text>
+            <TextInput value={legRouteDraft} onChangeText={setLegRouteDraft} placeholder="例如：地鐵 2 號線、計程車上車點" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+            <Text style={styles.routeFieldHint}>修改完成後請按「儲存交通」，系統會同步重算後續景點時間。</Text>
             <View style={styles.betweenStopsActions}>
               <Pressable style={styles.fastRouteButton} onPress={() => openGoogleRoute(item, nextStop, legModeDraft)}><Text style={styles.fastRouteButtonText}>查看路線 ↗</Text></Pressable>
+              <Pressable style={styles.betweenStopsSave} onPress={() => saveLegEditor()}><Text style={styles.betweenStopsSaveText}>儲存交通</Text></Pressable>
             </View>
           </View>}
         </View>
@@ -4953,7 +4961,7 @@ export default function App() {
                 containerStyle={styles.itineraryList}
                 data={selectedDay.stops}
                 keyExtractor={(item) => item.id}
-                onDragEnd={({ data }) => updateStops(reorderedStopsWithEstimatedTimes(data))}
+                onDragEnd={({ data }) => { updateStops(reorderedStopsWithEstimatedTimes(data)); showToast("已依新順序重算時間"); }}
                 renderItem={renderStop}
                 contentContainerStyle={styles.listContent}
                 ListEmptyComponent={
@@ -5210,7 +5218,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.15.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.15.2</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5430,7 +5438,7 @@ export default function App() {
                 data={selectedDay.stops}
                 keyExtractor={(item) => item.id}
                 onDragBegin={() => setPreviousStops([...selectedDay.stops])}
-                onDragEnd={({ data }) => updateStops(reorderedStopsWithEstimatedTimes(data))}
+                onDragEnd={({ data }) => { updateStops(reorderedStopsWithEstimatedTimes(data)); showToast("已依新順序重算時間"); }}
                 activationDistance={4}
                 autoscrollThreshold={90}
                 autoscrollSpeed={140}
