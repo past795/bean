@@ -2240,7 +2240,9 @@ export default function App() {
         previousStart = null;
         return stop;
       }
-      const start = Math.min(23 * 60 + 55, previousStart + (previous.durationMinutes || 60) + travel);
+      // An empty stay duration means no extra stay was specified. Adding an
+      // implicit hour made 11:00 + 15 minutes incorrectly become 12:15.
+      const start = Math.min(23 * 60 + 55, previousStart + (previous.durationMinutes || 0) + travel);
       previousStart = start;
       return { ...stop, time: `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}` };
     });
@@ -5243,7 +5245,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.15.4</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.15.5</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
