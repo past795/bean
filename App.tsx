@@ -1003,6 +1003,7 @@ export default function App() {
   const [newDayCount, setNewDayCount] = useState("5");
   const [newTravelers, setNewTravelers] = useState("2");
   const [addingStop, setAddingStop] = useState(false);
+  const [showStopFavoritePicker, setShowStopFavoritePicker] = useState(false);
   const [dayOrganizerVisible, setDayOrganizerVisible] = useState(false);
   const [newStopTitle, setNewStopTitle] = useState("");
   const [newStopTime, setNewStopTime] = useState("");
@@ -3775,6 +3776,7 @@ export default function App() {
     setBulkItineraryText("");
     setBulkImportVisible(false);
     setAddingStop(false);
+    setShowStopFavoritePicker(false);
     Alert.alert("匯入完成", `已加入 ${added} 個景點。`);
   };
 
@@ -5241,7 +5243,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.15.3</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.15.4</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -6366,6 +6368,34 @@ export default function App() {
                 <View style={styles.sheetHandle} />
                 <Text style={styles.sheetEyebrow}>ADD A PLACE</Text>
                 <Text style={styles.sheetTitle}>新增景點或行程</Text>
+                <Pressable style={styles.favoriteImportButton} onPress={() => setShowStopFavoritePicker((value) => !value)}>
+                  <Text style={styles.favoriteImportButtonText}>{showStopFavoritePicker ? "收起收藏 ▴" : "♡ 從收藏選擇"}</Text>
+                </Pressable>
+                {showStopFavoritePicker && (
+                  <ScrollView nestedScrollEnabled style={styles.stopFavoritePicker}>
+                    <Text style={styles.detailHint}>選擇後會帶入名稱、地址、座標與備註，你仍可修改並指定插入位置。</Text>
+                    {!favorites.length && <Text style={styles.emptyListText}>目前還沒有收藏景點。</Text>}
+                    {favorites.map((place) => (
+                      <Pressable key={`stop-favorite-${place.id}`} style={styles.stopFavoriteChoice} onPress={() => {
+                        suppressNextPlaceSearchRef.current = true;
+                        setNewStopTitle(place.name);
+                        setNewStopAddress(place.address || "");
+                        setNewStopLatitude(place.latitude);
+                        setNewStopLongitude(place.longitude);
+                        setNewStopNote(place.note || "");
+                        setNewStopOpeningHours(place.openingHours || "");
+                        setPlaceSuggestions([]);
+                        setPlaceSuggestionStatus("idle");
+                        setAddressLookupStatus(place.latitude != null && place.longitude != null ? "found" : "idle");
+                        setAddressLookupMessage(place.latitude != null && place.longitude != null ? "已帶入收藏中的地址與座標" : "已帶入收藏；可按下方按鈕更新座標");
+                        setShowStopFavoritePicker(false);
+                      }}>
+                        <Text style={styles.placeSuggestionName}>{place.name}</Text>
+                        <Text style={styles.placeSuggestionAddress} numberOfLines={2}>{place.address || "地址待補"}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                )}
                 <Pressable style={styles.bulkImportButton} onPress={() => setBulkImportVisible(!bulkImportVisible)}>
                   <Text style={styles.bulkImportButtonText}>{bulkImportVisible ? "收起批次貼上" : "一次貼上整份行程"}</Text>
                 </Pressable>
@@ -6594,6 +6624,10 @@ const styles = createDouyouStyles({
   refreshSyncButton: { alignSelf: "flex-start", backgroundColor: "#E9EDF5", borderRadius: 11, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12 },
   refreshSyncText: { color: "#536783", fontSize: 11, fontWeight: "900" },
   bulkImportButton: { backgroundColor: "#E9EDF5", borderRadius: 12, padding: 12, marginBottom: 10, alignItems: "center" },
+  favoriteImportButton: { backgroundColor: "#536783", borderRadius: 12, padding: 12, marginBottom: 10, alignItems: "center" },
+  favoriteImportButtonText: { color: "#FFFFFF", fontWeight: "900", fontSize: 13 },
+  stopFavoritePicker: { maxHeight: 300, backgroundColor: "#F7F4EE", borderRadius: 14, padding: 10, marginBottom: 12 },
+  stopFavoriteChoice: { backgroundColor: "#FFFFFF", borderRadius: 11, borderWidth: 1, borderColor: "#E4DED5", padding: 11, marginTop: 7 },
   bulkImportButtonText: { color: "#536783", fontSize: 12, fontWeight: "900" },
   bulkImportBox: { backgroundColor: "#F7F4EE", borderRadius: 14, padding: 11, marginBottom: 12 },
   bulkHelp: { color: "#766E66", fontSize: 10, lineHeight: 16, marginBottom: 8 },
