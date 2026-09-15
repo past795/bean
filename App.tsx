@@ -604,6 +604,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
       shoppingCatalogImported: !!trip.shoppingCatalogImported,
       oitaDay3TransitVersion: trip.oitaDay3TransitVersion || 0,
       oitaItineraryVersion: trip.oitaItineraryVersion || 0,
+      currency: trip.currency || "",
       unscheduledPlaces: trip.unscheduledPlaces || [],
       reservations: trip.reservations || [],
       days: trip.days.map((day) => ({ id: day.id, date: day.date, title: day.title }))
@@ -679,6 +680,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
     shoppingCatalogImported: !!tripMeta.shoppingCatalogImported,
     oitaDay3TransitVersion: Number(tripMeta.oitaDay3TransitVersion || 0),
     oitaItineraryVersion: Number(tripMeta.oitaItineraryVersion || 0),
+    currency: ["KRW", "JPY", "TWD", "USD"].includes(String(tripMeta.currency || "")) ? tripMeta.currency : undefined,
     unscheduledPlaces: Array.isArray(tripMeta.unscheduledPlaces) ? tripMeta.unscheduledPlaces : [],
     reservations: Array.isArray(tripMeta.reservations) ? tripMeta.reservations : [],
     period: startDate
@@ -4623,10 +4625,16 @@ export default function App() {
   const weatherIcon = (code: number) =>
     code === 0 ? "☀️" : code <= 3 ? "⛅" : code <= 48 ? "🌫️" : code <= 67 ? "🌧️" : code <= 77 ? "❄️" : code <= 82 ? "🌦️" : "⛈️";
 
-  const tripCurrencyContext = `${activeTrip.destination} ${activeTrip.days.flatMap((day) => day.stops.map((stop) => `${stop.title} ${stop.address}`)).join(" ")} ${activeTrip.accommodations.map((hotel) => hotel.address).join(" ")}`;
-  const currencyForTrip = /日本|Japan|大分|別府|由布|九重|日田|宇佐|國東|国東|中津|竹田|豊後|豐後|沖繩|東京|大阪|京都|北海道|福岡|〒\d{3}-\d{4}|[都道府県]/i.test(tripCurrencyContext)
-    ? { code: "JPY", symbol: "¥", rate: 0.22 }
-    : { code: "KRW", symbol: "₩", rate: 0.022 };
+  // Keep currency at the trip level. Scanning every stop caused one Japanese
+  // address to incorrectly switch an otherwise Korean trip to JPY.
+  const inferredTripCurrency = /日本|Japan|大分|別府|由布|九重|沖繩|東京|大阪|京都|北海道|福岡/i.test(`${activeTrip.title} ${activeTrip.destination}`) ? "JPY"
+    : /韓國|韓国|Korea|釜山|Busan|首爾|Seoul/i.test(`${activeTrip.title} ${activeTrip.destination}`) ? "KRW"
+    : "TWD";
+  const tripCurrencyCode = activeTrip.currency || inferredTripCurrency;
+  const currencyForTrip = tripCurrencyCode === "JPY" ? { code: "JPY", symbol: "¥", rate: 0.22 }
+    : tripCurrencyCode === "KRW" ? { code: "KRW", symbol: "₩", rate: 0.022 }
+    : tripCurrencyCode === "USD" ? { code: "USD", symbol: "$", rate: 32 }
+    : { code: "TWD", symbol: "NT$", rate: 1 };
 
   const refreshExchangeRate = async () => {
     setExchangeRateLoading(true);
@@ -5202,7 +5210,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.14.17</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.15.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5957,6 +5965,15 @@ export default function App() {
               )}
               {selectedTool === "匯率" && (
                 <View style={styles.detailBlock}>
+                  <Text style={styles.fieldLabel}>這趟旅行使用的幣別</Text>
+                  <View style={styles.currencyChoices}>
+                    {["KRW", "JPY", "TWD", "USD"].map((currency) => (
+                      <Pressable key={currency} style={[styles.currencyChoice, tripCurrencyCode === currency && styles.currencyChoiceActive]} onPress={() => updateActiveTrip({ currency: currency as TripPlan["currency"] })}>
+                        <Text style={[styles.currencyChoiceText, tripCurrencyCode === currency && styles.currencyChoiceTextActive]}>{currency}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Text style={styles.detailHint}>幣別會跟著這趟旅行同步保存；釜山預設 KRW，大分預設 JPY。</Text>
                   <Text style={styles.fieldLabel}>{currencyForTrip.code} 金額</Text>
                   <TextInput value={krwAmount} onChangeText={setKrwAmount} keyboardType="numeric" style={styles.fieldInput} />
                   <Text style={styles.exchangeResult}>約 NT$ {(Number(krwAmount.replace(/,/g, "")) * (exchangeRate ?? currencyForTrip.rate)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>

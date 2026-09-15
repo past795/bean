@@ -134,6 +134,7 @@ export type TripPlan = {
   id: string;
   title: string;
   destination: string;
+  currency?: "KRW" | "JPY" | "TWD" | "USD";
   period: string;
   startDate?: string;
   endDate?: string;
