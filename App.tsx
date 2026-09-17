@@ -96,6 +96,7 @@ const CLOUD_MEMBER_KEY = "douyou-cloud-members-v1";
 const AUTH_KEY = "douyou-google-auth-v1";
 const FAVORITES_KEY = "douyou-personal-favorites-v1";
 const FAVORITE_COLLAPSE_KEY = "douyou-favorite-collapse-v1";
+const NOTE_COLLAPSE_KEY = "douyou-note-collapse-v1";
 const ALL_DAYS_ID = "__all_days__";
 // Never replace a user's edited Oita itinerary during app startup. The old
 // one-time template migration is retained below only as historical reference.
@@ -1055,6 +1056,7 @@ export default function App() {
   const [noteTitleDraft, setNoteTitleDraft] = useState("");
   const [noteContentDraft, setNoteContentDraft] = useState("");
   const [collapsedNotes, setCollapsedNotes] = useState<string[]>([]);
+  const [noteCollapseReady, setNoteCollapseReady] = useState(false);
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
   const [addingExpense, setAddingExpense] = useState(false);
   const [expenseTitle, setExpenseTitle] = useState("");
@@ -1276,6 +1278,23 @@ export default function App() {
   const days = activeTrip.days;
   const selectedDay = days.find((d) => d.id === selectedDayId) ?? days[0]!;
   const showingAllDays = selectedDayId === ALL_DAYS_ID;
+  useEffect(() => {
+    setNoteCollapseReady(false);
+    const storageKey = `${NOTE_COLLAPSE_KEY}:${activeTrip.id}`;
+    AsyncStorage.getItem(storageKey).then((value) => {
+      if (value) {
+        const saved = JSON.parse(value);
+        setCollapsedNotes(Array.isArray(saved) ? saved : []);
+      } else {
+        setCollapsedNotes((activeTrip.notes || []).map((item) => item.id));
+      }
+    }).catch(() => setCollapsedNotes((activeTrip.notes || []).map((item) => item.id)))
+      .finally(() => setNoteCollapseReady(true));
+  }, [activeTrip.id]);
+  useEffect(() => {
+    if (!noteCollapseReady) return;
+    AsyncStorage.setItem(`${NOTE_COLLAPSE_KEY}:${activeTrip.id}`, JSON.stringify(collapsedNotes)).catch(() => undefined);
+  }, [noteCollapseReady, activeTrip.id, collapsedNotes]);
   const reservationStops = useMemo(() => activeTrip.days.flatMap((day, index) => {
     const itineraryDate = isoDateAtOffset(activeTrip.startDate || "", index) || day.date;
     return day.stops.map((stop) => ({ day, stop, info: reservationInfoForStop(stop, itineraryDate) })).filter((item) => item.info.required);
@@ -5245,7 +5264,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.15.5</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.17.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
