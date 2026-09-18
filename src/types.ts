@@ -132,6 +132,7 @@ export type TripNote = {
 
 export type TripPlan = {
   id: string;
+  clientUpdatedAt?: number;
   title: string;
   destination: string;
   currency?: "KRW" | "JPY" | "TWD" | "USD";

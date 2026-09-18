@@ -417,6 +417,7 @@ const VERIFIED_OPENING_HOURS: Record<string, { hours: string; source: string }> 
 };
 
 type Expense = { id: string; title: string; amount: number; payer: string; currency?: string; splitBetween?: string[] };
+type TxtExportSection = "itinerary" | "transport" | "flights" | "stays" | "reservations" | "backups" | "notes" | "shopping" | "expenses";
 type CloudLink = { inviteCode: string; memberName?: string; memberId?: string; role?: "owner" | "member" };
 type CloudLinks = Record<string, CloudLink>;
 
@@ -605,6 +606,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
       shoppingCatalogImported: !!trip.shoppingCatalogImported,
       oitaDay3TransitVersion: trip.oitaDay3TransitVersion || 0,
       oitaItineraryVersion: trip.oitaItineraryVersion || 0,
+      clientUpdatedAt: trip.clientUpdatedAt || 0,
       currency: trip.currency || "",
       unscheduledPlaces: trip.unscheduledPlaces || [],
       reservations: trip.reservations || [],
@@ -681,6 +683,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
     shoppingCatalogImported: !!tripMeta.shoppingCatalogImported,
     oitaDay3TransitVersion: Number(tripMeta.oitaDay3TransitVersion || 0),
     oitaItineraryVersion: Number(tripMeta.oitaItineraryVersion || 0),
+    clientUpdatedAt: Number(tripMeta.clientUpdatedAt || 0),
     currency: ["KRW", "JPY", "TWD", "USD"].includes(String(tripMeta.currency || "")) ? tripMeta.currency : undefined,
     unscheduledPlaces: Array.isArray(tripMeta.unscheduledPlaces) ? tripMeta.unscheduledPlaces : [],
     reservations: Array.isArray(tripMeta.reservations) ? tripMeta.reservations : [],
@@ -970,6 +973,10 @@ export default function App() {
   const [firestoreConnected, setFirestoreConnected] = useState(false);
   const [archivedTrips, setArchivedTrips] = useState<any[]>([]);
   const [archiveTripTarget, setArchiveTripTarget] = useState<TripPlan | null>(null);
+  const [txtExportSections, setTxtExportSections] = useState<Record<TxtExportSection, boolean>>({
+    itinerary: true, transport: true, flights: true, stays: true, reservations: true,
+    backups: true, notes: true, shopping: true, expenses: false
+  });
   const [archiveEmail, setArchiveEmail] = useState("");
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [editing, setEditing] = useState<Stop | null>(null);
@@ -1131,7 +1138,7 @@ export default function App() {
   const [enlargedShoppingImage, setEnlargedShoppingImage] = useState<{ uri: string; name: string } | null>(null);
   const [checklistText, setChecklistText] = useState("");
   const [checklistError, setChecklistError] = useState("");
-  const [previousStops, setPreviousStops] = useState<Stop[] | null>(null);
+  const [stopUndoHistory, setStopUndoHistory] = useState<Record<string, Stop[][]>>({});
   const [cloudLinks, setCloudLinks] = useState<CloudLinks>({});
   const [cloudMembers, setCloudMembers] = useState<Record<string, string[]>>({});
   const [memberDraft, setMemberDraft] = useState("");
@@ -1152,6 +1159,7 @@ export default function App() {
   const pullingRef = useRef(false);
   const localMutationAtRef = useRef(0);
   const tripDirtyRef = useRef(false);
+  const tripClientVersionRef = useRef<Record<string, number>>({});
   const cloudLinksRef = useRef<CloudLinks>({});
   const itineraryListRef = useRef<any>(null);
   const geocodedDaysRef = useRef<Set<string>>(new Set());
@@ -1278,6 +1286,8 @@ export default function App() {
   const days = activeTrip.days;
   const selectedDay = days.find((d) => d.id === selectedDayId) ?? days[0]!;
   const showingAllDays = selectedDayId === ALL_DAYS_ID;
+  const currentUndoHistory = stopUndoHistory[selectedDay.id] || [];
+  const previousStops = currentUndoHistory[currentUndoHistory.length - 1] || null;
   useEffect(() => {
     setNoteCollapseReady(false);
     const storageKey = `${NOTE_COLLAPSE_KEY}:${activeTrip.id}`;
@@ -1461,6 +1471,12 @@ export default function App() {
   }, {} as Record<string, Record<string, FavoritePlace[]>>), [favorites]);
 
   useEffect(() => {
+    trips.forEach((trip) => {
+      tripClientVersionRef.current[trip.id] = Math.max(tripClientVersionRef.current[trip.id] || 0, trip.clientUpdatedAt || 0);
+    });
+  }, [trips]);
+
+  useEffect(() => {
     if (!googleUser?.firebaseUid || !tripsLoaded || !expensesLoaded || !favoritesLoaded || !cloudLinksLoaded) return;
     const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
     const migrationKey = `${personId}:${trips.map((trip) => trip.id).join(",")}`;
@@ -1498,12 +1514,15 @@ export default function App() {
     return listenFirestoreTrip(activeTrip.id, (incomingTrip, incomingExpenses) => {
       if (firestorePendingTripRef.current === activeTrip.id || Date.now() - localMutationAtRef.current < 1800) return;
       const rawTrip = incomingTrip as TripPlan;
+      if ((tripClientVersionRef.current[rawTrip.id] || 0) > (rawTrip.clientUpdatedAt || 0)) return;
       const normalizedTrip = normalizeTripSchedule(upgradeOitaItinerary(upgradeBusanItinerary(rawTrip)));
       if (JSON.stringify(rawTrip) !== JSON.stringify(normalizedTrip) && googleUser?.firebaseUid) {
         const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
         updateFirestoreTripState(personId, normalizedTrip, incomingExpenses).catch(() => undefined);
       }
       setTrips((current) => {
+        const local = current.find((trip) => trip.id === normalizedTrip.id);
+        if ((local?.clientUpdatedAt || 0) > (normalizedTrip.clientUpdatedAt || 0)) return current;
         const next = current.some((trip) => trip.id === normalizedTrip.id)
           ? current.map((trip) => trip.id === normalizedTrip.id ? normalizedTrip : trip)
           : [...current, normalizedTrip];
@@ -1564,6 +1583,7 @@ export default function App() {
         tripStops.set(tripId, listenFirestoreTrip(tripId, (incomingTrip, incomingExpenses) => {
           if (firestorePendingTripRef.current === tripId || Date.now() - localMutationAtRef.current < 1800) return;
           const rawTrip = incomingTrip as TripPlan;
+          if ((tripClientVersionRef.current[rawTrip.id] || 0) > (rawTrip.clientUpdatedAt || 0)) return;
           // The linked-trip listener also receives the same Firestore state.
           // Apply the one-time Oita import here too, or its raw snapshot can
           // immediately overwrite the upgraded active-trip state.
@@ -1572,6 +1592,8 @@ export default function App() {
             updateFirestoreTripState(personId, trip, incomingExpenses).catch(() => undefined);
           }
           setTrips((current) => {
+            const local = current.find((item) => item.id === trip.id);
+            if ((local?.clientUpdatedAt || 0) > (trip.clientUpdatedAt || 0)) return current;
             const withoutWelcome = current.filter((item) => item.id !== "local-welcome");
             const merged = withoutWelcome.some((item) => item.id === trip.id)
               ? withoutWelcome.map((item) => item.id === trip.id ? trip : item)
@@ -1882,6 +1904,127 @@ export default function App() {
     showToast("請在列印畫面選擇「儲存為 PDF」");
   };
 
+  const exportTripTxt = () => {
+    if (!archiveTripTarget) return;
+    if (Platform.OS !== "web" || typeof document === "undefined") {
+      Alert.alert("請使用瀏覽器匯出", "請在 Safari 或 Chrome 開啟豆遊後下載 TXT。");
+      return;
+    }
+    if (!Object.values(txtExportSections).some(Boolean)) {
+      Alert.alert("請選擇匯出內容", "至少勾選一個要放進 TXT 的部分。");
+      return;
+    }
+    const trip = archiveTripTarget;
+    const lines: string[] = [trip.title, `${trip.destination}｜${trip.period}｜${trip.travelers} 人同行`, ""];
+    const section = (title: string) => { lines.push(`【${title}】`); };
+    const finishSection = () => lines.push("");
+    if (txtExportSections.itinerary) {
+      section("每日行程");
+      trip.days.forEach((day) => {
+        lines.push(`${day.date} ${day.label}｜${day.title}`);
+        if (!day.stops.length) lines.push("（尚無景點）");
+        day.stops.forEach((stop, index) => {
+          lines.push(`${index + 1}. ${stop.time || "彈性"} ${stopDisplayTitle(stop)}`);
+          if (stop.address && stop.address !== "地址待補") lines.push(`   地址：${stop.address}`);
+          if (stop.openingHours) lines.push(`   營業時間：${stop.openingHours}`);
+          if (stop.durationMinutes) lines.push(`   停留：約 ${stop.durationMinutes} 分鐘`);
+          if (stop.note) lines.push(`   備註：${stop.note}`);
+        });
+        lines.push("");
+      });
+    }
+    if (txtExportSections.transport) {
+      section("景點間交通");
+      trip.days.forEach((day) => {
+        lines.push(`${day.date} ${day.label}`);
+        day.stops.slice(1).forEach((stop, index) => {
+          const from = day.stops[index];
+          if (!from) return;
+          const mode = stop.transportMode || (stop.routeMode === "walking" ? "步行" : stop.routeMode === "taxi" ? "計程車" : "大眾運輸");
+          lines.push(`${stopDisplayTitle(from)} → ${stopDisplayTitle(stop)}｜${mode}${stop.transitMinutes ? `｜約 ${stop.transitMinutes} 分鐘` : ""}`);
+          if (stop.transport && stop.transport !== mode) lines.push(`   車次／路線／備註：${stop.transport}`);
+        });
+        if (day.stops.length < 2) lines.push("（尚無景點間交通）");
+      });
+      finishSection();
+    }
+    if (txtExportSections.flights) {
+      section("班機");
+      trip.flights.forEach((flight) => {
+        lines.push(`${flight.route}｜${flight.flightNumber}｜${flight.departure} → ${flight.arrival}`);
+        if (flight.terminal) lines.push(`   航廈：${flight.terminal}`);
+        if (flight.note) lines.push(`   備註：${flight.note}`);
+      });
+      if (!trip.flights.length) lines.push("（尚無班機資料）");
+      finishSection();
+    }
+    if (txtExportSections.stays) {
+      section("住宿");
+      trip.accommodations.forEach((stay) => {
+        lines.push(`${stay.name}｜${stay.period}`);
+        if (stay.address) lines.push(`   地址：${stay.address}`);
+        if (stay.checkIn || stay.checkOut) lines.push(`   入住／退房：${stay.checkIn || "未填"}／${stay.checkOut || "未填"}`);
+        if (stay.note) lines.push(`   備註：${stay.note}`);
+      });
+      if (!trip.accommodations.length) lines.push("（尚無住宿資料）");
+      finishSection();
+    }
+    if (txtExportSections.reservations) {
+      section("預約提醒");
+      trip.days.forEach((day) => day.stops.filter((stop) => stop.reservationRequired).forEach((stop) => {
+        lines.push(`${day.date}｜${stopDisplayTitle(stop)}${stop.reservationCompleted ? "｜已完成" : "｜待預約"}`);
+        if (stop.reservationSuggestedDate || stop.reservationSuggestedTime) lines.push(`   建議：${stop.reservationSuggestedDate || ""} ${stop.reservationSuggestedTime || ""}`.trimEnd());
+        if (stop.reservationNote) lines.push(`   備註：${stop.reservationNote}`);
+      }));
+      (trip.reservations || []).forEach((item) => {
+        lines.push(`${item.title}${item.completed ? "｜已完成" : "｜待處理"}`);
+        if (item.suggestedDate || item.suggestedTime) lines.push(`   建議：${item.suggestedDate || ""} ${item.suggestedTime || ""}`.trimEnd());
+        if (item.note) lines.push(`   備註：${item.note}`);
+      });
+      finishSection();
+    }
+    if (txtExportSections.backups) {
+      section("備案");
+      (trip.backupPlans || []).forEach((item) => {
+        lines.push(`${item.date ? `${item.date}｜` : ""}${item.reason}：${item.alternative}`);
+        if (item.affected) lines.push(`   影響：${item.affected}`);
+        if (item.reminder) lines.push(`   提醒：${item.reminder}`);
+      });
+      if (!(trip.backupPlans || []).length) lines.push("（尚無備案）");
+      finishSection();
+    }
+    if (txtExportSections.notes) {
+      section("筆記");
+      (trip.notes || []).forEach((item) => { lines.push(item.title); lines.push(item.content || "（無內容）", ""); });
+      if (!(trip.notes || []).length) lines.push("（尚無筆記）");
+      finishSection();
+    }
+    if (txtExportSections.shopping) {
+      section("必買商品");
+      trip.shopping.forEach((item) => lines.push(`${item.purchased ? "[已買]" : "[待買]"} ${item.name} × ${item.quantity || 1}｜${item.purchaseArea || "未分類"}${item.price ? `｜${item.currency || trip.currency || ""} ${item.price}` : ""}`));
+      if (!trip.shopping.length) lines.push("（尚無必買商品）");
+      if ((trip.shoppingGuide || []).length) {
+        lines.push("", "逛街攻略");
+        (trip.shoppingGuide || []).forEach((item) => lines.push(`${item.region}｜${item.name}${item.note ? `｜${item.note}` : ""}`));
+      }
+      finishSection();
+    }
+    if (txtExportSections.expenses) {
+      section("記帳");
+      (expenses[trip.id] || []).forEach((item) => lines.push(`${item.title}｜${item.currency || trip.currency || "TWD"} ${item.amount}｜付款：${item.payer}${item.splitBetween?.length ? `｜分攤：${item.splitBetween.join("、")}` : ""}`));
+      if (!(expenses[trip.id] || []).length) lines.push("（尚無記帳資料）");
+      finishSection();
+    }
+    const blob = new Blob(["\ufeff", lines.join("\r\n").trimEnd(), "\r\n"], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${safeExportName(trip.title)}.txt`;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    showToast("TXT 已下載");
+  };
+
   const sendArchiveEmailTest = async () => {
     if (!archiveTripTarget || !archiveEmail.trim()) { Alert.alert("請先輸入收件信箱"); return; }
     if (!googleUser?.idToken) { Alert.alert("請先登入 Google 帳號"); return; }
@@ -2123,11 +2266,15 @@ export default function App() {
           ...localPersonalChecklist
         ]
       });
+      if (quiet && (localTrip?.clientUpdatedAt || 0) > (incomingTrip.clientUpdatedAt || 0)) return localTrip || null;
       const localSelectedDay = localTrip?.days.find((day) => day.id === selectedDayId);
       const incomingSelectedDay = incomingTrip.days.find((day) => day.id === selectedDayId);
       if (quiet && localSelectedDay && incomingSelectedDay &&
           JSON.stringify(localSelectedDay.stops) !== JSON.stringify(incomingSelectedDay.stops)) {
-        setPreviousStops([...localSelectedDay.stops]);
+        setStopUndoHistory((current) => ({
+          ...current,
+          [localSelectedDay.id]: [...(current[localSelectedDay.id] || []).slice(-19), localSelectedDay.stops.map((stop) => ({ ...stop }))]
+        }));
       }
       const memberNames = (result.data.members || []).map((row: any) => String(row["顯示名稱"] || "")).filter((name: string) => name && name !== "我");
       setCloudMembers((current) => {
@@ -2213,9 +2360,12 @@ export default function App() {
   const persistTrips = (next: TripPlan[]) => {
     localMutationAtRef.current = Date.now();
     tripDirtyRef.current = true;
-    setTrips(next);
-    AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
-    const changed = next.find((trip) => trip.id === activeTripId);
+    const timestamp = Date.now();
+    const stamped = next.map((trip) => trip.id === activeTripId ? { ...trip, clientUpdatedAt: timestamp } : trip);
+    if (activeTripId) tripClientVersionRef.current[activeTripId] = timestamp;
+    setTrips(stamped);
+    AsyncStorage.setItem(STORE_KEY, JSON.stringify(stamped)).catch(() => undefined);
+    const changed = stamped.find((trip) => trip.id === activeTripId);
     if (changed) {
       queueFirestoreState(changed, expenses[changed.id] ?? []);
       queueCloudSync(changed, expenses[changed.id] ?? []);
@@ -2302,8 +2452,16 @@ export default function App() {
     return stopsWithEstimatedTimes(anchored, true, keepSavedTransitMinutes);
   };
 
-  const updateStops = (stops: Stop[]) => {
-    if (stops !== selectedDay.stops) setPreviousStops([...selectedDay.stops]);
+  const updateStops = (stops: Stop[], recordUndo = true) => {
+    if (recordUndo && JSON.stringify(stops) !== JSON.stringify(selectedDay.stops)) {
+      setStopUndoHistory((current) => {
+        const history = current[selectedDay.id] || [];
+        const snapshot = selectedDay.stops.map((stop) => ({ ...stop }));
+        const last = history[history.length - 1];
+        if (last && JSON.stringify(last) === JSON.stringify(snapshot)) return current;
+        return { ...current, [selectedDay.id]: [...history.slice(-19), snapshot] };
+      });
+    }
     const scheduledStops = stopsWithEstimatedTimes(stops);
     const next = trips.map((trip) => trip.id !== activeTrip.id ? trip : {
       ...trip,
@@ -2934,7 +3092,6 @@ export default function App() {
       Alert.alert("尚無網路查證資料", "這一天還沒有已查證的營業時間，因此不會用備註內容自行猜測排序。");
       return;
     }
-    setPreviousStops([...selectedDay.stops]);
     updateStops(selectedDay.stops.map((stop, index) => ({ stop, index }))
       .sort((a, b) => openingMinutes(a.stop) - openingMinutes(b.stop) || a.index - b.index)
       .map(({ stop }) => stop));
@@ -2963,7 +3120,6 @@ export default function App() {
 
   const sortByShortestRoute = () => {
     if (selectedDay.stops.length < 2) return;
-    setPreviousStops([...selectedDay.stops]);
     const remaining = [...selectedDay.stops.slice(1)];
     const sorted = [selectedDay.stops[0]!];
     while (remaining.length) {
@@ -2981,8 +3137,9 @@ export default function App() {
 
   const undoSmartSort = () => {
     if (!previousStops) return;
-    updateStops(previousStops);
-    setPreviousStops(null);
+    setStopUndoHistory((current) => ({ ...current, [selectedDay.id]: (current[selectedDay.id] || []).slice(0, -1) }));
+    updateStops(previousStops, false);
+    showToast(`已復原；還可上一步 ${Math.max(0, currentUndoHistory.length - 1)} 次`);
   };
 
   const inferFavoriteRegion = (name: string, address: string) => {
@@ -5264,7 +5421,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.17.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.18.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5457,13 +5614,22 @@ export default function App() {
         </Modal>
 
         <Modal visible={!!archiveTripTarget} animationType="slide" transparent onRequestClose={() => setArchiveTripTarget(null)}>
-          <View style={styles.modalShade}><View style={styles.sheet}><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>EXPORT TRIP</Text><Text style={styles.sheetTitle}>匯出旅行</Text>
-            <View style={styles.archiveWarning}><Text style={styles.archiveWarningTitle}>直接存到目前裝置</Text><Text style={styles.archiveWarningText}>不寄信、不建立 Google Sheet，也不會刪除或封存旅行。Excel 會直接下載；PDF 會開啟系統列印畫面，請選擇「儲存為 PDF」。</Text></View>
+          <View style={styles.modalShade}><ScrollView style={[styles.sheet, styles.exportSheet]} contentContainerStyle={styles.exportSheetContent} showsVerticalScrollIndicator><View style={styles.sheetHandle} /><Text style={styles.sheetEyebrow}>EXPORT TRIP</Text><Text style={styles.sheetTitle}>匯出旅行</Text>
+            <View style={styles.archiveWarning}><Text style={styles.archiveWarningTitle}>直接存到目前裝置</Text><Text style={styles.archiveWarningText}>不寄信、不建立 Google Sheet，也不會刪除或封存旅行。TXT 可自行勾選內容；Excel 會直接下載；PDF 會開啟系統列印畫面。</Text></View>
             <Text style={styles.fieldLabel}>旅行</Text><Text style={styles.archiveTripName}>{archiveTripTarget?.title}</Text>
+            <Text style={styles.fieldLabel}>TXT 要包含哪些內容</Text>
+            <View style={styles.txtExportChoices}>
+              {([["itinerary", "每日行程"], ["transport", "景點間交通"], ["flights", "班機"], ["stays", "住宿"], ["reservations", "預約提醒"], ["backups", "備案"], ["notes", "筆記"], ["shopping", "必買／逛街"], ["expenses", "記帳"]] as [TxtExportSection, string][]).map(([key, label]) => (
+                <Pressable key={key} onPress={() => setTxtExportSections((current) => ({ ...current, [key]: !current[key] }))} style={[styles.txtExportChoice, txtExportSections[key] && styles.txtExportChoiceActive]}>
+                  <Text style={[styles.txtExportChoiceText, txtExportSections[key] && styles.txtExportChoiceTextActive]}>{txtExportSections[key] ? "✓ " : ""}{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable style={styles.primaryButton} onPress={exportTripTxt}><Text style={styles.primaryButtonText}>下載 TXT</Text></Pressable>
             <Pressable style={styles.primaryButton} onPress={archiveTripAndEmail}><Text style={styles.primaryButtonText}>下載 Excel</Text></Pressable>
             <Pressable style={styles.secondaryAction} onPress={exportTripPdf}><Text style={styles.secondaryActionText}>匯出 PDF</Text></Pressable>
             <Pressable style={styles.cancelButton} onPress={() => setArchiveTripTarget(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
-          </View></View>
+          </ScrollView></View>
         </Modal>
 
         <Modal visible={dayOrganizerVisible} animationType="slide" transparent onRequestClose={() => setDayOrganizerVisible(false)}>
@@ -5483,7 +5649,6 @@ export default function App() {
                 containerStyle={styles.organizerListView}
                 data={selectedDay.stops}
                 keyExtractor={(item) => item.id}
-                onDragBegin={() => setPreviousStops([...selectedDay.stops])}
                 onDragEnd={({ data }) => { updateStops(reorderedStopsWithEstimatedTimes(data)); showToast("已依新順序重算時間"); }}
                 activationDistance={4}
                 autoscrollThreshold={90}
@@ -6862,6 +7027,13 @@ const styles = createDouyouStyles({
   archiveWarningTitle: { color: "#9C4B42", fontSize: 12, fontWeight: "900" },
   archiveWarningText: { color: "#775D58", fontSize: 10, lineHeight: 17, marginTop: 5 },
   archiveTripName: { color: "#343D50", fontSize: 15, fontWeight: "900", marginBottom: 8 },
+  exportSheet: { maxHeight: "92%" },
+  exportSheetContent: { paddingBottom: 34 },
+  txtExportChoices: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4, marginBottom: 2 },
+  txtExportChoice: { borderWidth: 1, borderColor: "#DDD8CF", borderRadius: 18, paddingHorizontal: 13, paddingVertical: 9, backgroundColor: "#F2EFEA" },
+  txtExportChoiceActive: { backgroundColor: "#536783", borderColor: "#536783" },
+  txtExportChoiceText: { color: "#716A61", fontSize: 12, fontWeight: "800" },
+  txtExportChoiceTextActive: { color: "#FFFFFF" },
   archiveTestButton: { backgroundColor: "#E9EDF5", borderRadius: 14, paddingVertical: 12, alignItems: "center", marginTop: 13 },
   archiveTestText: { color: "#536783", fontSize: 12, fontWeight: "900" },
   editTripButton: { backgroundColor: "#E9EDF5", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
