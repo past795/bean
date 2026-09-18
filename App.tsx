@@ -607,6 +607,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
       oitaDay3TransitVersion: trip.oitaDay3TransitVersion || 0,
       oitaItineraryVersion: trip.oitaItineraryVersion || 0,
       clientUpdatedAt: trip.clientUpdatedAt || 0,
+      expenseClientUpdatedAt: trip.expenseClientUpdatedAt || 0,
       currency: trip.currency || "",
       unscheduledPlaces: trip.unscheduledPlaces || [],
       reservations: trip.reservations || [],
@@ -684,6 +685,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
     oitaDay3TransitVersion: Number(tripMeta.oitaDay3TransitVersion || 0),
     oitaItineraryVersion: Number(tripMeta.oitaItineraryVersion || 0),
     clientUpdatedAt: Number(tripMeta.clientUpdatedAt || 0),
+    expenseClientUpdatedAt: Number(tripMeta.expenseClientUpdatedAt || 0),
     currency: ["KRW", "JPY", "TWD", "USD"].includes(String(tripMeta.currency || "")) ? tripMeta.currency : undefined,
     unscheduledPlaces: Array.isArray(tripMeta.unscheduledPlaces) ? tripMeta.unscheduledPlaces : [],
     reservations: Array.isArray(tripMeta.reservations) ? tripMeta.reservations : [],
@@ -1160,6 +1162,7 @@ export default function App() {
   const localMutationAtRef = useRef(0);
   const tripDirtyRef = useRef(false);
   const tripClientVersionRef = useRef<Record<string, number>>({});
+  const expenseClientVersionRef = useRef<Record<string, number>>({});
   const cloudLinksRef = useRef<CloudLinks>({});
   const itineraryListRef = useRef<any>(null);
   const geocodedDaysRef = useRef<Set<string>>(new Set());
@@ -1473,6 +1476,7 @@ export default function App() {
   useEffect(() => {
     trips.forEach((trip) => {
       tripClientVersionRef.current[trip.id] = Math.max(tripClientVersionRef.current[trip.id] || 0, trip.clientUpdatedAt || 0);
+      expenseClientVersionRef.current[trip.id] = Math.max(expenseClientVersionRef.current[trip.id] || 0, trip.expenseClientUpdatedAt || 0);
     });
   }, [trips]);
 
@@ -1514,13 +1518,15 @@ export default function App() {
     return listenFirestoreTrip(activeTrip.id, (incomingTrip, incomingExpenses) => {
       if (firestorePendingTripRef.current === activeTrip.id || Date.now() - localMutationAtRef.current < 1800) return;
       const rawTrip = incomingTrip as TripPlan;
-      if ((tripClientVersionRef.current[rawTrip.id] || 0) > (rawTrip.clientUpdatedAt || 0)) return;
+      const staleTrip = (tripClientVersionRef.current[rawTrip.id] || 0) > (rawTrip.clientUpdatedAt || 0);
+      const staleExpenses = (expenseClientVersionRef.current[rawTrip.id] || 0) > (rawTrip.expenseClientUpdatedAt || 0);
+      if (staleTrip && staleExpenses) return;
       const normalizedTrip = normalizeTripSchedule(upgradeOitaItinerary(upgradeBusanItinerary(rawTrip)));
       if (JSON.stringify(rawTrip) !== JSON.stringify(normalizedTrip) && googleUser?.firebaseUid) {
         const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
         updateFirestoreTripState(personId, normalizedTrip, incomingExpenses).catch(() => undefined);
       }
-      setTrips((current) => {
+      if (!staleTrip) setTrips((current) => {
         const local = current.find((trip) => trip.id === normalizedTrip.id);
         if ((local?.clientUpdatedAt || 0) > (normalizedTrip.clientUpdatedAt || 0)) return current;
         const next = current.some((trip) => trip.id === normalizedTrip.id)
@@ -1529,7 +1535,7 @@ export default function App() {
         AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
         return next;
       });
-      setExpenses((current) => {
+      if (!staleExpenses) setExpenses((current) => {
         const next = { ...current, [normalizedTrip.id]: incomingExpenses as Expense[] };
         AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
         return next;
@@ -1583,7 +1589,9 @@ export default function App() {
         tripStops.set(tripId, listenFirestoreTrip(tripId, (incomingTrip, incomingExpenses) => {
           if (firestorePendingTripRef.current === tripId || Date.now() - localMutationAtRef.current < 1800) return;
           const rawTrip = incomingTrip as TripPlan;
-          if ((tripClientVersionRef.current[rawTrip.id] || 0) > (rawTrip.clientUpdatedAt || 0)) return;
+          const staleTrip = (tripClientVersionRef.current[rawTrip.id] || 0) > (rawTrip.clientUpdatedAt || 0);
+          const staleExpenses = (expenseClientVersionRef.current[rawTrip.id] || 0) > (rawTrip.expenseClientUpdatedAt || 0);
+          if (staleTrip && staleExpenses) return;
           // The linked-trip listener also receives the same Firestore state.
           // Apply the one-time Oita import here too, or its raw snapshot can
           // immediately overwrite the upgraded active-trip state.
@@ -1591,7 +1599,7 @@ export default function App() {
           if (JSON.stringify(rawTrip) !== JSON.stringify(trip)) {
             updateFirestoreTripState(personId, trip, incomingExpenses).catch(() => undefined);
           }
-          setTrips((current) => {
+          if (!staleTrip) setTrips((current) => {
             const local = current.find((item) => item.id === trip.id);
             if ((local?.clientUpdatedAt || 0) > (trip.clientUpdatedAt || 0)) return current;
             const withoutWelcome = current.filter((item) => item.id !== "local-welcome");
@@ -1603,7 +1611,7 @@ export default function App() {
             AsyncStorage.setItem(STORE_KEY, JSON.stringify(next)).catch(() => undefined);
             return next;
           });
-          setExpenses((current) => {
+          if (!staleExpenses) setExpenses((current) => {
             const next = { ...current, [trip.id]: incomingExpenses as Expense[] };
             AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
             return next;
@@ -2266,7 +2274,7 @@ export default function App() {
           ...localPersonalChecklist
         ]
       });
-      if (quiet && (localTrip?.clientUpdatedAt || 0) > (incomingTrip.clientUpdatedAt || 0)) return localTrip || null;
+      if (quiet && (localTrip?.clientUpdatedAt || 0) > (incomingTrip.clientUpdatedAt || 0) && (localTrip?.expenseClientUpdatedAt || 0) > (incomingTrip.expenseClientUpdatedAt || 0)) return localTrip || null;
       const localSelectedDay = localTrip?.days.find((day) => day.id === selectedDayId);
       const incomingSelectedDay = incomingTrip.days.find((day) => day.id === selectedDayId);
       if (quiet && localSelectedDay && incomingSelectedDay &&
@@ -4363,10 +4371,16 @@ export default function App() {
     });
   }, [tripExpenses, activeMemberNames.join("|")]);
   const saveExpenses = (next: typeof expenses) => {
-    localMutationAtRef.current = Date.now();
+    const timestamp = Date.now();
+    localMutationAtRef.current = timestamp;
+    expenseClientVersionRef.current[activeTrip.id] = timestamp;
+    const stampedTrip = { ...activeTrip, expenseClientUpdatedAt: timestamp };
+    const nextTrips = trips.map((trip) => trip.id === activeTrip.id ? stampedTrip : trip);
+    setTrips(nextTrips);
+    AsyncStorage.setItem(STORE_KEY, JSON.stringify(nextTrips)).catch(() => undefined);
     setExpenses(next);
     AsyncStorage.setItem(EXPENSE_KEY, JSON.stringify(next)).catch(() => undefined);
-    syncExpensesNow(activeTrip, next[activeTrip.id] ?? []);
+    syncExpensesNow(stampedTrip, next[activeTrip.id] ?? []);
   };
   const createExpense = () => {
     const amount = Number(expenseAmount.replace(/,/g, ""));
@@ -5421,7 +5435,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.18.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.18.2</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
