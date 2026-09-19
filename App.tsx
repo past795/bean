@@ -2470,7 +2470,12 @@ export default function App() {
         return { ...current, [selectedDay.id]: [...history.slice(-19), snapshot] };
       });
     }
-    const scheduledStops = stopsWithEstimatedTimes(stops);
+    const orderChanged = stops.map((stop) => stop.id).join("|") !== selectedDay.stops.map((stop) => stop.id).join("|");
+    // A typed time belongs to its position in the day, not permanently to the
+    // place. Reordering keeps only the day's first start and recalculates every
+    // following arrival. Undo bypasses this to restore its exact snapshot.
+    const preparedStops = recordUndo && orderChanged ? reorderedStopsWithEstimatedTimes(stops) : stops;
+    const scheduledStops = stopsWithEstimatedTimes(preparedStops);
     const next = trips.map((trip) => trip.id !== activeTrip.id ? trip : {
       ...trip,
       days: trip.days.map((day) => day.id === selectedDay.id ? { ...day, stops: scheduledStops } : day)
@@ -2893,7 +2898,7 @@ export default function App() {
     if (nextIndex < 0 || nextIndex >= selectedDay.stops.length) return;
     const next = [...selectedDay.stops];
     [next[index], next[nextIndex]] = [next[nextIndex]!, next[index]!];
-    updateStops(reorderedStopsWithEstimatedTimes(next));
+    updateStops(next);
     showToast("已依新順序重算時間");
   };
 
@@ -5178,7 +5183,7 @@ export default function App() {
                 containerStyle={styles.itineraryList}
                 data={selectedDay.stops}
                 keyExtractor={(item) => item.id}
-                onDragEnd={({ data }) => { updateStops(reorderedStopsWithEstimatedTimes(data)); showToast("已依新順序重算時間"); }}
+                onDragEnd={({ data }) => { updateStops(data); showToast("已依新順序重算第 2 站起的時間"); }}
                 renderItem={renderStop}
                 contentContainerStyle={styles.listContent}
                 ListEmptyComponent={
@@ -5435,7 +5440,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.18.2</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.19.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5663,7 +5668,7 @@ export default function App() {
                 containerStyle={styles.organizerListView}
                 data={selectedDay.stops}
                 keyExtractor={(item) => item.id}
-                onDragEnd={({ data }) => { updateStops(reorderedStopsWithEstimatedTimes(data)); showToast("已依新順序重算時間"); }}
+                onDragEnd={({ data }) => { updateStops(data); showToast("已依新順序重算第 2 站起的時間"); }}
                 activationDistance={4}
                 autoscrollThreshold={90}
                 autoscrollSpeed={140}
