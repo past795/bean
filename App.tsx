@@ -2427,12 +2427,27 @@ export default function App() {
 
   const reorderedStopsWithEstimatedTimes = (stops: Stop[], keepSavedTransitMinutes = false) => {
     const originalStart = selectedDay.stops[0]?.time;
+    const originalIncomingEdges = new Map(selectedDay.stops.slice(1).map((stop, index) => [
+      `${selectedDay.stops[index]?.id || ""}->${stop.id}`,
+      stop
+    ]));
     // Times describe positions in the day, not immutable attributes of a
     // place. Clear every moved stop's old time, anchor the new first stop at
     // the day's original start, then calculate the whole sequence again.
     const anchored = stops.map((stop, index) => {
       if (index === 0) return { ...stop, time: originalStart || "09:00" };
       const previous = stops[index - 1]!;
+      const unchangedIncomingLeg = originalIncomingEdges.get(`${previous.id}->${stop.id}`);
+      if (unchangedIncomingLeg) {
+        return {
+          ...stop,
+          time: "彈性",
+          routeMode: unchangedIncomingLeg.routeMode,
+          transportMode: unchangedIncomingLeg.transportMode,
+          transport: unchangedIncomingLeg.transport,
+          transitMinutes: unchangedIncomingLeg.transitMinutes
+        };
+      }
       const km = (() => {
         if (previous.latitude == null || previous.longitude == null || stop.latitude == null || stop.longitude == null) return Number.POSITIVE_INFINITY;
         const toRad = (value: number) => value * Math.PI / 180;
@@ -2458,6 +2473,14 @@ export default function App() {
       };
     });
     return stopsWithEstimatedTimes(anchored, true, keepSavedTransitMinutes);
+  };
+
+  const recalculateTimelineAfter = (stops: Stop[], anchorIndex: number) => {
+    if (!stops.length) return stops;
+    const safeAnchor = Math.max(0, Math.min(anchorIndex, stops.length - 1));
+    const prefix = stops.slice(0, safeAnchor);
+    const tail = stops.slice(safeAnchor).map((stop, index) => index === 0 ? stop : { ...stop, time: "彈性" });
+    return [...prefix, ...stopsWithEstimatedTimes(tail, true, true)];
   };
 
   const updateStops = (stops: Stop[], recordUndo = true) => {
@@ -2487,7 +2510,7 @@ export default function App() {
     const scheduled = stopsWithEstimatedTimes(selectedDay.stops);
     const updatedCount = scheduled.filter((stop, index) => stop.time !== selectedDay.stops[index]?.time).length;
     if (!updatedCount) {
-      showToast("目前沒有可自動補上的彈性時間；請先確認景點座標");
+      showToast("目前沒有需要補上的彈性時間");
       return;
     }
     updateStops(scheduled);
@@ -2878,18 +2901,11 @@ export default function App() {
       } : stop
     );
     const index = next.findIndex((stop) => stop.id === editing.id);
-    const arrivalIndex = index > 0 && (transitMinutes !== (editing.transitMinutes || 0) || draftRouteMode !== editing.routeMode) ? index : index + 1;
-    const previous = next[arrivalIndex - 1];
-    const arrival = next[arrivalIndex];
-    if (previous && arrival) {
-      const travelMinutes = estimatedLegMinutes(previous, arrival, arrival.routeMode || "driving");
-      const match = previous.time.match(/^(\d{1,2}):([0-5]\d)$/);
-      if (travelMinutes != null && match) {
-        const total = (Number(match[1]) * 60 + Number(match[2]) + (previous.durationMinutes || 0) + travelMinutes) % 1440;
-        next[arrivalIndex] = { ...arrival, time: `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}` };
-      }
-    }
-    updateStops(next);
+    const incomingLegChanged = index > 0 && (transitMinutes !== (editing.transitMinutes || 0) || draftRouteMode !== editing.routeMode);
+    const editedTimeIsAnchor = /^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(normalizedTime);
+    // A manually edited start time is the new anchor. Changes to the incoming
+    // leg must start from the previous stop so this stop's arrival also moves.
+    updateStops(recalculateTimelineAfter(next, incomingLegChanged || !editedTimeIsAnchor ? index - 1 : index));
     setEditing(null);
   };
 
@@ -3075,14 +3091,8 @@ export default function App() {
     const transportMode: Stop["transportMode"] = legModeDraft === "walking" ? "步行" : legModeDraft === "transit" ? "地鐵" : legModeDraft === "taxi" ? "計程車" : "其他";
     const updatedArrival = { ...arrival, routeMode: legModeDraft, transportMode, transitMinutes: minutes, transport: legRouteDraft.trim() || "尚未安排", ...changes };
     const next = [...selectedDay.stops];
-    const travel = estimatedLegMinutes(previous, updatedArrival, updatedArrival.routeMode || "transit");
-    const match = previous.time.match(/^(\d{1,2}):([0-5]\d)$/);
-    if (travel != null && match) {
-      const total = (Number(match[1]) * 60 + Number(match[2]) + (previous.durationMinutes || 0) + travel) % 1440;
-      updatedArrival.time = `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
-    }
     next[index] = updatedArrival;
-    updateStops(reorderedStopsWithEstimatedTimes(next, true));
+    updateStops(recalculateTimelineAfter(next, index - 1));
     setEditingLegToId(null);
     showToast("交通已儲存，後續時間已更新");
   };
@@ -5440,7 +5450,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.19.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.19.2</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
