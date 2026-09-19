@@ -1165,6 +1165,7 @@ export default function App() {
   const expenseClientVersionRef = useRef<Record<string, number>>({});
   const cloudLinksRef = useRef<CloudLinks>({});
   const itineraryListRef = useRef<any>(null);
+  const editingSheetScrollRef = useRef<any>(null);
   const geocodedDaysRef = useRef<Set<string>>(new Set());
   const [coordinateRefreshNonce, setCoordinateRefreshNonce] = useState(0);
   const firestoreStartedRef = useRef("");
@@ -1291,6 +1292,12 @@ export default function App() {
   const showingAllDays = selectedDayId === ALL_DAYS_ID;
   const currentUndoHistory = stopUndoHistory[selectedDay.id] || [];
   const previousStops = currentUndoHistory[currentUndoHistory.length - 1] || null;
+  useEffect(() => {
+    if (!editing) return;
+    const first = setTimeout(() => editingSheetScrollRef.current?.scrollTo({ y: 0, animated: false }), 0);
+    const afterAnimation = setTimeout(() => editingSheetScrollRef.current?.scrollTo({ y: 0, animated: false }), 260);
+    return () => { clearTimeout(first); clearTimeout(afterAnimation); };
+  }, [editing?.id]);
   useEffect(() => {
     setNoteCollapseReady(false);
     const storageKey = `${NOTE_COLLAPSE_KEY}:${activeTrip.id}`;
@@ -2973,50 +2980,41 @@ export default function App() {
     showToast(`已把 ${imported.length} 項韓國商品放入待購買清單`);
   }, [selectedTool, activeTrip.id, activeTrip.shoppingCatalogImported, isKoreaTrip]);
 
-  const busanNaverQueries: Record<string, string> = {
-    "d1-1": "김해국제공항 부산 강서구 공항진입로 108", "d1-2": "토요코인 부산중앙역 부산 중구 중앙대로 125",
-    "d1-3": "양산국밥 부산역점", "d1-4": "흰여울문화마을 부산 영도구 영선동4가 1044-6",
-    "d1-5": "에테르 부산 영도구 절영로 234", "d1-6": "태종대 부산 영도구 전망로 24",
-    "d1-7": "목구멍 영도점 부산 영도구 절영로35번길 30", "d1-8": "부산 국제시장",
-    "d1-9": "부평깡통시장 부산 중구 부평1길 48", "d1-10": "광복로패션거리 부산",
-    "d1-11": "롯데백화점 광복점 부산 중구 중앙대로 2", "d1-12": "BIFF광장 부산 중구 비프광장로",
-    "d1-13": "자갈치시장 부산 중구 자갈치해안로 52", "d1-14": "토요코인 부산중앙역 부산 중구 중앙대로 125",
-    "d2-1": "아바니 센트럴 부산 부산 남구 전포대로 133", "d2-2": "감천문화마을 부산 사하구 감내2로 203",
-    "d2-3": "감천문화마을 작은박물관 부산 사하구 감내2로 203", "d2-4": "감천문화마을 부산",
-    "d2-5": "아미산전망대 부산 사하구 다대낙조2길 77", "d2-6": "해운대해수욕장 부산",
-    "d2-7": "동백공원 부산 해운대구 우동 708-2", "d2-8": "해운대해수욕장 부산 해운대구 해운대해변로 264",
-    "d2-9": "다트커피 라림 전포", "d2-10": "올드맨션 전포", "d2-11": "전포카페거리 부산",
-    "d2-12": "아바니 센트럴 부산 부산 남구 전포대로 133",
-    "d3-1": "아바니 센트럴 부산 부산 남구 전포대로 133", "d3-2": "서면역 부산",
-    "d3-3": "서면지하도상가 부산", "d3-4": "서면역 부산", "d3-5": "젝시믹스 부산 서면",
-    "d3-6": "키다 전포 부산", "d3-7": "전포카페거리 부산", "d3-8": "아바니 센트럴 부산 부산 남구 전포대로 133",
-    "d3-xexymix": "젝시믹스 커넥트현대 부산점", "d3-lunch": "기장손칼국수 부산 부산진구 서면로 56",
-    "d3-dustwood": "더스트우드 부산 부산진구 동성로49번길 40", "d3-paper-garden": "페이퍼가든 부산 부산진구 전포대로210번길 8",
-    "d3-bracket-table": "브라켓테이블 부산 부산진구 서전로68번길 109", "d3-free-shopping": "전포카페거리 소품샵",
-    "d2-group-dinner": "부산",
-    "d4-1": "송도해상케이블카 부산 서구 송도해변로 171", "d4-2": "송도해상케이블카 부산 서구 송도해변로 171",
-    "d4-3": "암남공원 부산", "d4-4": "런닝맨 부산점 삼정타워", "d4-5": "런닝맨 부산점 부산 부산진구 중앙대로 672 삼정타워",
-    "d4-6": "서면역 부산", "d4-7": "해운대블루라인파크 미포정거장", "d4-8": "해운대블루라인파크 미포정거장 부산 해운대구 달맞이길62번길 13",
-    "d4-9": "청사포 다릿돌전망대 부산 해운대구 청사포로 167", "d4-10": "해운대블루라인파크 청사포정거장 부산 해운대구 청사포로 116",
-    "d4-11": "수영만요트경기장 부산", "d4-12": "다이아몬드베이 부산 해운대구 해운대해변로 84",
-    "d4-13": "신세계백화점 센텀시티 부산 해운대구 센텀남대로 35", "d4-14": "신세계백화점 센텀시티 부산",
-    "d4-15": "스파랜드 센텀시티 부산 해운대구 센텀남대로 35", "d4-16": "아바니 센트럴 부산 부산 남구 전포대로 133",
-    "d5-1": "아바니 센트럴 부산 부산 남구 전포대로 133", "d5-2": "해동용궁사 부산 기장군 기장읍 용궁길 86",
-    "d5-3": "아난티 코브 부산 기장군 기장읍 기장해안로 268-32", "d5-4": "오시리아 관광단지 부산",
-    "d5-5": "롯데프리미엄아울렛 동부산점 부산 기장군 기장해안로 147", "d5-6": "웨이브온커피 부산 기장군 장안읍 해맞이로 286",
-    "d5-7": "김해국제공항 부산 강서구 공항진입로 108", "d5-8": "김해국제공항 부산 강서구 공항진입로 108",
-    "d5-9": "김해국제공항 부산"
+  const koreanAddressForNaver = async (stop: Stop) => {
+    const address = stop.address && stop.address !== "地址待補" ? stop.address.trim() : "";
+    if (/[가-힣]/.test(address)) return address;
+    if (!isKoreaTrip) return address || stop.title;
+    try {
+      let latitude = stop.latitude;
+      let longitude = stop.longitude;
+      if (latitude == null || longitude == null) {
+        const searchQuery = [address, activeTrip.destination, "대한민국"].filter(Boolean).join(" ");
+        const searchResponse = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=kr&accept-language=ko&q=${encodeURIComponent(searchQuery)}`);
+        const match = (await searchResponse.json())?.[0];
+        if (match) { latitude = Number(match.lat); longitude = Number(match.lon); }
+      }
+      if (latitude != null && longitude != null && Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=ko&lat=${latitude}&lon=${longitude}`);
+        const result = await response.json();
+        const details = result?.address || {};
+        const parts = [details.state, details.city || details.county, details.borough || details.city_district, details.suburb || details.quarter, details.road || details.pedestrian, details.house_number].filter(Boolean);
+        const koreanAddress = [...new Set(parts.map((part) => String(part).trim()).filter(Boolean))].join(" ");
+        if (/[가-힣]/.test(koreanAddress)) return koreanAddress;
+        if (/[가-힣]/.test(String(result?.display_name || ""))) return String(result.display_name);
+      }
+    } catch {
+      // Fall back to the saved address; never replace it with a Chinese title.
+    }
+    return address || stop.title;
   };
 
-  const openDirections = (stop: Stop, provider: "google" | "naver") => {
-    const naverQuery = busanNaverQueries[stop.id] || `${stop.title} ${activeTrip.destination}`;
-    const query = encodeURIComponent(provider === "naver" ? naverQuery : (stop.address || stop.title));
+  const openDirections = async (stop: Stop, provider: "google" | "naver") => {
+    const rawQuery = provider === "naver" ? await koreanAddressForNaver(stop) : (stop.address || stop.title);
+    const query = encodeURIComponent(rawQuery);
     const url = provider === "naver"
       ? `https://map.naver.com/p/search/${query}`
       : `https://www.google.com/maps/search/?api=1&query=${query}`;
-    Linking.openURL(url).catch(() =>
-      Alert.alert("無法開啟地圖", stop.address)
-    );
+    Linking.openURL(url).catch(() => Alert.alert("無法開啟地圖", rawQuery));
   };
 
   const resolveFullAddress = async (stop: Stop) => {
@@ -5450,7 +5448,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.19.2</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.19.3</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5704,9 +5702,10 @@ export default function App() {
           </Pressable>
         </Modal>
 
-        <Modal visible={!!editing} animationType="slide" transparent onRequestClose={() => setEditing(null)}>
+        <Modal visible={!!editing} animationType="slide" transparent onRequestClose={() => setEditing(null)} onShow={() => editingSheetScrollRef.current?.scrollTo({ y: 0, animated: false })}>
           <View style={styles.modalShade}>
             <ScrollView
+              ref={editingSheetScrollRef}
               style={[styles.sheet, styles.editingSheet]}
               contentContainerStyle={styles.editingSheetContent}
               keyboardShouldPersistTaps="handled"
