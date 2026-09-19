@@ -845,6 +845,49 @@ const verifiedStopLocation = (stop: Stop): Partial<Stop> | undefined => {
   return undefined;
 };
 
+const splitCombinedStop = (stop: Stop): Stop[] => {
+  // Split explicit itinerary combinations, but leave brand names such as H&M
+  // untouched because their ampersand has no surrounding spaces.
+  const titles = stop.title.split(/(?:\s*[+＋]\s*|\s+&\s+)/).map((title) => title.trim()).filter(Boolean);
+  if (titles.length < 2) return [stop];
+  const totalDuration = Math.max(0, stop.durationMinutes || 0);
+  const walkingBuffers = Math.min(totalDuration, Math.max(0, titles.length - 1) * 5);
+  const visitMinutes = Math.max(0, totalDuration - walkingBuffers);
+  const baseDuration = titles.length ? Math.floor(visitMinutes / titles.length) : 0;
+  const remainder = titles.length ? visitMinutes % titles.length : 0;
+  const startMatch = stop.time.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  const startMinutes = startMatch ? Number(startMatch[1]) * 60 + Number(startMatch[2]) : null;
+  return titles.map((title, index) => index === 0 ? {
+    ...stop,
+    title,
+    durationMinutes: baseDuration + (index < remainder ? 1 : 0)
+  } : {
+    ...stop,
+    id: `${stop.id}-split-${index + 1}`,
+    time: startMinutes == null ? "彈性" : (() => {
+      const minutes = Math.min(23 * 60 + 55, startMinutes + index * (baseDuration + 5) + Math.min(index, remainder));
+      return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+    })(),
+    title,
+    address: "地址待補",
+    latitude: undefined,
+    longitude: undefined,
+    transport: "步行／待確認",
+    transportMode: "步行",
+    routeMode: "walking",
+    transitMinutes: 5,
+    durationMinutes: baseDuration + (index < remainder ? 1 : 0),
+    openingHours: "",
+    openingHoursSource: "",
+    reservationRequired: false,
+    reservationNote: "",
+    reservationSuggestedDate: "",
+    reservationSuggestedTime: "",
+    reservationCompleted: false,
+    note: `由「${stop.title}」自動拆開；請確認此景點地址與停留時間。`
+  });
+};
+
 const normalizeTripSchedule = (trip: TripPlan): TripPlan => {
   // Older entries created from Google Sheets sometimes use YYYY/MM/DD.
   // Keep one internal ISO format, so the home-card period and each day tab
@@ -860,7 +903,7 @@ const normalizeTripSchedule = (trip: TripPlan): TripPlan => {
       ...day,
       date: startDate ? tripDayDateLabel(startDate, dayIndex) : day.date,
       title: day.title.replace(/（住宿未完整設定・草稿）/g, ""),
-      stops: day.stops.map((stop) => {
+      stops: day.stops.flatMap(splitCombinedStop).map((stop) => {
       const hour = Number(stop.time.match(/^(\d{1,2}):/)?.[1]);
       const verified = verifiedOitaHours(stop.title);
       const verifiedLocation = verifiedStopLocation(stop);
@@ -1221,7 +1264,7 @@ export default function App() {
       if (value) {
         const savedTrips = (JSON.parse(value) as TripPlan[]).map((trip) => {
           const verifiedHotels = starterTrips[0]!.accommodations;
-          return {
+          return normalizeTripSchedule({
             ...trip,
             flights: trip.flights ?? (trip.id === "busan-2026" ? starterTrips[0]!.flights : []),
             accommodations: (trip.accommodations ?? (trip.id === "busan-2026" ? verifiedHotels : [])).map((hotel) => {
@@ -1231,7 +1274,7 @@ export default function App() {
             }),
             shopping: trip.shopping ?? [],
             checklist: trip.checklist?.length ? trip.checklist : defaultPrepChecklist()
-          };
+          });
         });
         if (Array.isArray(savedTrips) && savedTrips.length) {
           setTrips(savedTrips);
@@ -2376,7 +2419,7 @@ export default function App() {
     localMutationAtRef.current = Date.now();
     tripDirtyRef.current = true;
     const timestamp = Date.now();
-    const stamped = next.map((trip) => trip.id === activeTripId ? { ...trip, clientUpdatedAt: timestamp } : trip);
+    const stamped = next.map((trip) => trip.id === activeTripId ? { ...normalizeTripSchedule(trip), clientUpdatedAt: timestamp } : trip);
     if (activeTripId) tripClientVersionRef.current[activeTripId] = timestamp;
     setTrips(stamped);
     AsyncStorage.setItem(STORE_KEY, JSON.stringify(stamped)).catch(() => undefined);
@@ -5448,7 +5491,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.19.3</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.19.4</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
