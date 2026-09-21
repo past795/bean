@@ -1065,7 +1065,7 @@ export default function App() {
   const [newStopRouteMode, setNewStopRouteMode] = useState<RouteMode>("transit");
   const [newStopNote, setNewStopNote] = useState("");
   const [newStopOpeningHours, setNewStopOpeningHours] = useState("");
-  const [newStopDuration, setNewStopDuration] = useState("");
+  const [newStopDuration, setNewStopDuration] = useState("60");
   const [newStopTransitMinutes, setNewStopTransitMinutes] = useState("");
   const [newStopReservationRequired, setNewStopReservationRequired] = useState(false);
   const [newStopReservationLeadDays, setNewStopReservationLeadDays] = useState("14");
@@ -3324,7 +3324,7 @@ export default function App() {
     return ({
     id: `generated-${Date.now()}-${dayIndex}-${index}-${place.id}`, time, title: place.name,
     address: place.address, transport: index === 0 ? "從住宿出發・大眾運輸" : "大眾運輸", transportMode: "地鐵", routeMode: "transit",
-    note: place.note || "由收藏景點自動排入", latitude: place.latitude, longitude: place.longitude, openingHours: place.openingHours, durationMinutes: 90
+    note: place.note || "由收藏景點自動排入", latitude: place.latitude, longitude: place.longitude, openingHours: place.openingHours, durationMinutes: 60
   });
   };
 
@@ -4005,6 +4005,7 @@ export default function App() {
       nextDays[dayIndex]!.stops.push({
         id: `${nextDays[dayIndex]!.id}-bulk-${Date.now()}-${added}`,
         time: time || "彈性", title, address, transport, transitMinutes, note,
+        durationMinutes: 60,
         transportMode: transport.includes("步行") ? "步行" : transport.includes("地鐵") ? "地鐵" : transport.includes("公車") ? "公車" : transport.includes("計程車") ? "計程車" : "其他",
         routeMode: transport.includes("步行") ? "walking" : transport.includes("地鐵") || transport.includes("公車") ? "transit" : transport.includes("計程車") ? "taxi" : "driving"
       });
@@ -4287,7 +4288,7 @@ export default function App() {
       openingHoursSource: newStopOpeningHours.trim() ? "OpenStreetMap 地點資料" : "",
       latitude: newStopLatitude,
       longitude: newStopLongitude,
-      durationMinutes: Math.max(0, Number.parseInt(newStopDuration, 10) || 0),
+      durationMinutes: newStopDuration.trim() === "" ? 60 : Math.max(0, Number.parseInt(newStopDuration, 10) || 0),
       transitMinutes: Math.max(0, Number.parseInt(newStopTransitMinutes, 10) || 0),
       routeMode: newStopRouteMode,
       reservationRequired: newStopReservationRequired,
@@ -4307,7 +4308,7 @@ export default function App() {
     setNewStopRouteMode("transit");
     setNewStopNote("");
     setNewStopOpeningHours("");
-    setNewStopDuration("");
+    setNewStopDuration("60");
     setNewStopTransitMinutes("");
     setNewStopReservationRequired(false);
     setNewStopReservationLeadDays("14");
@@ -4321,6 +4322,12 @@ export default function App() {
     nextStops.splice(insertIndex, 0, nextStop);
     updateStops(nextStops);
     showToast(`已把「${title}」加入 ${selectedDay.label}`);
+  };
+
+  const openNewStopForm = (insertIndex = selectedDay.stops.length) => {
+    setNewStopInsertIndex(insertIndex);
+    setNewStopDuration("60");
+    setAddingStop(true);
   };
 
   const findStopAddress = async () => {
@@ -4983,7 +4990,7 @@ export default function App() {
       latitude: place.latitude,
       longitude: place.longitude,
       openingHours: place.openingHours,
-      durationMinutes: 90
+      durationMinutes: 60
     };
     persistTrips(trips.map((trip) => trip.id !== activeTrip.id ? trip : {
       ...trip,
@@ -5242,7 +5249,7 @@ export default function App() {
                   <Text style={styles.emptyItineraryIcon}>⌖</Text>
                   <Text style={styles.emptyItineraryTitle}>這一天還沒有行程</Text>
                   <Text style={styles.emptyItineraryText}>先加入第一個景點，之後就能拖曳排序。</Text>
-                  <Pressable style={styles.emptyAddButton} onPress={() => { setNewStopInsertIndex(selectedDay.stops.length); setAddingStop(true); }}>
+                  <Pressable style={styles.emptyAddButton} onPress={() => openNewStopForm()}>
                     <Text style={styles.emptyAddButtonText}>＋ 新增景點</Text>
                   </Pressable>
                 </View>
@@ -5273,7 +5280,7 @@ export default function App() {
                         {days.length > 1 && <Pressable style={styles.dayDeleteButton} onPress={deleteSelectedDay}>
                           <Text style={styles.dayDeleteText}>刪除這一天</Text>
                         </Pressable>}
-                        <Pressable accessibilityLabel="新增景點" style={styles.smallAddButton} onPress={() => { setNewStopInsertIndex(selectedDay.stops.length); setAddingStop(true); }}>
+                        <Pressable accessibilityLabel="新增景點" style={styles.smallAddButton} onPress={() => openNewStopForm()}>
                           <Text style={styles.smallAddButtonText}>＋ 新增景點</Text>
                         </Pressable>
                       </View>
@@ -5491,7 +5498,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.19.4</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.21.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5587,7 +5594,7 @@ export default function App() {
           <Text style={styles.aiFloatingIcon}>✦</Text>
           <Text style={styles.aiFloatingText}>小助手</Text>
         </Pressable>
-        {tab === "itinerary" && <Pressable accessibilityLabel="新增景點" style={[styles.addStopFloatingButton, previousStops && styles.addStopFloatingButtonRaised]} onPress={() => { setNewStopInsertIndex(selectedDay.stops.length); setAddingStop(true); }}>
+        {tab === "itinerary" && <Pressable accessibilityLabel="新增景點" style={[styles.addStopFloatingButton, previousStops && styles.addStopFloatingButtonRaised]} onPress={() => openNewStopForm()}>
           <Text style={styles.addStopFloatingText}>＋ 新增</Text>
         </Pressable>}
 
@@ -6742,7 +6749,7 @@ export default function App() {
                 </Pressable>
                 {!!addressLookupMessage && <Text style={addressLookupStatus === "error" ? styles.placeSearchError : styles.addressFoundText}>{addressLookupStatus === "found" ? "✓ " : ""}{addressLookupMessage}</Text>}
                 <Text style={styles.fieldLabel}>預計停留時間（分鐘）</Text>
-                <TextInput value={newStopDuration} onChangeText={setNewStopDuration} keyboardType="number-pad" placeholder="例如：90" placeholderTextColor="#AAA198" style={styles.fieldInput} />
+                <TextInput value={newStopDuration} onChangeText={setNewStopDuration} keyboardType="number-pad" placeholder="預設 60" placeholderTextColor="#AAA198" style={styles.fieldInput} />
                 <Pressable
                   style={[styles.reservationToggle, newStopReservationRequired && styles.reservationToggleActive]}
                   onPress={() => setNewStopReservationRequired((value) => !value)}
