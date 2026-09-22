@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, serverTimestamp, setDoc, Unsubscribe } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, runTransaction, serverTimestamp, setDoc, Unsubscribe } from "firebase/firestore";
 import { firestoreDb } from "./firebase";
 
 const JY_EMAILS = new Set(["allison@taiwanbar.cc", "past795@gmail.com"]);
@@ -132,12 +132,53 @@ export const joinFirestoreTripByInvite = async (personId: string, inviteCode: st
 };
 
 export const updateFirestoreTripState = async (personId: string, trip: any, expenses: any[]) => {
-  await setDoc(doc(firestoreDb, "trips", trip.id, "state", "current"), {
-    trip: firestoreSafe(trip),
-    expenses: firestoreSafe(expenses),
-    updatedBy: personId,
-    updatedAt: serverTimestamp()
-  }, { merge: true });
+  const stateRef = doc(firestoreDb, "trips", trip.id, "state", "current");
+  const revisionRef = doc(collection(firestoreDb, "trips", trip.id, "revisions"));
+  const incomingTrip = firestoreSafe(trip);
+  const incomingExpenses = firestoreSafe(expenses);
+  await runTransaction(firestoreDb, async (transaction) => {
+    const snapshot = await transaction.get(stateRef);
+    const current = snapshot.data();
+    const currentTrip = current?.trip;
+    const currentExpenses = Array.isArray(current?.expenses) ? current.expenses : [];
+    const currentTripVersion = Number(currentTrip?.clientUpdatedAt || 0);
+    const incomingTripVersion = Number(incomingTrip?.clientUpdatedAt || 0);
+    const currentExpenseVersion = Number(currentTrip?.expenseClientUpdatedAt || 0);
+    const incomingExpenseVersion = Number(incomingTrip?.expenseClientUpdatedAt || 0);
+
+    // Trip edits and expense edits have independent clocks. Preserve whichever
+    // side is newer so an old phone cannot replace a renamed trip, flights or
+    // itinerary while uploading a newer expense (and vice versa).
+    const protectedTripBase = snapshot.exists() && currentTripVersion >= incomingTripVersion
+      ? currentTrip
+      : incomingTrip;
+    const protectedTrip = {
+      ...protectedTripBase,
+      expenseClientUpdatedAt: Math.max(currentExpenseVersion, incomingExpenseVersion)
+    };
+    const protectedExpenses = snapshot.exists() && currentExpenseVersion >= incomingExpenseVersion
+      ? currentExpenses
+      : incomingExpenses;
+    if (snapshot.exists() && (
+      JSON.stringify(currentTrip) !== JSON.stringify(protectedTrip) ||
+      JSON.stringify(currentExpenses) !== JSON.stringify(protectedExpenses)
+    )) {
+      // Keep the prior cloud state before replacing it. This is recovery data,
+      // not another source that is ever automatically restored over the user.
+      transaction.set(revisionRef, {
+        trip: currentTrip,
+        expenses: currentExpenses,
+        replacedBy: personId,
+        replacedAt: serverTimestamp()
+      });
+    }
+    transaction.set(stateRef, {
+      trip: protectedTrip,
+      expenses: protectedExpenses,
+      updatedBy: personId,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  });
 };
 
 // Archiving deliberately keeps the shared trip state in Firestore for 30 days,

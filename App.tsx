@@ -923,40 +923,17 @@ const upgradeBusanItinerary = (trip: TripPlan): TripPlan => {
   const isBusanTrip = /釜山/.test(`${trip.title} ${trip.destination}`);
   if (!isBusanTrip) return trip;
   const backupPlans = trip.backupPlans?.length ? trip.backupPlans : busanBackupDefaults();
-  if ((trip.busanItineraryVersion || 0) >= BUSAN_ITINERARY_VERSION) return { ...trip, backupPlans };
-  if ((trip.busanItineraryVersion || 0) >= 2026091101) {
-    const revisedStops = new Map((busanInitialTrip.find((day) => day.id === "day3")?.stops || []).map((stop) => [stop.id, stop]));
-    const revisedDayTwo = busanInitialTrip.find((day) => day.id === "day2");
-    return {
-      ...trip,
-      days: trip.days.map((day) => day.id === "day2" && revisedDayTwo ? revisedDayTwo : day.id === "day3" ? { ...day, stops: day.stops.map((stop) => {
-        const revised = revisedStops.get(stop.id);
-        if (!revised) return stop;
-        return {
-          ...stop,
-          latitude: stop.latitude ?? revised.latitude,
-          longitude: stop.longitude ?? revised.longitude
-        };
-      }) } : day),
-      backupPlans,
-      busanItineraryVersion: BUSAN_ITINERARY_VERSION
-    };
-  }
-  if ((trip.busanItineraryVersion || 0) >= 2026090201) {
-    const revisedDayTwo = busanInitialTrip.find((day) => day.id === "day2");
-    return {
-      ...trip,
-      days: trip.days.map((day) => day.id === "day2" && revisedDayTwo ? revisedDayTwo : day),
-      backupPlans,
-      busanItineraryVersion: BUSAN_ITINERARY_VERSION
-    };
-  }
+  // Built-in itineraries are only starter data. Never replace a day that the
+  // traveller has already edited, even when an older migration version is
+  // received from another device or the legacy spreadsheet service.
+  const hasUserItinerary = trip.days.some((day) => day.stops.length > 0);
+  if (hasUserItinerary) return { ...trip, backupPlans, busanItineraryVersion: BUSAN_ITINERARY_VERSION };
   return {
     ...trip,
     startDate: "2026-10-04",
     endDate: "2026-10-08",
     period: "2026.10.04 – 2026.10.08",
-    days: trip.days.some((day) => day.stops.length) ? trip.days : busanInitialTrip,
+    days: busanInitialTrip,
     backupPlans,
     busanItineraryVersion: BUSAN_ITINERARY_VERSION
   };
@@ -2307,6 +2284,10 @@ export default function App() {
 
   const queueCloudSync = (trip: TripPlan, tripExpenses: Expense[]) => {
     if (firestoreConnected) { queueFirestoreState(trip, tripExpenses); return; }
+    // A Firebase-authenticated session must never fall back to the legacy
+    // spreadsheet while Firestore is still connecting. Keep the edit locally;
+    // the effect below uploads it as soon as Firestore is ready.
+    if (googleUser?.firebaseUid) return;
     if (!cloudLinksRef.current[trip.id]) return;
     if (syncTimer.current) clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => {
@@ -2314,6 +2295,11 @@ export default function App() {
       syncTripNow(trip, tripExpenses);
     }, 700);
   };
+
+  useEffect(() => {
+    if (!firestoreConnected || !googleUser?.firebaseUid || !tripDirtyRef.current || !activeTrip?.id) return;
+    queueFirestoreState(activeTrip, expenses[activeTrip.id] || []);
+  }, [firestoreConnected, googleUser?.firebaseUid, activeTrip?.id]);
 
   const pullCloudTrip = async (tripId: string, inviteCode: string, quiet = false) => {
     if (pullingRef.current || (quiet && (uploadingRef.current || tripDirtyRef.current || !!syncTimer.current))) return null;
@@ -2403,7 +2389,7 @@ export default function App() {
 
   useEffect(() => {
     const link = cloudLinks[activeTrip.id];
-    if (!googleUser || !link || firestoreConnected) return;
+    if (!googleUser || !link || firestoreConnected || googleUser.firebaseUid) return;
     let cancelled = false;
     const restoreMyMembership = async () => {
       try {
@@ -3872,31 +3858,10 @@ export default function App() {
         linkedTrips.forEach(([tripId]) => { next[tripId] = [...new Set([...(next[tripId] || []).filter((name) => name !== "我"), user.name])]; });
         return next;
       });
-      const response = await fetch(`${SYNC_URL}?action=myTrips&idToken=${encodeURIComponent(credential)}&t=${Date.now()}`);
-      const result = await response.json();
-      if (result.ok && Array.isArray(result.data)) {
-        const restored = result.data.map((data: any) => ({ ...cloudToTrip(data), cloud: data }));
-        const visibleTrips = restored.length ? restored.map(({ trip }: { trip: TripPlan }) => trip) : starterTrips;
-        const visibleExpenses: Record<string, Expense[]> = {};
-        restored.forEach(({ trip, expenses: restoredTripExpenses }: { trip: TripPlan; expenses: Expense[] }) => { visibleExpenses[trip.id] = restoredTripExpenses; });
-        setTrips(visibleTrips);
-        setActiveTripId(visibleTrips[0]!.id);
-        setSelectedDayId(visibleTrips[0]!.days[0]?.id ?? "");
-        setExpenses(visibleExpenses);
-        const nextLinks: CloudLinks = {};
-        restored.forEach(({ trip, cloud }: { trip: TripPlan; cloud: any }) => {
-          const existing = cloudLinksRef.current[trip.id];
-          const myMember = (cloud.members || []).find((row: any) => String(row["成員ID"]) === memberId);
-          nextLinks[trip.id] = {
-            ...existing,
-            inviteCode: existing?.inviteCode || "",
-            memberName: existing?.memberName || user.name,
-            memberId,
-            role: myMember?.["角色"] === "owner" ? "owner" : "member"
-          };
-        });
-        saveCloudLinks(nextLinks);
-      }
+      // Do not restore the legacy Apps Script / spreadsheet copy here. It can
+      // be older than Firestore and used to replace renamed trips, flights and
+      // itinerary edits immediately after sign-in. The authenticated Firestore
+      // listeners below are the sole source of truth across devices.
     } catch {
       Alert.alert("Google 登入失敗", "請重新選擇帳號。");
     }
@@ -5515,7 +5480,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.22.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.22.2</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
