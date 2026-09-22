@@ -128,6 +128,7 @@ export type TripNote = {
   id: string;
   title: string;
   content: string;
+  images?: string[];
 };
 
 export type TripPlan = {

@@ -1101,12 +1101,13 @@ export default function App() {
   const [shoppingGuideRegionDraft, setShoppingGuideRegionDraft] = useState("");
   const [shoppingGuideNameDraft, setShoppingGuideNameDraft] = useState("");
   const [shoppingGuideNoteDraft, setShoppingGuideNoteDraft] = useState("");
-  const [collapsedShoppingGuideRegions, setCollapsedShoppingGuideRegions] = useState<string[]>([]);
-  const [collapsedShoppingGuidePlaces, setCollapsedShoppingGuidePlaces] = useState<string[]>([]);
+  const [expandedShoppingGuideRegions, setExpandedShoppingGuideRegions] = useState<string[]>([]);
+  const [expandedShoppingGuidePlaces, setExpandedShoppingGuidePlaces] = useState<string[]>([]);
   const [noteEditing, setNoteEditing] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [noteTitleDraft, setNoteTitleDraft] = useState("");
   const [noteContentDraft, setNoteContentDraft] = useState("");
+  const [noteImagesDraft, setNoteImagesDraft] = useState<string[]>([]);
   const [collapsedNotes, setCollapsedNotes] = useState<string[]>([]);
   const [noteCollapseReady, setNoteCollapseReady] = useState(false);
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
@@ -1358,6 +1359,11 @@ export default function App() {
     if (!noteCollapseReady) return;
     AsyncStorage.setItem(`${NOTE_COLLAPSE_KEY}:${activeTrip.id}`, JSON.stringify(collapsedNotes)).catch(() => undefined);
   }, [noteCollapseReady, activeTrip.id, collapsedNotes]);
+  useEffect(() => {
+    if (selectedTool !== "逛街攻略") return;
+    setExpandedShoppingGuideRegions([]);
+    setExpandedShoppingGuidePlaces([]);
+  }, [selectedTool, activeTrip.id]);
   const reservationStops = useMemo(() => activeTrip.days.flatMap((day, index) => {
     const itineraryDate = isoDateAtOffset(activeTrip.startDate || "", index) || day.date;
     return day.stops.map((stop) => ({ day, stop, info: reservationInfoForStop(stop, itineraryDate) })).filter((item) => item.info.required);
@@ -1479,19 +1485,21 @@ export default function App() {
     setEditingNoteId(null);
     setNoteTitleDraft("");
     setNoteContentDraft("");
+    setNoteImagesDraft([]);
   };
   const openNoteEditor = (item?: TripNote) => {
     setNoteEditing(true);
     setEditingNoteId(item?.id || null);
     setNoteTitleDraft(item?.title || "");
     setNoteContentDraft(item?.content || "");
+    setNoteImagesDraft(item?.images || []);
     scrollToolSheetToTop();
   };
   const saveTripNote = () => {
     const title = noteTitleDraft.trim();
     if (!title) return showToast("請填寫筆記標題");
     const current = activeTrip.notes || [];
-    const values = { title, content: noteContentDraft.trim() };
+    const values = { title, content: noteContentDraft.trim(), images: noteImagesDraft };
     updateActiveTrip({ notes: editingNoteId
       ? current.map((item) => item.id === editingNoteId ? { ...item, ...values } : item)
       : [...current, { id: `note-${Date.now()}`, ...values }]
@@ -1502,6 +1510,15 @@ export default function App() {
   const removeNote = (id: string) => {
     updateActiveTrip({ notes: (activeTrip.notes || []).filter((item) => item.id !== id) });
     if (editingNoteId === id) resetNoteDraft();
+  };
+  const addNoteImage = async () => {
+    if (noteImagesDraft.length >= 4) { showToast("每則筆記最多 4 張圖片"); return; }
+    try {
+      const image = await pickCompressedImage();
+      setNoteImagesDraft((current) => [...current, image].slice(0, 4));
+    } catch (error: any) {
+      if (error?.message !== "未選擇照片") Alert.alert("無法上傳圖片", error?.message || "請再試一次");
+    }
   };
   const importBusanBackupsToFavorites = () => {
     const names = new Set(favorites.map((item) => item.name.trim().toLowerCase()));
@@ -5498,7 +5515,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.21.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.22.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -6150,17 +6167,17 @@ export default function App() {
                   {[...new Set((activeTrip.shoppingGuide || []).map((item) => item.region))].map((region) => (
                     <View key={region} style={styles.shoppingGuideRegion}>
                       <View style={styles.shoppingGuideRegionHeader}>
-                        <Pressable style={styles.shoppingGuideRegionToggle} onPress={() => setCollapsedShoppingGuideRegions((current) => current.includes(region) ? current.filter((item) => item !== region) : [...current, region])}>
-                          <Text style={styles.shoppingGuideRegionArrow}>{collapsedShoppingGuideRegions.includes(region) ? "▸" : "▾"}</Text>
+                        <Pressable style={styles.shoppingGuideRegionToggle} onPress={() => setExpandedShoppingGuideRegions((current) => current.includes(region) ? current.filter((item) => item !== region) : [...current, region])}>
+                          <Text style={styles.shoppingGuideRegionArrow}>{expandedShoppingGuideRegions.includes(region) ? "▾" : "▸"}</Text>
                           <Text style={styles.shoppingGuideRegionTitle}>{region}</Text>
                         </Pressable>
                         <Pressable onPress={() => openShoppingGuideEditor(undefined, region)}><Text style={styles.shoppingGuideRegionAdd}>＋ 加到這區</Text></Pressable>
                       </View>
-                      {!collapsedShoppingGuideRegions.includes(region) && (activeTrip.shoppingGuide || []).filter((item) => item.region === region).map((item) => (
+                      {expandedShoppingGuideRegions.includes(region) && (activeTrip.shoppingGuide || []).filter((item) => item.region === region).map((item) => (
                         <View key={item.id} style={styles.shoppingGuidePlace}>
                           <View style={styles.shoppingGuidePlaceHeader}>
-                            <Pressable style={styles.shoppingGuidePlaceToggle} onPress={() => setCollapsedShoppingGuidePlaces((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}>
-                              <Text style={styles.shoppingGuidePlaceArrow}>{collapsedShoppingGuidePlaces.includes(item.id) ? "▸" : "▾"}</Text>
+                            <Pressable style={styles.shoppingGuidePlaceToggle} onPress={() => setExpandedShoppingGuidePlaces((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}>
+                              <Text style={styles.shoppingGuidePlaceArrow}>{expandedShoppingGuidePlaces.includes(item.id) ? "▾" : "▸"}</Text>
                               <Text style={styles.shoppingGuidePlaceName}>{item.name}</Text>
                             </Pressable>
                             <View style={styles.shoppingGuidePlaceActionsInline}>
@@ -6168,7 +6185,7 @@ export default function App() {
                               <Pressable style={styles.shoppingGuideDeleteInline} onPress={() => removeShoppingGuidePlace(item.id)}><Text style={styles.shoppingGuideDeleteText}>× 刪除</Text></Pressable>
                             </View>
                           </View>
-                          {!collapsedShoppingGuidePlaces.includes(item.id) && <>
+                          {expandedShoppingGuidePlaces.includes(item.id) && <>
                             {!!item.note && <Text style={styles.shoppingGuidePlaceNote}>{item.note}</Text>}
                           </>}
                         </View>
@@ -6188,9 +6205,19 @@ export default function App() {
                     <View style={styles.shoppingGuideEditor}>
                       <Text style={styles.fieldLabel}>標題 *</Text>
                       <TextInput value={noteTitleDraft} onChangeText={setNoteTitleDraft} placeholder="例如：飯店入住提醒" placeholderTextColor="#AAA198" style={styles.fieldInput} />
-                      <Text style={styles.fieldLabel}>內容</Text>
-                      <TextInput value={noteContentDraft} onChangeText={setNoteContentDraft} multiline textAlignVertical="top" placeholder="輸入想記下的資訊……" placeholderTextColor="#AAA198" style={[styles.noteInput, styles.tripNoteContentInput]} />
-                      <View style={styles.shoppingGuideEditorActions}>
+                       <Text style={styles.fieldLabel}>內容</Text>
+                       <TextInput value={noteContentDraft} onChangeText={setNoteContentDraft} multiline textAlignVertical="top" placeholder="輸入想記下的資訊……" placeholderTextColor="#AAA198" style={[styles.noteInput, styles.tripNoteContentInput]} />
+                       <Text style={styles.fieldLabel}>圖片（最多 4 張）</Text>
+                       <View style={styles.tripNoteImages}>
+                         {noteImagesDraft.map((uri, index) => (
+                           <View key={`draft-note-image-${index}`} style={styles.tripNoteImageWrap}>
+                             <Pressable onPress={() => setEnlargedShoppingImage({ uri, name: noteTitleDraft || "筆記圖片" })}><Image source={{ uri }} style={styles.tripNoteImage} resizeMode="cover" /></Pressable>
+                             <Pressable accessibilityLabel={`移除第 ${index + 1} 張圖片`} style={styles.tripNoteRemoveImage} onPress={() => setNoteImagesDraft((current) => current.filter((_, imageIndex) => imageIndex !== index))}><Text style={styles.tripNoteRemoveImageText}>×</Text></Pressable>
+                           </View>
+                         ))}
+                         {noteImagesDraft.length < 4 && <Pressable style={styles.tripNoteAddImage} onPress={addNoteImage}><Text style={styles.tripNoteAddImageText}>＋ 上傳圖片</Text></Pressable>}
+                       </View>
+                       <View style={styles.shoppingGuideEditorActions}>
                         <Pressable style={styles.cancelButton} onPress={resetNoteDraft}><Text style={styles.cancelText}>取消</Text></Pressable>
                         <Pressable style={[styles.primaryButton, styles.shoppingGuideSaveButton]} onPress={saveTripNote}><Text style={styles.primaryButtonText}>{editingNoteId ? "儲存修改" : "儲存筆記"}</Text></Pressable>
                       </View>
@@ -6209,9 +6236,10 @@ export default function App() {
                           <Pressable style={styles.shoppingGuideDeleteInline} onPress={() => removeNote(item.id)}><Text style={styles.shoppingGuideDeleteText}>× 刪除</Text></Pressable>
                         </View>
                       </View>
-                      {!collapsed && <>
-                        <Text style={styles.tripNoteContent}>{item.content || "尚未填寫內容"}</Text>
-                      </>}
+                       {!collapsed && <>
+                         <Text style={styles.tripNoteContent}>{item.content || "尚未填寫內容"}</Text>
+                         {!!item.images?.length && <View style={styles.tripNoteImages}>{item.images.map((uri, index) => <Pressable key={`${item.id}-image-${index}`} accessibilityLabel={`放大 ${item.title} 第 ${index + 1} 張圖片`} onPress={() => setEnlargedShoppingImage({ uri, name: item.title })}><Image source={{ uri }} style={styles.tripNoteImage} resizeMode="cover" /></Pressable>)}</View>}
+                       </>}
                     </View>;
                   })}
                   {!(activeTrip.notes || []).length && !noteEditing && <Text style={styles.emptyListText}>目前沒有筆記，請按「＋ 新增筆記」。</Text>}
@@ -7385,6 +7413,13 @@ const styles = createDouyouStyles({
   shoppingGuideDelete: { borderRadius: 10, backgroundColor: "#F6ECE9", paddingHorizontal: 12, paddingVertical: 8 },
   shoppingGuideDeleteText: { color: "#A26C5D", fontSize: 10, fontWeight: "900" },
   tripNoteContentInput: { minHeight: 150 },
+  tripNoteImages: { flexDirection: "row", flexWrap: "wrap", gap: 9, marginTop: 8, marginBottom: 8 },
+  tripNoteImageWrap: { position: "relative" },
+  tripNoteImage: { width: 88, height: 88, borderRadius: 12, backgroundColor: "#EEF0F4" },
+  tripNoteRemoveImage: { position: "absolute", top: -6, right: -6, width: 24, height: 24, borderRadius: 12, backgroundColor: "#A94B4B", alignItems: "center", justifyContent: "center" },
+  tripNoteRemoveImageText: { color: "#FFFFFF", fontSize: 17, fontWeight: "900", lineHeight: 22 },
+  tripNoteAddImage: { minWidth: 88, height: 88, borderRadius: 12, borderWidth: 1, borderColor: "#C8D3E5", backgroundColor: "#F4F8FF", alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
+  tripNoteAddImageText: { color: "#536783", fontSize: 11, fontWeight: "800" },
   tripNoteCard: { backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E6EF", padding: 14, marginBottom: 10 },
   tripNoteTitle: { flex: 1, color: "#2D3440", fontSize: 14, fontWeight: "900" },
   tripNoteContent: { color: "#666F7C", fontSize: 12, lineHeight: 20, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#EEF0F4" },
