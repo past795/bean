@@ -15,7 +15,7 @@ const s = (
   return { id, time, title, address, transport, transportMode, note, pass, latitude, longitude, ...extras };
 };
 
-export const BUSAN_ITINERARY_VERSION = 2026092203;
+export const BUSAN_ITINERARY_VERSION = 2026092204;
 
 export const initialTrip: TripDay[] = [
   {
@@ -91,17 +91,17 @@ export const initialTrip: TripDay[] = [
     ]
   },
   {
-    id: "day5", label: "DAY 5", date: "10/08（四）", title: "機張・Osiria・返程",
+    id: "day5", label: "DAY 5", date: "10/08（四）", title: "機張・海雲台・返程",
     stops: [
-      s("d5-1", "08:30", "Avani 退房並寄放行李", "釜山廣域市南區田浦大路133", "步行", "退房、寄放行李。"),
-      s("d5-2", "09:30", "海東龍宮寺", "釜山廣域市機張郡龍宮街86", "地鐵／公車", "沿海寺廟。"),
-      s("d5-3", "11:00", "Ananti Cove", "釜山廣域市機張郡機張海岸路268-32", "計程車", "海岸散步。"),
-      s("d5-4", "12:00", "Osiria 午餐", "釜山廣域市機張郡東釜山觀光路", "計程車", "依現場選餐廳。"),
-      s("d5-5", "13:00", "樂天 Premium Outlet 東釜山店", "釜山廣域市機張郡機張海岸路147", "步行／計程車", "最後採買。"),
-      s("d5-6", "16:15", "Waveon Coffee", "釜山廣域市機張郡長安邑海岸路286", "計程車", "海景咖啡廳。"),
-      s("d5-7", "18:20", "前往金海機場", "釜山廣域市江西區機場進入路108", "計程車／地鐵", "取行李後前往機場。"),
-      s("d5-8", "19:20", "抵達金海機場", "釜山廣域市江西區機場進入路108 金海國際機場", "步行", "辦理登機。", undefined, 35.1796, 128.9382),
-      s("d5-9", "21:05", "班機起飛返桃園", "金海國際機場", "飛機", "行程結束。")
+      s("d5-avani-checkout", "08:10", "Avani 退房並寄放行李", "부산광역시 남구 전포대로 133", "住宿辦理", "於大廳櫃檯辦理退房並寄存行李。", undefined, 35.1483093, 129.0653741, { durationMinutes: 20 }),
+      s("d5-luge-ticket", "09:15", "Skyline Luge 現場換票等候", "부산광역시 기장군 기장읍 동부산관광로 205", "計程車", "憑釜山 PASS 兌換 2 趟搭乘券，於入口處排隊等待 10:00 開門；計程車約 35–40 分鐘，參考車資 KRW 18,000–22,000。", "VBP", 35.1969, 129.2285, { routeMode: "taxi", transitMinutes: 40, durationMinutes: 45 }),
+      s("d5-luge", "10:00", "Skyline Luge 斜坡滑車", "부산광역시 기장군 기장읍 동부산관광로 205", "現場步行", "使用釜山 PASS；包含開門進場、領取頭盔裝備、纜車上山、安全講習及滑行 2 趟，首批約 10:50 完成。", "VBP", 35.1969, 129.2285, { routeMode: "walking", transitMinutes: 0, durationMinutes: 55 }),
+      s("d5-haedong", "11:00", "海東龍宮寺", "부산광역시 기장군 기장읍 용궁길 86", "計程車／步行", "參觀海岸峭壁寺廟與拍照，停留約 50 分鐘；計程車約 3–5 分鐘，步行約 15 分鐘。", undefined, 35.1883, 129.2232, { routeMode: "taxi", transitMinutes: 5, durationMinutes: 50 }),
+      s("d5-lunch", "11:55", "水百堂 奧西利亞店", "부산광역시 기장군 기장읍 동부산관광로 34", "計程車", "午餐首選：수백당 오시리아점，招牌蜂蜜蒜香白切肉與豬肉湯飯，設有平板點餐。備案：뜸 오시리아본점（기장해안로 98，鮑魚／海鮮釜飯）；오복식당（機張海岸路周邊，烤魚定食）；고민석 원조 불오뎅 가마솥 떡볶이（東釜山觀光路周邊，炒年糕、魚糕與炸物）。", undefined, 35.193, 129.214, { routeMode: "taxi", transitMinutes: 5, durationMinutes: 65 }),
+      s("d5-outlet", "13:05", "樂天 Premium Outlet 東釜山店", "부산광역시 기장군 기장읍 기장해안로 147", "計程車", "返台前最後採買，停留約 75 分鐘。周邊備案：Ananti Cove／Eternal Journey（기장해안로 268-32）；Waveon Coffee（장안읍 해맞이로 286，距 Outlet 計程車約 15 分鐘）。", undefined, 35.1927, 129.2123, { routeMode: "taxi", transitMinutes: 5, durationMinutes: 75 }),
+      s("d5-haeundae", "14:40", "海雲台海灘散步／文創小店巡禮", "부산광역시 해운대구 우동 1015", "計程車／東海線", "停留約 90 分鐘。備案：海理團路 Haeridan-gil（海雲台站舊車站後巷），可逛 Mimi Shop、Raramart 等獨立服飾、雜貨與咖啡廳。", undefined, 35.1592859, 129.1586091, { routeMode: "taxi", transitMinutes: 20, durationMinutes: 90 }),
+      s("d5-avani-luggage", "16:55", "Avani 領取行李", "부산광역시 남구 전포대로 133", "計程車／地鐵", "返回飯店領取寄存行李，預計 17:20 出發前往機場；計程車約 35–40 分鐘，地鐵 2 號線至 BIFC 約 45 分鐘。", undefined, 35.1483093, 129.0653741, { routeMode: "taxi", transitMinutes: 40, durationMinutes: 25 }),
+      s("d5-airport", "18:05", "金海國際機場", "부산광역시 강서구 공항진입로 108", "計程車／地鐵輕軌", "提前約 3 小時抵達，辦理退稅、行李托運及登機手續，準備搭乘 21:00 班機返台；計程車約 30–40 分鐘，地鐵／輕軌約 45–50 分鐘。", undefined, 35.1796, 128.9382, { routeMode: "taxi", transitMinutes: 45, durationMinutes: 175 })
     ]
   }
 ];

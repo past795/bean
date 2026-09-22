@@ -923,15 +923,24 @@ const upgradeBusanItinerary = (trip: TripPlan): TripPlan => {
   const isBusanTrip = /釜山/.test(`${trip.title} ${trip.destination}`);
   if (!isBusanTrip) return trip;
   const backupPlans = trip.backupPlans?.length ? trip.backupPlans : busanBackupDefaults();
-  const shouldApplyRequestedDayFour = trip.id === "trip-1785397565924"
-    && (trip.busanItineraryVersion || 0) < BUSAN_ITINERARY_VERSION;
-  if (shouldApplyRequestedDayFour) {
+  const currentVersion = trip.busanItineraryVersion || 0;
+  const isPrimaryBusanTrip = trip.id === "trip-1785397565924";
+  const shouldApplyRequestedDayFour = isPrimaryBusanTrip && currentVersion < 2026092203;
+  const shouldApplyRequestedDayFive = isPrimaryBusanTrip && currentVersion < BUSAN_ITINERARY_VERSION;
+  if (shouldApplyRequestedDayFour || shouldApplyRequestedDayFive) {
     const requestedDayFour = busanInitialTrip.find((day) => day.id === "day4");
+    const requestedDayFive = busanInitialTrip.find((day) => day.id === "day5");
     return {
       ...trip,
-      days: trip.days.map((day, index) => day.id === "day4" || index === 3
-        ? { ...requestedDayFour!, id: day.id, label: day.label, date: day.date }
-        : day),
+      days: trip.days.map((day, index) => {
+        if (shouldApplyRequestedDayFour && (day.id === "day4" || index === 3)) {
+          return { ...requestedDayFour!, id: day.id, label: day.label, date: day.date };
+        }
+        if (shouldApplyRequestedDayFive && (day.id === "day5" || index === 4)) {
+          return { ...requestedDayFive!, id: day.id, label: day.label, date: day.date };
+        }
+        return day;
+      }),
       backupPlans,
       busanItineraryVersion: BUSAN_ITINERARY_VERSION,
       clientUpdatedAt: Date.now()
@@ -5494,7 +5503,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.22.3</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.22.4</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
