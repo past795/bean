@@ -15,7 +15,7 @@ const s = (
   return { id, time, title, address, transport, transportMode, note, pass, latitude, longitude, ...extras };
 };
 
-export const BUSAN_ITINERARY_VERSION = 2026091401;
+export const BUSAN_ITINERARY_VERSION = 2026092203;
 
 export const initialTrip: TripDay[] = [
   {
@@ -74,22 +74,20 @@ export const initialTrip: TripDay[] = [
   {
     id: "day4", label: "DAY 4", date: "10/07（三）", title: "VBP 松島・青沙浦・SPA LAND",
     stops: [
-      s("d4-1", "08:15", "Avani 出發前往松島", "釜山廣域市西區松島海邊路171", "地鐵／公車", "提早出發。"),
-      s("d4-2", "09:00", "松島海上纜車＋龍宮雲橋", "釜山廣域市西區松島海邊路171", "步行", "使用 Visit Busan Pass。", "VBP"),
-      s("d4-3", "11:00", "岩南公園（選配）", "釜山廣域市西區岩南洞", "步行", "依體力與天候決定。"),
-      s("d4-4", "11:15", "前往 Running Man", "釜山廣域市釜山鎮區中央大路672", "計程車／地鐵", "移動到西面。"),
-      s("d4-5", "12:00", "Running Man", "釜山廣域市釜山鎮區中央大路672", "步行", "使用 Visit Busan Pass。", "VBP"),
-      s("d4-6", "14:00", "西面午餐", "釜山廣域市釜山鎮區西面", "步行", "依現場選擇。"),
-      s("d4-7", "15:00", "前往尾浦", "釜山廣域市海雲台區迎月路62番街13", "地鐵／計程車", "前往海岸列車尾浦站。"),
-      s("d4-8", "15:30", "海岸列車（尾浦→青沙浦）", "釜山廣域市海雲台區迎月路62番街13", "預約制", "使用 Visit Busan Pass。", "VBP", 35.1587, 129.1716, { reservationRequired: true, reservationNote: "確認 VBP 兌換與班次" }),
-      s("d4-9", "16:00", "青沙浦踏石觀景台", "釜山廣域市海雲台區青沙浦路167", "步行", "視天候開放狀況。", undefined, 35.1604, 129.1915),
-      s("d4-10", "16:30", "Sky Capsule（青沙浦→尾浦）", "釜山廣域市海雲台區青沙浦路116", "預約制", "自費，建議提前四週預約靠海側座位。", "自費", 35.1614, 129.1908, { reservationRequired: true, reservationNote: "提前 4 週預約靠海側座位" }),
-      s("d4-11", "17:00", "前往水營灣", "釜山廣域市海雲台區海雲台海邊路84", "計程車", "預留報到時間。"),
-      s("d4-12", "17:45", "鑽石灣遊艇夜航", "釜山廣域市海雲台區海雲台海邊路84", "預約制", "使用 VBP，依預約航班提早報到。", "VBP", 35.1531, 129.1324, { reservationRequired: true, reservationNote: "至少一個月前確認場次；https://diamondbay-tw.imweb.me/vbp-tw" }),
-      s("d4-13", "18:45", "前往 Centum City", "釜山廣域市海雲台區Centum南大路35", "地鐵／計程車", "前往新世界百貨。"),
-      s("d4-14", "19:10", "百貨輕食", "新世界 Centum City", "百貨內", "簡單晚餐。"),
-      s("d4-15", "19:45", "SPA LAND", "釜山廣域市海雲台區Centum南大路35", "百貨內", "使用 Visit Busan Pass。", "VBP"),
-      s("d4-16", "22:00", "返回 Avani", "釜山廣域市南區田浦大路133", "地鐵／計程車", "返回住宿。")
+      s("d4-avani", "09:35", "Avani Central Busan", "부산광역시 남구 전포대로 133", "住宿出發", "由飯店出發前往松島。", undefined, 35.1483093, 129.0653741, { durationMinutes: 0 }),
+      s("d4-songdo-station", "10:20", "松島纜車站（松島灣站）", "부산광역시 서구 송도해변로 171", "計程車／大眾運輸", "抵達後準備搭乘纜車。", undefined, 35.0776, 129.0237, { routeMode: "transit", transitMinutes: 45, durationMinutes: 10 }),
+      s("d4-cable-out", "10:30", "松島海上纜車（去程）", "부산광역시 서구 송도해변로 171", "步行", "松島灣站搭至岩南公園站；搭乘約 15 分鐘。", "VBP", 35.0776, 129.0237, { routeMode: "walking", transitMinutes: 0, durationMinutes: 15 }),
+      s("d4-yonggung", "10:45", "松島龍宮雲橋", "부산광역시 서구 암남공원로 55", "步行", "使用 Visit Busan Pass；停留約 40 分鐘。", "VBP", 35.0617, 129.0186, { routeMode: "walking", transitMinutes: 0, durationMinutes: 40 }),
+      s("d4-cable-return", "11:25", "松島海上纜車（回程）", "부산광역시 서구 암남공원로 181", "步行", "由岩南公園站搭回松島灣站；搭乘約 15 分鐘。", "VBP", 35.0617, 129.0186, { routeMode: "walking", transitMinutes: 0, durationMinutes: 15 }),
+      s("d4-mipo-lunch", "12:15", "尾浦午餐", "부산광역시 해운대구 중동 947-1", "計程車", "可選尾浦家海鮮醬、極東豬肉湯飯或海雲台瓦房鱈魚湯；停留約 75 分鐘。", undefined, 35.1635, 129.1745, { routeMode: "taxi", transitMinutes: 35, durationMinutes: 75 }),
+      s("d4-x-sky", "13:35", "BUSAN X the SKY", "부산광역시 해운대구 달맞이길 30", "步行", "使用 Visit Busan Pass；停留約 30 分鐘。", "VBP", 35.1598007, 129.169609, { routeMode: "walking", transitMinutes: 5, durationMinutes: 30 }),
+      s("d4-mipo-beach", "14:05", "尾浦海灘散步／周邊咖啡廳", "부산광역시 해운대구 중동 947-1", "步行", "海灘散步或咖啡廳休息約 60 分鐘。", undefined, 35.1635, 129.1745, { routeMode: "walking", transitMinutes: 0, durationMinutes: 60 }),
+      s("d4-beach-train", "15:15", "海岸列車（尾浦站上車）", "부산광역시 해운대구 달맞이길62번길 13", "步行", "尾浦搭至青沙浦；使用 Visit Busan Pass，搭乘約 15 分鐘。", "VBP", 35.1587, 129.1716, { routeMode: "walking", transitMinutes: 10, durationMinutes: 15 }),
+      s("d4-cheongsapo", "15:30", "青沙浦踏石觀景台／周邊散步", "부산광역시 해운대구 청사포로 167", "步行", "停留約 50 分鐘，另含步行往返膠囊列車青沙浦站約 10 分鐘。", undefined, 35.1604, 129.1915, { routeMode: "walking", transitMinutes: 0, durationMinutes: 60 }),
+      s("d4-sky-capsule", "16:30", "Sky Capsule（青沙浦站上車）", "부산광역시 해운대구 청사포로 116", "步行", "搭回尾浦，車程約 30 分鐘。", "自費", 35.1614, 129.1908, { routeMode: "walking", transitMinutes: 0, durationMinutes: 30, reservationRequired: true, reservationNote: "提前預約 10/7 16:30 青沙浦上車、前往尾浦的班次。" }),
+      s("d4-yacht", "18:00", "鑽石灣遊艇夜航", "부산광역시 해운대구 해운대해변로 84", "計程車", "18:00 報到、18:30 出航；使用 Visit Busan Pass，含報到與約 40 分鐘航程共約 70 分鐘。", "VBP", 35.1531, 129.1324, { routeMode: "taxi", transitMinutes: 25, durationMinutes: 70, reservationRequired: true, reservationNote: "預約 10/7 18:30 夜航，18:00 前完成報到；https://diamondbay-tw.imweb.me/vbp-tw" }),
+      s("d4-spa-land", "19:25", "SPA LAND 汗蒸幕", "부산광역시 해운대구 센텀남대로 35", "計程車／公車", "使用 Visit Busan Pass；停留約 150 分鐘，預計 21:55 離開。", "VBP", 35.1689, 129.1292, { routeMode: "taxi", transitMinutes: 15, durationMinutes: 150 }),
+      s("d4-avani-return", "22:00", "Avani Central Busan", "부산광역시 남구 전포대로 133", "地鐵", "搭地鐵 2 號線返回住宿，車程約 20 分鐘。", undefined, 35.1483093, 129.0653741, { routeMode: "transit", transitMinutes: 20, durationMinutes: 0 })
     ]
   },
   {

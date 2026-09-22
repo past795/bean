@@ -923,6 +923,20 @@ const upgradeBusanItinerary = (trip: TripPlan): TripPlan => {
   const isBusanTrip = /釜山/.test(`${trip.title} ${trip.destination}`);
   if (!isBusanTrip) return trip;
   const backupPlans = trip.backupPlans?.length ? trip.backupPlans : busanBackupDefaults();
+  const shouldApplyRequestedDayFour = trip.id === "trip-1785397565924"
+    && (trip.busanItineraryVersion || 0) < BUSAN_ITINERARY_VERSION;
+  if (shouldApplyRequestedDayFour) {
+    const requestedDayFour = busanInitialTrip.find((day) => day.id === "day4");
+    return {
+      ...trip,
+      days: trip.days.map((day, index) => day.id === "day4" || index === 3
+        ? { ...requestedDayFour!, id: day.id, label: day.label, date: day.date }
+        : day),
+      backupPlans,
+      busanItineraryVersion: BUSAN_ITINERARY_VERSION,
+      clientUpdatedAt: Date.now()
+    };
+  }
   // Built-in itineraries are only starter data. Never replace a day that the
   // traveller has already edited, even when an older migration version is
   // received from another device or the legacy spreadsheet service.
@@ -5480,7 +5494,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.22.2</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.22.3</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
