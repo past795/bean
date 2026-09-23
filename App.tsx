@@ -1182,6 +1182,7 @@ export default function App() {
   const [collapsedShoppingCategories, setCollapsedShoppingCategories] = useState<string[]>([]);
   const [failedShoppingImages, setFailedShoppingImages] = useState<string[]>([]);
   const [enlargedShoppingImage, setEnlargedShoppingImage] = useState<{ uri: string; name: string } | null>(null);
+  const [imageLightboxZoomed, setImageLightboxZoomed] = useState(false);
   const [checklistText, setChecklistText] = useState("");
   const [checklistError, setChecklistError] = useState("");
   const [stopUndoHistory, setStopUndoHistory] = useState<Record<string, Stop[][]>>({});
@@ -1359,6 +1360,9 @@ export default function App() {
     if (!noteCollapseReady) return;
     AsyncStorage.setItem(`${NOTE_COLLAPSE_KEY}:${activeTrip.id}`, JSON.stringify(collapsedNotes)).catch(() => undefined);
   }, [noteCollapseReady, activeTrip.id, collapsedNotes]);
+  useEffect(() => {
+    if (!enlargedShoppingImage) setImageLightboxZoomed(false);
+  }, [enlargedShoppingImage]);
   useEffect(() => {
     if (selectedTool !== "逛街攻略") return;
     setExpandedShoppingGuideRegions([]);
@@ -5503,7 +5507,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.22.4</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.23.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -6412,10 +6416,13 @@ export default function App() {
         </Modal>
 
         <Modal visible={!!enlargedShoppingImage} animationType="fade" transparent onRequestClose={() => setEnlargedShoppingImage(null)}>
-          <Pressable accessibilityLabel="關閉放大圖片" style={styles.imageLightboxBackdrop} onPress={() => setEnlargedShoppingImage(null)}>
-            <Pressable style={styles.imageLightboxCard} onPress={(event) => event.stopPropagation()}>
-              <Image source={{ uri: enlargedShoppingImage?.uri || "" }} style={styles.imageLightboxImage} resizeMode="contain" />
-              <Text style={styles.imageLightboxTitle}>{enlargedShoppingImage?.name}</Text>
+          <Pressable accessibilityLabel="關閉放大圖片" style={[styles.imageLightboxBackdrop, imageLightboxZoomed && styles.imageLightboxBackdropZoomed]} onPress={() => setEnlargedShoppingImage(null)}>
+            <Pressable style={[styles.imageLightboxCard, imageLightboxZoomed && styles.imageLightboxCardZoomed]} onPress={(event) => event.stopPropagation()}>
+              <Pressable accessibilityLabel={imageLightboxZoomed ? "縮小圖片" : "全螢幕放大圖片"} style={[styles.imageLightboxImageButton, imageLightboxZoomed && styles.imageLightboxImageButtonZoomed]} onPress={() => setImageLightboxZoomed((current) => !current)}>
+                <Image source={{ uri: enlargedShoppingImage?.uri || "" }} style={[styles.imageLightboxImage, imageLightboxZoomed && styles.imageLightboxImageZoomed]} resizeMode="contain" />
+              </Pressable>
+              <Text style={[styles.imageLightboxTitle, imageLightboxZoomed && styles.imageLightboxTextZoomed]}>{enlargedShoppingImage?.name}</Text>
+              <Text style={[styles.imageLightboxHint, imageLightboxZoomed && styles.imageLightboxTextZoomed]}>{imageLightboxZoomed ? "再點圖片可縮小・點黑色區域關閉" : "再點圖片可全螢幕放大"}</Text>
             </Pressable>
           </Pressable>
         </Modal>
@@ -7300,9 +7307,16 @@ const styles = createDouyouStyles({
   productImageFallback: { width: 58, height: 58, borderRadius: 12, backgroundColor: "#F2EEE8", alignItems: "center", justifyContent: "center" },
   productImageEmoji: { fontSize: 24 },
   imageLightboxBackdrop: { flex: 1, backgroundColor: "rgba(18,17,16,.82)", alignItems: "center", justifyContent: "center", padding: 22 },
+  imageLightboxBackdropZoomed: { padding: 0 },
   imageLightboxCard: { width: "100%", maxWidth: 460, maxHeight: "82%", borderRadius: 24, backgroundColor: "#FBFAF7", padding: 14, alignItems: "center" },
-  imageLightboxImage: { width: "100%", height: 430, maxHeight: "72%", borderRadius: 16, backgroundColor: "#FFFFFF" },
+  imageLightboxCardZoomed: { maxWidth: "100%", width: "100%", height: "100%", maxHeight: "100%", borderRadius: 0, backgroundColor: "transparent", padding: 0 },
+  imageLightboxImageButton: { width: "100%", height: 430, maxHeight: "72%", alignItems: "center", justifyContent: "center" },
+  imageLightboxImageButtonZoomed: { flex: 1, height: "100%", maxHeight: "100%" },
+  imageLightboxImage: { width: "100%", height: "100%", borderRadius: 16, backgroundColor: "#FFFFFF" },
+  imageLightboxImageZoomed: { flex: 1, width: "100%", height: "100%", borderRadius: 0, backgroundColor: "transparent" },
   imageLightboxTitle: { color: "#39342F", fontSize: 13, fontWeight: "900", textAlign: "center", marginTop: 12, marginBottom: 2 },
+  imageLightboxHint: { color: "#81786F", fontSize: 10, fontWeight: "700", textAlign: "center", marginTop: 5, marginBottom: 2 },
+  imageLightboxTextZoomed: { color: "#FFFFFF" },
   findImageText: { color: "#8D6B59", fontSize: 10, fontWeight: "900" },
   imageSearchButton: { height: 42, borderRadius: 12, borderWidth: 1, borderColor: "#D8CFC4", alignItems: "center", justifyContent: "center", marginTop: 10 },
   imageSearchText: { color: "#775A49", fontSize: 11, fontWeight: "800" },
