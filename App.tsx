@@ -281,7 +281,7 @@ const tripDayDateLabel = (start: string, dayIndex: number) => {
   return `${String(date.getUTCMonth() + 1).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}（${weekdays[date.getUTCDay()]}）`;
 };
 const isIsoTripDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
-const pickCompressedImage = () => new Promise<string>((resolve, reject) => {
+const pickCompressedImage = (detailImage = false) => new Promise<string>((resolve, reject) => {
   if (Platform.OS !== "web") return reject(new Error("目前請使用網站版上傳照片"));
   const documentRef = (globalThis as any).document;
   const input = documentRef.createElement("input");
@@ -295,17 +295,23 @@ const pickCompressedImage = () => new Promise<string>((resolve, reject) => {
       const image = new (globalThis as any).Image();
       image.onload = () => {
         const canvas = documentRef.createElement("canvas");
-        let maxSide = 1000;
-        let quality = .84;
+        // Tickets, QR codes and note screenshots need enough pixels for small
+        // text to remain readable when opened fullscreen. Covers can keep the
+        // original compact preset because they are only decorative.
+        let maxSide = detailImage ? 1800 : 1000;
+        let quality = detailImage ? .92 : .84;
+        const targetLength = detailImage ? 140000 : 46000;
+        const minimumQuality = detailImage ? .72 : .58;
         let dataUrl = "";
-        for (let attempt = 0; attempt < 10; attempt += 1) {
+        for (let attempt = 0; attempt < 12; attempt += 1) {
           const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
           canvas.width = Math.max(1, Math.round(image.width * scale));
           canvas.height = Math.max(1, Math.round(image.height * scale));
           canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
           dataUrl = canvas.toDataURL("image/jpeg", quality);
-          if (dataUrl.length <= 46000) break;
-          if (quality > .58) quality -= .08; else maxSide = Math.round(maxSide * .78);
+          if (dataUrl.length <= targetLength) break;
+          if (quality > minimumQuality) quality -= detailImage ? .04 : .08;
+          else maxSide = Math.round(maxSide * (detailImage ? .88 : .78));
         }
         resolve(dataUrl);
       };
@@ -1518,7 +1524,7 @@ export default function App() {
   const addNoteImage = async () => {
     if (noteImagesDraft.length >= 4) { showToast("每則筆記最多 4 張圖片"); return; }
     try {
-      const image = await pickCompressedImage();
+      const image = await pickCompressedImage(true);
       setNoteImagesDraft((current) => [...current, image].slice(0, 4));
     } catch (error: any) {
       if (error?.message !== "未選擇照片") Alert.alert("無法上傳圖片", error?.message || "請再試一次");
@@ -5507,7 +5513,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.23.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.24.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -6332,7 +6338,7 @@ export default function App() {
                     <Text style={styles.fieldLabel}>商品圖片</Text>
                     {!!shoppingImageUrl && <Pressable accessibilityLabel="放大商品圖片" onPress={() => setEnlargedShoppingImage({ uri: shoppingImageUrl, name: shoppingName || "商品圖片" })}><Image source={{ uri: shoppingImageUrl }} style={styles.uploadPreview} resizeMode="contain" /></Pressable>}
                     <Pressable style={styles.addressLookupButton} onPress={async () => {
-                      try { setShoppingImageUrl(await pickCompressedImage()); } catch (error: any) { if (error?.message !== "未選擇照片") Alert.alert("無法上傳", error?.message); }
+                      try { setShoppingImageUrl(await pickCompressedImage(true)); } catch (error: any) { if (error?.message !== "未選擇照片") Alert.alert("無法上傳", error?.message); }
                     }}><Text style={styles.addressLookupText}>＋ 從手機／電腦上傳照片</Text></Pressable>
                     {shoppingImageUrl.startsWith("data:image/")
                       ? <Pressable onPress={() => setShoppingImageUrl("")}><Text style={styles.removeUploadedImage}>移除已上傳照片</Text></Pressable>
@@ -6374,7 +6380,7 @@ export default function App() {
                             <Pressable accessibilityLabel={item.purchased ? "取消已購買" : "標記已購買"} onPress={() => toggleShoppingItem(item.id)} style={[styles.shoppingCheck, item.purchased && styles.shoppingCheckActive]}>
                               <Text style={styles.shoppingCheckText}>{item.purchased ? "✓" : ""}</Text>
                             </Pressable>
-                            {item.imageUrl && !failedShoppingImages.includes(`${item.id}:${item.imageUrl}`) ? <Pressable accessibilityLabel={`放大 ${item.name} 圖片`} onPress={() => setEnlargedShoppingImage({ uri: item.imageUrl?.startsWith("data:image/") ? item.imageUrl : `https://images.weserv.nl/?url=${encodeURIComponent(item.imageUrl || "")}&w=1200&h=1200&fit=contain&output=webp`, name: item.name })}><Image source={{ uri: item.imageUrl.startsWith("data:image/") ? item.imageUrl : `https://images.weserv.nl/?url=${encodeURIComponent(item.imageUrl)}&w=160&h=160&fit=contain&output=webp` }} onError={() => setFailedShoppingImages((current) => [...new Set([...current, `${item.id}:${item.imageUrl}`])])} style={styles.productImage} resizeMode="contain" /></Pressable> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
+                            {item.imageUrl && !failedShoppingImages.includes(`${item.id}:${item.imageUrl}`) ? <Pressable accessibilityLabel={`放大 ${item.name} 圖片`} onPress={() => setEnlargedShoppingImage({ uri: item.imageUrl?.startsWith("data:image/") ? item.imageUrl : `https://images.weserv.nl/?url=${encodeURIComponent(item.imageUrl || "")}&w=2400&h=2400&fit=contain&output=webp`, name: item.name })}><Image source={{ uri: item.imageUrl.startsWith("data:image/") ? item.imageUrl : `https://images.weserv.nl/?url=${encodeURIComponent(item.imageUrl)}&w=160&h=160&fit=contain&output=webp` }} onError={() => setFailedShoppingImages((current) => [...new Set([...current, `${item.id}:${item.imageUrl}`])])} style={styles.productImage} resizeMode="contain" /></Pressable> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
                             <Pressable style={styles.shoppingInfo} onPress={() => openShoppingItemEditor(item.id)}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.owner ? `${item.owner}・` : ""}{item.category || "未設定類別"}・數量 {item.quantity || 1}・{item.purchased ? "已購買" : "待購買"}</Text><Text style={styles.shoppingEdit}>✎ 編輯商品</Text></Pressable>
                             <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
                             <Pressable style={styles.shoppingDeleteButton} onPress={() => deleteShoppingItem(item.id)}><Text style={styles.shoppingDeleteText}>×</Text></Pressable>
