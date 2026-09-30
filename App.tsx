@@ -118,7 +118,6 @@ const currentWebBase = (() => {
   const path = String(location?.pathname || "/");
   return origin ? `${origin}${path.endsWith("/") ? path : path.replace(/[^/]*$/, "")}` : "/";
 })();
-const DOUYOU_AI_URL = "https://throbbing-dust-5d68douyou-ai.past795.workers.dev/chat";
 const BUSAN_BACKUP_FAVORITES: FavoritePlace[] = [
   { id: "busan-backup-film", name: "釜山電影體驗博物館", address: "釜山廣域市中區大廳路126號街12", country: "韓國", city: "釜山", latitude: 35.1017, longitude: 129.0325, note: "Day 1 下雨或炎熱時，可替代太宗台／白淺灘的室內備案。" },
   { id: "busan-backup-seomyeon", name: "西面地下街", address: "釜山廣域市釜山鎮區西面站一帶", country: "韓國", city: "釜山", latitude: 35.1579, longitude: 129.0590, note: "下雨天適合搭配田浦咖啡街與選物店的室內備案。" },
@@ -1164,13 +1163,6 @@ export default function App() {
   const [exchangeRateDate, setExchangeRateDate] = useState("");
   const [exchangeRateLoading, setExchangeRateLoading] = useState(false);
   const [exchangeRateError, setExchangeRateError] = useState("");
-  const [aiAssistantVisible, setAiAssistantVisible] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState("");
-  const [aiAnswer, setAiAnswer] = useState("");
-  const [aiError, setAiError] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiFocusStop, setAiFocusStop] = useState<Stop | null>(null);
-
   useEffect(() => {
     const count = inclusiveDayCount(newStartDate, newEndDate);
     if (count) setNewDayCount(String(Math.min(14, count)));
@@ -2909,91 +2901,6 @@ export default function App() {
       }
     })();
   }, [firestoreConnected, googleUser?.firebaseUid, activeTrip.id, activeTrip.coverImage, activeTrip.shopping, activeTrip.notes]);
-
-  const openAiAssistant = (focus?: Stop | null) => {
-    const stop = focus || null;
-    setAiFocusStop(stop);
-    setAiAnswer("");
-    setAiError("");
-    if (stop) {
-      const index = selectedDay.stops.findIndex((item) => item.id === stop.id);
-      const previous = index > 0 ? selectedDay.stops[index - 1] : null;
-      setAiPrompt(previous
-        ? `從「${previous.title}」前往「${stop.title}」怎麼走？請只依豆遊目前儲存的旅行資料回答；沒有的即時路線、票價或營業時間請標示「尚未查證」，不要猜測。`
-        : `我正在安排「${stop.title}」，請依豆遊目前儲存的旅行資料建議抵達時間、停留時間與注意事項；沒有的最新資料請標示「尚未查證」，不要自行編造。`);
-    } else {
-      setAiPrompt("");
-    }
-    setAiAssistantVisible(true);
-  };
-
-  const askDouyouAi = async () => {
-    const message = aiPrompt.trim();
-    if (!message) {
-      setAiError("請先輸入想問小助手的問題。");
-      return;
-    }
-    setAiLoading(true);
-    setAiError("");
-    try {
-      const tripContext = {
-        title: activeTrip.title,
-        destination: activeTrip.destination,
-        startDate: activeTrip.startDate,
-        endDate: activeTrip.endDate,
-        days: activeTrip.days.map((day) => ({
-          label: day.label,
-          date: day.date,
-          title: day.title,
-          stops: day.stops.map((stop) => ({
-            title: stop.title, address: stop.address, time: stop.time,
-            transport: stop.transport, openingHours: stop.openingHours,
-            openingHoursSource: stop.openingHoursSource, note: stop.note
-          }))
-        })),
-        accommodations: (activeTrip.accommodations || []).map((hotel: any) => ({
-          name: hotel.name, address: hotel.address, period: hotel.period,
-          checkIn: hotel.checkIn, checkOut: hotel.checkOut
-        }))
-      };
-      const groundedMessage = [
-        "你是小助手。以下 JSON 是使用者 App 內的唯一可信旅行資料。",
-        "規則：優先引用 JSON；不得把模型記憶當成最新事實；JSON 沒有的營業時間、票價、班次、地址與即時路線，一律寫『尚未查證』；不可捏造來源或網址；資訊不足時先說明缺少什麼。",
-        `使用者問題：${message}`,
-        `豆遊旅行資料：${JSON.stringify(tripContext)}`
-      ].join("\n\n");
-      const payload = {
-        message: groundedMessage,
-        policy: "grounded-trip-data-only",
-        trip: {
-          title: activeTrip.title,
-          destination: activeTrip.destination,
-          startDate: activeTrip.startDate,
-          endDate: activeTrip.endDate,
-          selectedDay: {
-            label: selectedDay.label,
-            date: selectedDay.date,
-            title: selectedDay.title,
-            stops: selectedDay.stops.map((stop) => ({ title: stop.title, address: stop.address, time: stop.time, transport: stop.transport, openingHours: stop.openingHours, note: stop.note }))
-          },
-          accommodations: (activeTrip.accommodations || []).map((hotel: any) => ({ name: hotel.name, address: hotel.address, period: hotel.period }))
-        },
-        focus: aiFocusStop ? { title: aiFocusStop.title, address: aiFocusStop.address, time: aiFocusStop.time, openingHours: aiFocusStop.openingHours, note: aiFocusStop.note } : null
-      };
-      const response = await fetch(DOUYOU_AI_URL, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(String(data?.error || "小助手暫時無法回覆"));
-      setAiAnswer(String(data?.answer || "目前沒有取得回覆，請再試一次。"));
-    } catch (error: any) {
-      setAiError(error?.message || "小助手暫時無法回覆，請稍後再試。");
-    } finally {
-      setAiLoading(false);
-    }
-  };
 
   const saveNote = () => {
     if (!editing) return;
@@ -5566,7 +5473,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.30.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.30.2</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5658,10 +5565,6 @@ export default function App() {
           </Pressable>
         )}
 
-        <Pressable style={[styles.aiFloatingButton, tab === "itinerary" && styles.aiFloatingButtonBesideAdd, previousStops && styles.aiFloatingButtonRaised]} onPress={() => openAiAssistant()}>
-          <Text style={styles.aiFloatingIcon}>✦</Text>
-          <Text style={styles.aiFloatingText}>小助手</Text>
-        </Pressable>
         {tab === "itinerary" && <Pressable accessibilityLabel="新增景點" style={[styles.addStopFloatingButton, previousStops && styles.addStopFloatingButtonRaised]} onPress={() => openNewStopForm()}>
           <Text style={styles.addStopFloatingText}>＋ 新增</Text>
         </Pressable>}
@@ -5862,9 +5765,6 @@ export default function App() {
               </Pressable>
               {!!draftCoordinateMessage && <Text style={draftCoordinateStatus === "error" ? styles.placeSearchError : styles.addressFoundText}>{draftCoordinateStatus === "found" ? "✓ " : ""}{draftCoordinateMessage}</Text>}
               <Text style={styles.routeFieldHint}>修改地址後請按上方按鈕確認新座標，再儲存景點。</Text>
-              <Pressable style={styles.aiInlineButton} onPress={() => editing && openAiAssistant(editing)}>
-                <Text style={styles.aiInlineText}>✦ AI 說說這裡：問交通、最佳抵達時間或備案</Text>
-              </Pressable>
               <Text style={styles.fieldLabel}>從上一站怎麼前往這裡？</Text>
               <Text style={styles.routeFieldHint}>這是「上一站 → 此景點」的交通，不是景點本身的預約方式；不確定可留「尚未安排」。</Text>
               <View style={styles.legRouteActions}>
@@ -5958,36 +5858,6 @@ export default function App() {
               <Pressable style={styles.deleteStopButton} onPress={deleteEditingStop}><Text style={styles.deleteStopText}>刪除此景點</Text></Pressable>
               <Pressable style={styles.cancelButton} onPress={() => setEditing(null)}><Text style={styles.cancelText}>取消</Text></Pressable>
             </ScrollView>
-          </View>
-        </Modal>
-
-        <Modal visible={aiAssistantVisible} animationType="slide" transparent onRequestClose={() => setAiAssistantVisible(false)}>
-          <View style={styles.modalShade}>
-            <View style={[styles.sheet, styles.aiSheet]}>
-              <View style={styles.sheetHandle} />
-              <View style={styles.aiHeader}>
-                <View>
-                  <Text style={styles.sheetEyebrow}>DOUYOU AI</Text>
-                  <Text style={styles.sheetTitle}>小助手</Text>
-                  <Text style={styles.sheetAddress}>{aiFocusStop ? `正在協助：${aiFocusStop.title}` : `目前旅行：${activeTrip.title}`}</Text>
-                </View>
-                <Pressable style={styles.sheetCloseButton} onPress={() => setAiAssistantVisible(false)}><Text style={styles.closeButtonText}>×</Text></Pressable>
-              </View>
-              <Text style={styles.aiHint}>可問：怎麼去、什麼時候到比較好、景點是否排太滿、餐廳備案。</Text>
-              <TextInput
-                value={aiPrompt}
-                onChangeText={setAiPrompt}
-                multiline
-                placeholder="例如：這一天是否來得及？請幫我調整順序。"
-                placeholderTextColor="#A49C90"
-                style={styles.aiPromptInput}
-              />
-              {!!aiError && <Text style={styles.aiError}>{aiError}</Text>}
-              <Pressable style={[styles.primaryButton, aiLoading && styles.disabledButton]} disabled={aiLoading} onPress={askDouyouAi}>
-                <Text style={styles.primaryButtonText}>{aiLoading ? "小助手思考中…" : "✦ 問問小助手"}</Text>
-              </Pressable>
-              {!!aiAnswer && <ScrollView style={styles.aiAnswerBox} contentContainerStyle={styles.aiAnswerContent}><Text style={styles.aiAnswerText}>{aiAnswer}</Text></ScrollView>}
-            </View>
           </View>
         </Modal>
 
@@ -7102,11 +6972,6 @@ const styles = createDouyouStyles({
   bottomGroupDivider: { width: 1, height: 38, alignSelf: "center", backgroundColor: "#D8DDE7" },
   floatingUndoButton: { position: "absolute", right: 20, bottom: 92, zIndex: 120, elevation: 25, backgroundColor: "#9C613F", borderRadius: 999, paddingHorizontal: 17, height: 42, alignItems: "center", justifyContent: "center", shadowColor: "#3A2419", shadowOpacity: .22, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
   floatingUndoText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
-  aiFloatingButton: { position: "absolute", right: 18, bottom: 92, zIndex: 119, elevation: 24, flexDirection: "row", alignItems: "center", gap: 6, height: 42, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#536783", shadowColor: "#26354C", shadowOpacity: .24, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
-  aiFloatingButtonBesideAdd: { right: 94 },
-  aiFloatingButtonRaised: { bottom: 142 },
-  aiFloatingIcon: { color: "#FFE2A6", fontSize: 16, fontWeight: "900", fontFamily: "Noto Serif TC" },
-  aiFloatingText: { color: "#FFF", fontSize: 11, fontWeight: "900", fontFamily: "Noto Serif TC" },
   addStopFloatingButton: { position: "absolute", right: 18, bottom: 92, zIndex: 120, elevation: 24, flexDirection: "row", alignItems: "center", justifyContent: "center", height: 42, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#536783", shadowColor: "#26354C", shadowOpacity: .24, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
   addStopFloatingButtonRaised: { bottom: 142 },
   addStopFloatingText: { color: "#FFFFFF", fontSize: 11, lineHeight: 14, fontWeight: "900", fontFamily: "Noto Serif TC" },
@@ -7259,17 +7124,6 @@ const styles = createDouyouStyles({
   sheetEyebrow: { fontSize: 11, letterSpacing: 1.4, color: "#9A6A4F", fontWeight: "800", fontFamily: "Noto Serif TC" },
   sheetTitle: { fontSize: 23, fontWeight: "800", color: "#292622", marginTop: 6, fontFamily: "Noto Serif TC" },
   sheetAddress: { color: "#8B837A", fontSize: 12, marginTop: 6, fontFamily: "Noto Serif TC" },
-  aiInlineButton: { marginTop: 14, backgroundColor: "#EAF2FB", borderWidth: 1, borderColor: "#CFDBEB", borderRadius: 13, paddingHorizontal: 13, paddingVertical: 10, alignItems: "center" },
-  aiInlineText: { color: "#536783", fontSize: 11, fontWeight: "900", fontFamily: "Noto Serif TC" },
-  aiSheet: { maxHeight: "86%" },
-  aiHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  closeButtonText: { color: "#625A53", fontSize: 25, lineHeight: 28, fontWeight: "400", marginTop: -2 },
-  aiHint: { color: "#718099", fontSize: 11, lineHeight: 17, marginTop: 12, fontFamily: "Noto Serif TC" },
-  aiPromptInput: { minHeight: 100, maxHeight: 160, backgroundColor: "#FFF", borderWidth: 1, borderColor: "#DDE4EF", borderRadius: 16, padding: 13, marginTop: 12, color: "#38332E", fontSize: 16, lineHeight: 23, textAlignVertical: "top", fontFamily: "Noto Serif TC" },
-  aiError: { color: "#A85445", fontSize: 11, lineHeight: 16, marginTop: 9, fontFamily: "Noto Serif TC" },
-  aiAnswerBox: { maxHeight: 250, marginTop: 14, backgroundColor: "#F1F5FB", borderRadius: 16, borderWidth: 1, borderColor: "#DDE6F2" },
-  aiAnswerContent: { padding: 14 },
-  aiAnswerText: { color: "#3F4C60", fontSize: 13, lineHeight: 21, fontFamily: "Noto Serif TC" },
   noteInput: { minHeight: 130, backgroundColor: "#FFF", borderWidth: 1, borderColor: "#E5DED5", borderRadius: 17, padding: 14, marginTop: 18, textAlignVertical: "top", color: "#38332E", fontSize: 16, lineHeight: 23 },
   compactNoteInput: { minHeight: 92, marginTop: 0 },
   fieldLabel: { color: "#696159", fontSize: 11, fontWeight: "800", marginTop: 16, marginBottom: 7 },
