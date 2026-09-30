@@ -2908,7 +2908,7 @@ export default function App() {
         setSyncErrorMessage(`圖片搬移失敗：${error?.message || "請稍後重試"}`);
       }
     })();
-  }, [firestoreConnected, googleUser?.firebaseUid, activeTrip.id]);
+  }, [firestoreConnected, googleUser?.firebaseUid, activeTrip.id, activeTrip.coverImage, activeTrip.shopping, activeTrip.notes]);
 
   const openAiAssistant = (focus?: Stop | null) => {
     const stop = focus || null;
