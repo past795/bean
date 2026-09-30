@@ -159,7 +159,8 @@ export const updateFirestoreTripState = async (personId: string, trip: any, expe
     const protectedExpenses = snapshot.exists() && currentExpenseVersion >= incomingExpenseVersion
       ? currentExpenses
       : incomingExpenses;
-    if (snapshot.exists() && (
+    const currentStateSize = JSON.stringify({ trip: currentTrip, expenses: currentExpenses }).length;
+    if (snapshot.exists() && currentStateSize < 900000 && (
       JSON.stringify(currentTrip) !== JSON.stringify(protectedTrip) ||
       JSON.stringify(currentExpenses) !== JSON.stringify(protectedExpenses)
     )) {
@@ -179,6 +180,26 @@ export const updateFirestoreTripState = async (personId: string, trip: any, expe
       updatedAt: serverTimestamp()
     }, { merge: true });
   });
+};
+
+const TRIP_IMAGE_PREFIX = "firestore-image:";
+
+export const saveFirestoreTripImage = async (tripId: string, personId: string, dataUrl: string) => {
+  const imageRef = doc(collection(firestoreDb, "trips", tripId, "images"));
+  await setDoc(imageRef, {
+    dataUrl,
+    uploadedBy: personId,
+    uploadedAt: serverTimestamp()
+  });
+  return `${TRIP_IMAGE_PREFIX}${imageRef.id}`;
+};
+
+export const loadFirestoreTripImage = async (tripId: string, imageReference: string) => {
+  if (!imageReference.startsWith(TRIP_IMAGE_PREFIX)) return imageReference;
+  const imageId = imageReference.slice(TRIP_IMAGE_PREFIX.length);
+  if (!imageId) return "";
+  const snapshot = await getDoc(doc(firestoreDb, "trips", tripId, "images", imageId));
+  return String(snapshot.data()?.dataUrl || "");
 };
 
 // Archiving deliberately keeps the shared trip state in Firestore for 30 days,

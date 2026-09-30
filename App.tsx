@@ -29,7 +29,7 @@ import { FlightInfo, Stop, TripBackupPlan, TripDay, TripNote, TripPlan, TripShop
 import { RouteMap } from "./src/components/RouteMap";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { firebaseAuth, googleAuthProvider } from "./src/firebase";
-import { archiveFirestoreTrip, deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreMembers, listenFirestoreTrip, listenFirestoreTripLinks, repairFirestoreTripLink, restoreFirestoreTrip, saveFirestoreFavorites, saveFirestoreTrip, seedFirestoreFavorites, updateFirestoreMemberName, updateFirestoreTripState } from "./src/firestoreSync";
+import { archiveFirestoreTrip, deleteFirestoreTrip, ensureFirestoreUser, firestorePersonId, joinFirestoreTrip, joinFirestoreTripByInvite, leaveFirestoreTrip, listenFirestoreFavorites, listenFirestoreMembers, listenFirestoreTrip, listenFirestoreTripLinks, loadFirestoreTripImage, repairFirestoreTripLink, restoreFirestoreTrip, saveFirestoreFavorites, saveFirestoreTrip, saveFirestoreTripImage, seedFirestoreFavorites, updateFirestoreMemberName, updateFirestoreTripState } from "./src/firestoreSync";
 
 type BusanBackupPlan = {
   id: string;
@@ -1022,6 +1022,7 @@ export default function App() {
   const [favoritesLoaded, setFavoritesLoaded] = useState(false);
   const [cloudLinksLoaded, setCloudLinksLoaded] = useState(false);
   const [firestoreConnected, setFirestoreConnected] = useState(false);
+  const [tripImageCache, setTripImageCache] = useState<Record<string, string>>({});
   const [archivedTrips, setArchivedTrips] = useState<any[]>([]);
   const [archiveTripTarget, setArchiveTripTarget] = useState<TripPlan | null>(null);
   const [txtExportSections, setTxtExportSections] = useState<Record<TxtExportSection, boolean>>({
@@ -1224,6 +1225,7 @@ export default function App() {
   const firestorePendingTripRef = useRef<string | null>(null);
   const firestoreWriteVersionRef = useRef(0);
   const firestoreSeededTripsRef = useRef<Set<string>>(new Set());
+  const migratingTripImagesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
     try {
@@ -1338,6 +1340,12 @@ export default function App() {
   }, []);
 
   const activeTrip = trips.find((trip) => trip.id === activeTripId) ?? trips[0]!;
+  const resolveTripImage = (value?: string) => value?.startsWith("firestore-image:") ? (tripImageCache[value] || "") : (value || "");
+  const shoppingImageUri = (value?: string, fullSize = false) => {
+    const resolved = resolveTripImage(value);
+    if (!resolved || resolved.startsWith("data:image/")) return resolved;
+    return `https://images.weserv.nl/?url=${encodeURIComponent(resolved)}&w=${fullSize ? 2400 : 160}&h=${fullSize ? 2400 : 160}&fit=contain&output=webp`;
+  };
   const days = activeTrip.days;
   const selectedDay = days.find((d) => d.id === selectedDayId) ?? days[0]!;
   const showingAllDays = selectedDayId === ALL_DAYS_ID;
@@ -1524,7 +1532,7 @@ export default function App() {
   const addNoteImage = async () => {
     if (noteImagesDraft.length >= 4) { showToast("每則筆記最多 4 張圖片"); return; }
     try {
-      const image = await pickCompressedImage(true);
+      const image = await storeTripImage(await pickCompressedImage(true));
       setNoteImagesDraft((current) => [...current, image].slice(0, 4));
     } catch (error: any) {
       if (error?.message !== "未選擇照片") Alert.alert("無法上傳圖片", error?.message || "請再試一次");
@@ -2856,6 +2864,51 @@ export default function App() {
   const updateActiveTrip = (changes: Partial<TripPlan>) => {
     persistTrips(trips.map((trip) => trip.id === activeTrip.id ? { ...trip, ...changes } : trip));
   };
+
+  const storeTripImage = async (dataUrl: string) => {
+    if (!dataUrl.startsWith("data:image/")) return dataUrl;
+    if (!firestoreConnected || !googleUser?.firebaseUid) throw new Error("請等待 Firebase 顯示已同步後再上傳圖片");
+    const reference = await saveFirestoreTripImage(activeTrip.id, firestorePersonId(googleUser.email, googleUser.firebaseUid), dataUrl);
+    setTripImageCache((current) => ({ ...current, [reference]: dataUrl }));
+    return reference;
+  };
+
+  useEffect(() => {
+    const references = [
+      activeTrip.coverImage,
+      ...activeTrip.shopping.map((item) => item.imageUrl),
+      ...(activeTrip.notes || []).flatMap((item) => item.images || [])
+    ].filter((value): value is string => !!value?.startsWith("firestore-image:"));
+    [...new Set(references)].forEach((reference) => {
+      if (tripImageCache[reference]) return;
+      loadFirestoreTripImage(activeTrip.id, reference).then((dataUrl) => {
+        if (dataUrl) setTripImageCache((current) => ({ ...current, [reference]: dataUrl }));
+      }).catch(() => undefined);
+    });
+  }, [activeTrip.id, activeTrip.coverImage, activeTrip.shopping, activeTrip.notes, tripImageCache]);
+
+  useEffect(() => {
+    if (!firestoreConnected || !googleUser?.firebaseUid || migratingTripImagesRef.current.has(activeTrip.id)) return;
+    const hasEmbeddedImages = !!activeTrip.coverImage?.startsWith("data:image/")
+      || activeTrip.shopping.some((item) => item.imageUrl?.startsWith("data:image/"))
+      || (activeTrip.notes || []).some((item) => item.images?.some((image) => image.startsWith("data:image/")));
+    if (!hasEmbeddedImages) return;
+    migratingTripImagesRef.current.add(activeTrip.id);
+    (async () => {
+      try {
+        const upload = async (value?: string) => value?.startsWith("data:image/") ? await storeTripImage(value) : value;
+        const coverImage = await upload(activeTrip.coverImage);
+        const shopping = await Promise.all(activeTrip.shopping.map(async (item) => ({ ...item, imageUrl: await upload(item.imageUrl) })));
+        const notes = await Promise.all((activeTrip.notes || []).map(async (item) => ({ ...item, images: await Promise.all((item.images || []).map((image) => upload(image) as Promise<string>)) })));
+        updateActiveTrip({ coverImage, shopping, notes });
+        showToast("圖片已移至雲端，旅行同步已恢復");
+      } catch (error: any) {
+        migratingTripImagesRef.current.delete(activeTrip.id);
+        setSyncStatus("error");
+        setSyncErrorMessage(`圖片搬移失敗：${error?.message || "請稍後重試"}`);
+      }
+    })();
+  }, [firestoreConnected, googleUser?.firebaseUid, activeTrip.id]);
 
   const openAiAssistant = (focus?: Stop | null) => {
     const stop = focus || null;
@@ -5513,7 +5566,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.24.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.09.30.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -6209,7 +6262,7 @@ export default function App() {
                        <View style={styles.tripNoteImages}>
                          {noteImagesDraft.map((uri, index) => (
                            <View key={`draft-note-image-${index}`} style={styles.tripNoteImageWrap}>
-                             <Pressable onPress={() => setEnlargedShoppingImage({ uri, name: noteTitleDraft || "筆記圖片" })}><Image source={{ uri }} style={styles.tripNoteImage} resizeMode="cover" /></Pressable>
+                             <Pressable onPress={() => setEnlargedShoppingImage({ uri: resolveTripImage(uri), name: noteTitleDraft || "筆記圖片" })}><Image source={{ uri: resolveTripImage(uri) }} style={styles.tripNoteImage} resizeMode="cover" /></Pressable>
                              <Pressable accessibilityLabel={`移除第 ${index + 1} 張圖片`} style={styles.tripNoteRemoveImage} onPress={() => setNoteImagesDraft((current) => current.filter((_, imageIndex) => imageIndex !== index))}><Text style={styles.tripNoteRemoveImageText}>×</Text></Pressable>
                            </View>
                          ))}
@@ -6236,7 +6289,7 @@ export default function App() {
                       </View>
                        {!collapsed && <>
                          <Text style={styles.tripNoteContent}>{item.content || "尚未填寫內容"}</Text>
-                         {!!item.images?.length && <View style={styles.tripNoteImages}>{item.images.map((uri, index) => <Pressable key={`${item.id}-image-${index}`} accessibilityLabel={`放大 ${item.title} 第 ${index + 1} 張圖片`} onPress={() => setEnlargedShoppingImage({ uri, name: item.title })}><Image source={{ uri }} style={styles.tripNoteImage} resizeMode="cover" /></Pressable>)}</View>}
+                         {!!item.images?.length && <View style={styles.tripNoteImages}>{item.images.map((uri, index) => <Pressable key={`${item.id}-image-${index}`} accessibilityLabel={`放大 ${item.title} 第 ${index + 1} 張圖片`} onPress={() => setEnlargedShoppingImage({ uri: resolveTripImage(uri), name: item.title })}><Image source={{ uri: resolveTripImage(uri) }} style={styles.tripNoteImage} resizeMode="cover" /></Pressable>)}</View>}
                        </>}
                     </View>;
                   })}
@@ -6336,11 +6389,11 @@ export default function App() {
                       ))}
                     </View>
                     <Text style={styles.fieldLabel}>商品圖片</Text>
-                    {!!shoppingImageUrl && <Pressable accessibilityLabel="放大商品圖片" onPress={() => setEnlargedShoppingImage({ uri: shoppingImageUrl, name: shoppingName || "商品圖片" })}><Image source={{ uri: shoppingImageUrl }} style={styles.uploadPreview} resizeMode="contain" /></Pressable>}
+                    {!!shoppingImageUrl && <Pressable accessibilityLabel="放大商品圖片" onPress={() => setEnlargedShoppingImage({ uri: resolveTripImage(shoppingImageUrl), name: shoppingName || "商品圖片" })}><Image source={{ uri: resolveTripImage(shoppingImageUrl) }} style={styles.uploadPreview} resizeMode="contain" /></Pressable>}
                     <Pressable style={styles.addressLookupButton} onPress={async () => {
-                      try { setShoppingImageUrl(await pickCompressedImage(true)); } catch (error: any) { if (error?.message !== "未選擇照片") Alert.alert("無法上傳", error?.message); }
+                      try { setShoppingImageUrl(await storeTripImage(await pickCompressedImage(true))); } catch (error: any) { if (error?.message !== "未選擇照片") Alert.alert("無法上傳", error?.message); }
                     }}><Text style={styles.addressLookupText}>＋ 從手機／電腦上傳照片</Text></Pressable>
-                    {shoppingImageUrl.startsWith("data:image/")
+                    {(shoppingImageUrl.startsWith("data:image/") || shoppingImageUrl.startsWith("firestore-image:"))
                       ? <Pressable onPress={() => setShoppingImageUrl("")}><Text style={styles.removeUploadedImage}>移除已上傳照片</Text></Pressable>
                       : <TextInput value={shoppingImageUrl} onChangeText={setShoppingImageUrl} placeholder="或貼上直接圖片網址（不是 Google 搜尋頁）" placeholderTextColor="#AAA198" style={styles.fieldInput} autoCapitalize="none" />}
                     <Text style={styles.fieldLabel}>是否共享給旅伴？</Text>
@@ -6380,7 +6433,7 @@ export default function App() {
                             <Pressable accessibilityLabel={item.purchased ? "取消已購買" : "標記已購買"} onPress={() => toggleShoppingItem(item.id)} style={[styles.shoppingCheck, item.purchased && styles.shoppingCheckActive]}>
                               <Text style={styles.shoppingCheckText}>{item.purchased ? "✓" : ""}</Text>
                             </Pressable>
-                            {item.imageUrl && !failedShoppingImages.includes(`${item.id}:${item.imageUrl}`) ? <Pressable accessibilityLabel={`放大 ${item.name} 圖片`} onPress={() => setEnlargedShoppingImage({ uri: item.imageUrl?.startsWith("data:image/") ? item.imageUrl : `https://images.weserv.nl/?url=${encodeURIComponent(item.imageUrl || "")}&w=2400&h=2400&fit=contain&output=webp`, name: item.name })}><Image source={{ uri: item.imageUrl.startsWith("data:image/") ? item.imageUrl : `https://images.weserv.nl/?url=${encodeURIComponent(item.imageUrl)}&w=160&h=160&fit=contain&output=webp` }} onError={() => setFailedShoppingImages((current) => [...new Set([...current, `${item.id}:${item.imageUrl}`])])} style={styles.productImage} resizeMode="contain" /></Pressable> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
+                            {item.imageUrl && shoppingImageUri(item.imageUrl) && !failedShoppingImages.includes(`${item.id}:${item.imageUrl}`) ? <Pressable accessibilityLabel={`放大 ${item.name} 圖片`} onPress={() => setEnlargedShoppingImage({ uri: shoppingImageUri(item.imageUrl, true), name: item.name })}><Image source={{ uri: shoppingImageUri(item.imageUrl) }} onError={() => setFailedShoppingImages((current) => [...new Set([...current, `${item.id}:${item.imageUrl}`])])} style={styles.productImage} resizeMode="contain" /></Pressable> : <View style={styles.productImageFallback}><Text style={styles.productImageEmoji}>🛍️</Text></View>}
                             <Pressable style={styles.shoppingInfo} onPress={() => openShoppingItemEditor(item.id)}><Text style={[styles.shoppingName, item.purchased && styles.shoppingNamePurchased]}>{item.name}</Text><Text style={styles.shoppingCategory}>{item.owner ? `${item.owner}・` : ""}{item.category || "未設定類別"}・數量 {item.quantity || 1}・{item.purchased ? "已購買" : "待購買"}</Text><Text style={styles.shoppingEdit}>✎ 編輯商品</Text></Pressable>
                             <Text style={styles.shoppingPrice}>{item.currency || "KRW"} {item.price}</Text>
                             <Pressable style={styles.shoppingDeleteButton} onPress={() => deleteShoppingItem(item.id)}><Text style={styles.shoppingDeleteText}>×</Text></Pressable>
