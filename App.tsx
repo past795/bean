@@ -1214,10 +1214,14 @@ export default function App() {
   const [coordinateRefreshNonce, setCoordinateRefreshNonce] = useState(0);
   const firestoreStartedRef = useRef("");
   const firestoreStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firestoreRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firestorePendingTripRef = useRef<string | null>(null);
   const firestoreWriteVersionRef = useRef(0);
+  const firestoreQueuedStateRef = useRef<{ trip: TripPlan; expenses: Expense[]; writeVersion: number; retryCount: number } | null>(null);
   const firestoreSeededTripsRef = useRef<Set<string>>(new Set());
   const migratingTripImagesRef = useRef<Set<string>>(new Set());
+  const tripsRef = useRef<TripPlan[]>([]);
+  const expensesRef = useRef<Record<string, Expense[]>>({});
 
   useEffect(() => onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
     try {
@@ -1551,11 +1555,16 @@ export default function App() {
   }, {} as Record<string, Record<string, FavoritePlace[]>>), [favorites]);
 
   useEffect(() => {
+    tripsRef.current = trips;
     trips.forEach((trip) => {
       tripClientVersionRef.current[trip.id] = Math.max(tripClientVersionRef.current[trip.id] || 0, trip.clientUpdatedAt || 0);
       expenseClientVersionRef.current[trip.id] = Math.max(expenseClientVersionRef.current[trip.id] || 0, trip.expenseClientUpdatedAt || 0);
     });
   }, [trips]);
+
+  useEffect(() => {
+    expensesRef.current = expenses;
+  }, [expenses]);
 
   useEffect(() => {
     if (!googleUser?.firebaseUid || !tripsLoaded || !expensesLoaded || !favoritesLoaded || !cloudLinksLoaded) return;
@@ -1597,7 +1606,11 @@ export default function App() {
       const rawTrip = incomingTrip as TripPlan;
       const staleTrip = (tripClientVersionRef.current[rawTrip.id] || 0) > (rawTrip.clientUpdatedAt || 0);
       const staleExpenses = (expenseClientVersionRef.current[rawTrip.id] || 0) > (rawTrip.expenseClientUpdatedAt || 0);
-      if (staleTrip && staleExpenses) return;
+      if (staleTrip || staleExpenses) {
+        const localTrip = tripsRef.current.find((trip) => trip.id === rawTrip.id);
+        if (localTrip) queueFirestoreState(localTrip, expensesRef.current[rawTrip.id] || []);
+        return;
+      }
       const normalizedTrip = normalizeTripSchedule(upgradeOitaItinerary(upgradeBusanItinerary(rawTrip)));
       if (JSON.stringify(rawTrip) !== JSON.stringify(normalizedTrip) && googleUser?.firebaseUid) {
         const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
@@ -1668,7 +1681,11 @@ export default function App() {
           const rawTrip = incomingTrip as TripPlan;
           const staleTrip = (tripClientVersionRef.current[rawTrip.id] || 0) > (rawTrip.clientUpdatedAt || 0);
           const staleExpenses = (expenseClientVersionRef.current[rawTrip.id] || 0) > (rawTrip.expenseClientUpdatedAt || 0);
-          if (staleTrip && staleExpenses) return;
+          if (staleTrip || staleExpenses) {
+            const localTrip = tripsRef.current.find((item) => item.id === rawTrip.id);
+            if (localTrip) queueFirestoreState(localTrip, expensesRef.current[rawTrip.id] || []);
+            return;
+          }
           // The linked-trip listener also receives the same Firestore state.
           // Apply the one-time Oita import here too, or its raw snapshot can
           // immediately overwrite the upgraded active-trip state.
@@ -2184,29 +2201,78 @@ export default function App() {
     });
   };
 
+  const flushFirestoreState = () => {
+    const queued = firestoreQueuedStateRef.current;
+    if (!queued || !firestoreConnected || !googleUser?.firebaseUid) return;
+    if (firestoreRetryTimerRef.current) {
+      clearTimeout(firestoreRetryTimerRef.current);
+      firestoreRetryTimerRef.current = null;
+    }
+    setSyncStatus("syncing");
+    const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid);
+    updateFirestoreTripState(personId, queued.trip, queued.expenses).then(() => {
+      if (queued.writeVersion !== firestoreWriteVersionRef.current) return;
+      firestoreQueuedStateRef.current = null;
+      firestorePendingTripRef.current = null;
+      tripDirtyRef.current = false;
+      setSyncStatus("synced");
+      setSyncErrorMessage("");
+    }).catch((error: any) => {
+      if (queued.writeVersion !== firestoreWriteVersionRef.current) return;
+      const retryCount = queued.retryCount + 1;
+      firestoreQueuedStateRef.current = { ...queued, retryCount };
+      const retrySeconds = Math.min(30, 2 ** Math.min(retryCount - 1, 5));
+      setSyncStatus("error");
+      setSyncErrorMessage(`Firebase 尚未同步，資料已保存在這台裝置，將於 ${retrySeconds} 秒後自動重試：${error?.message || "請檢查網路"}`);
+      firestoreRetryTimerRef.current = setTimeout(() => {
+        firestoreRetryTimerRef.current = null;
+        flushFirestoreState();
+      }, retrySeconds * 1000);
+    });
+  };
+
   const queueFirestoreState = (trip: TripPlan, tripExpenses: Expense[]) => {
     if (!firestoreConnected || !googleUser?.firebaseUid) return;
     const writeVersion = ++firestoreWriteVersionRef.current;
+    firestoreQueuedStateRef.current = { trip, expenses: tripExpenses, writeVersion, retryCount: 0 };
     firestorePendingTripRef.current = trip.id;
     setSyncStatus("syncing");
     setSyncErrorMessage("");
     if (firestoreStateTimerRef.current) clearTimeout(firestoreStateTimerRef.current);
+    if (firestoreRetryTimerRef.current) {
+      clearTimeout(firestoreRetryTimerRef.current);
+      firestoreRetryTimerRef.current = null;
+    }
     firestoreStateTimerRef.current = setTimeout(() => {
       firestoreStateTimerRef.current = null;
-      const personId = firestorePersonId(googleUser.email, googleUser.firebaseUid!);
-      updateFirestoreTripState(personId, trip, tripExpenses).then(() => {
-        if (writeVersion !== firestoreWriteVersionRef.current) return;
-        firestorePendingTripRef.current = null;
-        tripDirtyRef.current = false;
-        setSyncStatus("synced");
-        setSyncErrorMessage("");
-      }).catch((error: any) => {
-        if (writeVersion !== firestoreWriteVersionRef.current) return;
-        setSyncStatus("error");
-        setSyncErrorMessage(`Firebase 同步失敗，請勿重新整理：${error?.message || "請稍後重試"}`);
-      });
+      flushFirestoreState();
     }, 350);
   };
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const retryPendingWrite = () => {
+      if (!firestoreQueuedStateRef.current) return;
+      if (firestoreStateTimerRef.current) {
+        clearTimeout(firestoreStateTimerRef.current);
+        firestoreStateTimerRef.current = null;
+      }
+      if (firestoreRetryTimerRef.current) {
+        clearTimeout(firestoreRetryTimerRef.current);
+        firestoreRetryTimerRef.current = null;
+      }
+      flushFirestoreState();
+    };
+    const retryWhenVisible = () => {
+      if (document.visibilityState === "visible") retryPendingWrite();
+    };
+    window.addEventListener("online", retryPendingWrite);
+    document.addEventListener("visibilitychange", retryWhenVisible);
+    return () => {
+      window.removeEventListener("online", retryPendingWrite);
+      document.removeEventListener("visibilitychange", retryWhenVisible);
+    };
+  }, [firestoreConnected, googleUser?.firebaseUid]);
 
   const syncTripNow = async (trip: TripPlan, tripExpenses: Expense[]) => {
     queueFirestoreState(trip, tripExpenses);
@@ -5473,7 +5539,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.09.30.2</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.10.01.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
