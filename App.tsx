@@ -2325,15 +2325,7 @@ export default function App() {
 
   const syncExpensesNow = async (trip: TripPlan, tripExpenses: Expense[]) => {
     if (firestoreConnected && googleUser?.firebaseUid) {
-      setSyncStatus("syncing");
-      try {
-        await updateFirestoreTripState(firestorePersonId(googleUser.email, googleUser.firebaseUid), trip, tripExpenses);
-        setSyncStatus("synced");
-        setSyncErrorMessage("");
-      } catch (error: any) {
-        setSyncStatus("error");
-        setSyncErrorMessage(`Firebase 記帳同步失敗：${error?.message || "請稍後重試"}`);
-      }
+      queueFirestoreState(trip, tripExpenses);
       return;
     }
     if (uploadingRef.current) {
@@ -5539,7 +5531,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.10.01.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.10.01.2</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
