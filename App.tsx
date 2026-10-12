@@ -5630,7 +5630,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.10.12.1</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.10.12.2</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -6536,10 +6536,10 @@ export default function App() {
                 ))}
               </View>
               <Text style={styles.fieldLabel}>付款人</Text>
-              <View style={styles.payerChoices}>
+              <View style={[styles.payerChoices, styles.expensePayerChoices]}>
                 {expenseMemberNames.map((name) => (
-                  <Pressable key={name} onPress={() => setExpensePayer(name)} style={[styles.payerChoice, expensePayer === name && styles.payerChoiceActive]}>
-                    <Text style={[styles.payerChoiceText, expensePayer === name && styles.payerChoiceTextActive]}>{name}</Text>
+                  <Pressable key={name} onPress={() => setExpensePayer(name)} style={[styles.payerChoice, styles.expensePayerChoice, expensePayer === name && styles.payerChoiceActive]}>
+                    <Text numberOfLines={1} style={[styles.payerChoiceText, styles.expensePayerChoiceText, expensePayer === name && styles.payerChoiceTextActive]}>{name}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -6554,10 +6554,10 @@ export default function App() {
                 <Pressable onPress={() => setExpenseSplitMode("custom")} style={[styles.expenseSplitMode, expenseSplitMode === "custom" && styles.expenseSplitModeActive]}><Text style={[styles.expenseSplitModeText, expenseSplitMode === "custom" && styles.expenseSplitModeTextActive]}>各自輸入金額</Text></Pressable>
               </View>
               <Text style={styles.fieldLabel}>一起分帳的成員</Text>
-              <View style={styles.payerChoices}>
+              <View style={[styles.payerChoices, styles.expensePayerChoices]}>
                 {expenseMemberNames.map((name) => (
-                  <Pressable key={name} onPress={() => toggleExpenseParticipant(name)} style={[styles.payerChoice, expenseParticipants.includes(name) && styles.payerChoiceActive]}>
-                    <Text style={[styles.payerChoiceText, expenseParticipants.includes(name) && styles.payerChoiceTextActive]}>{expenseParticipants.includes(name) ? "✓ " : ""}{name}</Text>
+                  <Pressable key={name} onPress={() => toggleExpenseParticipant(name)} style={[styles.payerChoice, styles.expensePayerChoice, expenseParticipants.includes(name) && styles.payerChoiceActive]}>
+                    <Text numberOfLines={1} style={[styles.payerChoiceText, styles.expensePayerChoiceText, expenseParticipants.includes(name) && styles.payerChoiceTextActive]}>{expenseParticipants.includes(name) ? "✓ " : ""}{name}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -7475,10 +7475,13 @@ const styles = createDouyouStyles({
   payerChoiceTextActive: { color: "#FFF" }
   ,
   expenseSheet: { maxHeight: "92%" },
-  expenseAddMemberRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  expenseMemberInput: { flex: 1 },
-  expenseAddMemberButton: { height: 48, paddingHorizontal: 15, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#536783" },
-  expenseAddMemberText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
+  expensePayerChoices: { gap: 5, marginTop: 4, marginBottom: 5, maxWidth: "100%" },
+  expensePayerChoice: { maxWidth: "100%", minHeight: 34, paddingHorizontal: 10, paddingVertical: 7 },
+  expensePayerChoiceText: { flexShrink: 1, fontSize: 11 },
+  expenseAddMemberRow: { width: "100%", flexDirection: "row", alignItems: "center", gap: 6 },
+  expenseMemberInput: { flex: 1, minWidth: 0, height: 44, paddingHorizontal: 10, fontSize: 14 },
+  expenseAddMemberButton: { flexShrink: 0, height: 44, paddingHorizontal: 11, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#536783" },
+  expenseAddMemberText: { color: "#FFF", fontSize: 11, fontWeight: "900" },
   expenseSplitModes: { flexDirection: "row", gap: 8 },
   expenseSplitMode: { flex: 1, minHeight: 44, paddingHorizontal: 10, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "#EEE9E2", borderWidth: 1, borderColor: "#E5DED5" },
   expenseSplitModeActive: { backgroundColor: "#536783", borderColor: "#536783" },
