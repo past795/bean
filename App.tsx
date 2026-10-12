@@ -145,6 +145,13 @@ const reservationDateLabel = (dateText: string) => {
   if (iso) return `${iso[2]}/${iso[3]}`;
   return String(dateText || "日期未定").match(/^\d{2}\/\d{2}/)?.[0] || String(dateText || "日期未定");
 };
+const localTodayIso = () => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 const calendarDateTimeRange = (dateText: string, timeText = "") => {
   const normalizedDate = normalizeTripDate(dateText);
   const time = String(timeText).trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
@@ -423,6 +430,7 @@ const VERIFIED_OPENING_HOURS: Record<string, { hours: string; source: string }> 
 
 type Expense = {
   id: string;
+  date?: string;
   title: string;
   amount: number;
   payer: string;
@@ -471,8 +479,8 @@ const tripExportSheets = (trip: TripPlan, tripExpenses: Expense[]) => {
   const flights = [["航線", "航班編號", "出發", "抵達", "航廈", "備註"], ...trip.flights.map((item) => [item.route, item.flightNumber, item.departure, item.arrival, item.terminal || "", item.note || ""])];
   const stays = [["住宿", "住宿期間", "地址", "入住", "退房", "設施", "櫃檯", "備註"], ...trip.accommodations.map((item) => [item.name, item.period, item.address || "", item.checkIn || "", item.checkOut || "", item.facilities || "", item.frontDesk || "", item.note || ""])];
   const shopping = [["商品", "數量", "價格", "幣別", "商品類別", "購買區域", "已購買", "範圍", "擁有者"], ...trip.shopping.map((item) => [item.name, String(item.quantity || 1), item.price || "", item.currency || "", item.category || "", item.purchaseArea || "", item.purchased ? "是" : "否", item.scope === "shared" ? "共享" : "個人", item.owner || ""])];
-  const accounting = [["品項", "金額", "幣別", "付款人", "分帳方式", "分帳成員／金額"], ...tripExpenses.map((item) => [
-    item.title, String(item.amount), item.currency || "", item.payer,
+  const accounting = [["日期", "品項", "金額", "幣別", "付款人", "分帳方式", "分帳成員／金額"], ...tripExpenses.map((item) => [
+    item.date || "", item.title, String(item.amount), item.currency || "", item.payer,
     item.splitMode === "custom" || item.splitShares ? "自訂金額" : "平均分配",
     item.splitShares
       ? Object.entries(item.splitShares).map(([name, amount]) => `${name}：${amount}`).join("、")
@@ -641,7 +649,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   expenses: tripExpenses.map((item) => ({
     "支出ID": item.id, "項目": item.title, "金額": item.amount,
     "幣別": item.currency || "TWD", "付款人": item.payer, "分攤成員": JSON.stringify({ members: item.splitBetween || [], mode: item.splitMode || "equal", shares: item.splitShares || {} }),
-    "日期": "", "分類": "", "備註": "", "建立時間": ""
+    "日期": item.date || "", "分類": "", "備註": "", "建立時間": ""
   }))
 });
 
@@ -767,7 +775,7 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
       splitBetween = String(row["分攤成員"] || "").split(/[、,]/).map((name) => name.trim()).filter(Boolean);
     }
     return {
-      id: String(row["支出ID"]), title: String(row["項目"] || ""), amount: Number(row["金額"] || 0),
+      id: String(row["支出ID"]), date: normalizeTripDate(String(row["日期"] || "")), title: String(row["項目"] || ""), amount: Number(row["金額"] || 0),
       payer: String(row["付款人"] || "我"), currency: String(row["幣別"] || "TWD"), splitBetween, splitMode, splitShares
     };
   });
@@ -1143,6 +1151,7 @@ export default function App() {
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
   const [addingExpense, setAddingExpense] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [expenseDate, setExpenseDate] = useState(localTodayIso());
   const [expenseTitle, setExpenseTitle] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expensePayer, setExpensePayer] = useState("我");
@@ -2142,7 +2151,7 @@ export default function App() {
     }
     if (txtExportSections.expenses) {
       section("記帳");
-      (expenses[trip.id] || []).forEach((item) => lines.push(`${item.title}｜${item.currency || trip.currency || "TWD"} ${item.amount}｜付款：${item.payer}${item.splitShares
+      (expenses[trip.id] || []).forEach((item) => lines.push(`${item.date ? `${item.date}｜` : ""}${item.title}｜${item.currency || trip.currency || "TWD"} ${item.amount}｜付款：${item.payer}${item.splitShares
         ? `｜自訂分攤：${Object.entries(item.splitShares).map(([name, amount]) => `${name} ${amount}`).join("、")}`
         : item.splitBetween?.length ? `｜平均分攤：${item.splitBetween.join("、")}` : ""}`));
       if (!(expenses[trip.id] || []).length) lines.push("（尚無記帳資料）");
@@ -4455,6 +4464,7 @@ export default function App() {
   ].map((name) => name.trim()).filter(Boolean))];
   const resetExpenseDraft = () => {
     setEditingExpenseId(null);
+    setExpenseDate(localTodayIso());
     setExpenseTitle("");
     setExpenseAmount("");
     setExpensePayer("");
@@ -4475,6 +4485,7 @@ export default function App() {
     const participants = item.splitBetween?.length ? item.splitBetween : Object.keys(item.splitShares || {});
     const allNames = [...new Set([item.payer, ...participants])];
     setEditingExpenseId(item.id);
+    setExpenseDate(item.date || localTodayIso());
     setExpenseTitle(item.title);
     setExpenseAmount(String(item.amount));
     setExpensePayer(item.payer);
@@ -4563,6 +4574,11 @@ export default function App() {
   };
   const createExpense = () => {
     const amount = Number(expenseAmount.replace(/,/g, ""));
+    const normalizedExpenseDate = normalizeTripDate(expenseDate);
+    if (!normalizedExpenseDate) {
+      Alert.alert("請輸入正確日期", "日期格式請使用 YYYY-MM-DD，例如 2026-10-12。");
+      return;
+    }
     if (!expenseTitle.trim() || !Number.isFinite(amount) || amount <= 0) {
       Alert.alert("請填寫品項與正確金額");
       return;
@@ -4589,7 +4605,7 @@ export default function App() {
       }
     }
     const values: Omit<Expense, "id"> = {
-      title: expenseTitle.trim(), amount, payer: expensePayer.trim(), currency: expenseCurrency,
+      date: normalizedExpenseDate, title: expenseTitle.trim(), amount, payer: expensePayer.trim(), currency: expenseCurrency,
       splitBetween: expenseParticipants, splitMode: expenseSplitMode,
       ...(splitShares ? { splitShares } : {})
     };
@@ -5630,7 +5646,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.10.12.2</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.10.12.3</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5706,6 +5722,7 @@ export default function App() {
                 <View style={styles.expenseBadge}><Text>🧾</Text></View>
                 <Pressable style={styles.expenseInfo} onPress={() => openExpenseEditor(item)}>
                   <Text style={styles.expenseName}>{item.title}</Text>
+                  <Text style={styles.expenseDate}>{item.date || "日期未設定"}</Text>
                   <Text style={styles.expensePayer}>付款人：{item.payer}</Text>
                   <Text style={styles.expensePayer}>{item.splitMode === "custom" && item.splitShares
                     ? `自訂分帳：${Object.entries(item.splitShares).map(([name, amount]) => `${name} ${item.currency || "KRW"} ${amount.toLocaleString()}`).join("、")}`
@@ -6523,6 +6540,8 @@ export default function App() {
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               <Text style={styles.sheetEyebrow}>{editingExpenseId ? "EDIT EXPENSE" : "NEW EXPENSE"}</Text>
               <Text style={styles.sheetTitle}>{editingExpenseId ? "編輯帳務" : "新增一筆支出"}</Text>
+              <Text style={styles.fieldLabel}>日期 *</Text>
+              <TextInput value={expenseDate} onChangeText={setExpenseDate} keyboardType="numbers-and-punctuation" placeholder="YYYY-MM-DD" placeholderTextColor="#AAA198" style={styles.fieldInput} />
               <Text style={styles.fieldLabel}>品項 *</Text>
               <TextInput value={expenseTitle} onChangeText={setExpenseTitle} placeholder="例如：烤肉晚餐" placeholderTextColor="#AAA198" style={styles.fieldInput} />
               <Text style={styles.fieldLabel}>金額 *</Text>
@@ -7445,6 +7464,7 @@ const styles = createDouyouStyles({
   expenseBadge: { width: 38, height: 38, borderRadius: 13, backgroundColor: "#E8EEF8", alignItems: "center", justifyContent: "center" },
   expenseInfo: { flex: 1 },
   expenseName: { color: "#302B27", fontSize: 14, fontWeight: "900" },
+  expenseDate: { color: "#637595", fontSize: 10, fontWeight: "800", marginTop: 3 },
   expensePayer: { color: "#958C83", fontSize: 10, marginTop: 3 },
   expenseEditHint: { color: "#536783", fontSize: 10, fontWeight: "900", marginTop: 6 },
   expenseValue: { color: "#536783", fontWeight: "900", fontSize: 13 },
