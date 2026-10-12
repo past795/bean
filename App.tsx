@@ -421,7 +421,16 @@ const VERIFIED_OPENING_HOURS: Record<string, { hours: string; source: string }> 
   "d5-9": { hours: "依航班時間", source: "航空公司航班資訊" }
 };
 
-type Expense = { id: string; title: string; amount: number; payer: string; currency?: string; splitBetween?: string[] };
+type Expense = {
+  id: string;
+  title: string;
+  amount: number;
+  payer: string;
+  currency?: string;
+  splitBetween?: string[];
+  splitMode?: "equal" | "custom";
+  splitShares?: Record<string, number>;
+};
 type TxtExportSection = "itinerary" | "transport" | "flights" | "stays" | "reservations" | "backups" | "notes" | "shopping" | "expenses";
 type CloudLink = { inviteCode: string; memberName?: string; memberId?: string; role?: "owner" | "member" };
 type CloudLinks = Record<string, CloudLink>;
@@ -462,7 +471,13 @@ const tripExportSheets = (trip: TripPlan, tripExpenses: Expense[]) => {
   const flights = [["航線", "航班編號", "出發", "抵達", "航廈", "備註"], ...trip.flights.map((item) => [item.route, item.flightNumber, item.departure, item.arrival, item.terminal || "", item.note || ""])];
   const stays = [["住宿", "住宿期間", "地址", "入住", "退房", "設施", "櫃檯", "備註"], ...trip.accommodations.map((item) => [item.name, item.period, item.address || "", item.checkIn || "", item.checkOut || "", item.facilities || "", item.frontDesk || "", item.note || ""])];
   const shopping = [["商品", "數量", "價格", "幣別", "商品類別", "購買區域", "已購買", "範圍", "擁有者"], ...trip.shopping.map((item) => [item.name, String(item.quantity || 1), item.price || "", item.currency || "", item.category || "", item.purchaseArea || "", item.purchased ? "是" : "否", item.scope === "shared" ? "共享" : "個人", item.owner || ""])];
-  const accounting = [["品項", "金額", "幣別", "付款人", "分帳成員"], ...tripExpenses.map((item) => [item.title, String(item.amount), item.currency || "", item.payer, (item.splitBetween || []).join("、")])];
+  const accounting = [["品項", "金額", "幣別", "付款人", "分帳方式", "分帳成員／金額"], ...tripExpenses.map((item) => [
+    item.title, String(item.amount), item.currency || "", item.payer,
+    item.splitMode === "custom" || item.splitShares ? "自訂金額" : "平均分配",
+    item.splitShares
+      ? Object.entries(item.splitShares).map(([name, amount]) => `${name}：${amount}`).join("、")
+      : (item.splitBetween || []).join("、")
+  ])];
   return [{ name: "旅行資訊", rows: overview }, { name: "每日行程", rows: itinerary }, { name: "班機", rows: flights }, { name: "住宿", rows: stays }, { name: "必買清單", rows: shopping }, { name: "記帳", rows: accounting }];
 };
 
@@ -625,7 +640,7 @@ const tripToCloud = (trip: TripPlan, tripExpenses: Expense[]) => ({
   }))),
   expenses: tripExpenses.map((item) => ({
     "支出ID": item.id, "項目": item.title, "金額": item.amount,
-    "幣別": item.currency || "TWD", "付款人": item.payer, "分攤成員": JSON.stringify(item.splitBetween || []),
+    "幣別": item.currency || "TWD", "付款人": item.payer, "分攤成員": JSON.stringify({ members: item.splitBetween || [], mode: item.splitMode || "equal", shares: item.splitShares || {} }),
     "日期": "", "分類": "", "備註": "", "建立時間": ""
   }))
 });
@@ -736,15 +751,24 @@ const cloudToTrip = (data: any): { trip: TripPlan; expenses: Expense[] } => {
   };
   const expenses = (data.expenses || []).map((row: any) => {
     let splitBetween: string[] = [];
+    let splitMode: Expense["splitMode"] = "equal";
+    let splitShares: Record<string, number> | undefined;
     try {
       const parsed = JSON.parse(String(row["分攤成員"] || "[]"));
       if (Array.isArray(parsed)) splitBetween = parsed.map(String).filter(Boolean);
+      else if (parsed && typeof parsed === "object") {
+        splitBetween = Array.isArray(parsed.members) ? parsed.members.map(String).filter(Boolean) : [];
+        splitMode = parsed.mode === "custom" ? "custom" : "equal";
+        if (parsed.shares && typeof parsed.shares === "object") {
+          splitShares = Object.fromEntries(Object.entries(parsed.shares).map(([name, amount]) => [name, Number(amount)]).filter(([, amount]) => Number.isFinite(amount)));
+        }
+      }
     } catch {
       splitBetween = String(row["分攤成員"] || "").split(/[、,]/).map((name) => name.trim()).filter(Boolean);
     }
     return {
       id: String(row["支出ID"]), title: String(row["項目"] || ""), amount: Number(row["金額"] || 0),
-      payer: String(row["付款人"] || "我"), currency: String(row["幣別"] || "TWD"), splitBetween
+      payer: String(row["付款人"] || "我"), currency: String(row["幣別"] || "TWD"), splitBetween, splitMode, splitShares
     };
   });
   return { trip, expenses };
@@ -1118,11 +1142,16 @@ export default function App() {
   const [noteCollapseReady, setNoteCollapseReady] = useState(false);
   const [expenses, setExpenses] = useState<Record<string, Expense[]>>({});
   const [addingExpense, setAddingExpense] = useState(false);
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [expenseTitle, setExpenseTitle] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expensePayer, setExpensePayer] = useState("我");
   const [expenseCurrency, setExpenseCurrency] = useState("KRW");
   const [expenseParticipants, setExpenseParticipants] = useState<string[]>([]);
+  const [expenseSplitMode, setExpenseSplitMode] = useState<"equal" | "custom">("equal");
+  const [expenseShares, setExpenseShares] = useState<Record<string, string>>({});
+  const [expenseNewMember, setExpenseNewMember] = useState("");
+  const [expenseCustomMembers, setExpenseCustomMembers] = useState<string[]>([]);
   const [krwAmount, setKrwAmount] = useState("10000");
   const [addingFlight, setAddingFlight] = useState(false);
   const [editingFlightId, setEditingFlightId] = useState<string | null>(null);
@@ -2113,7 +2142,9 @@ export default function App() {
     }
     if (txtExportSections.expenses) {
       section("記帳");
-      (expenses[trip.id] || []).forEach((item) => lines.push(`${item.title}｜${item.currency || trip.currency || "TWD"} ${item.amount}｜付款：${item.payer}${item.splitBetween?.length ? `｜分攤：${item.splitBetween.join("、")}` : ""}`));
+      (expenses[trip.id] || []).forEach((item) => lines.push(`${item.title}｜${item.currency || trip.currency || "TWD"} ${item.amount}｜付款：${item.payer}${item.splitShares
+        ? `｜自訂分攤：${Object.entries(item.splitShares).map(([name, amount]) => `${name} ${amount}`).join("、")}`
+        : item.splitBetween?.length ? `｜平均分攤：${item.splitBetween.join("、")}` : ""}`));
       if (!(expenses[trip.id] || []).length) lines.push("（尚無記帳資料）");
       finishSection();
     }
@@ -4417,11 +4448,56 @@ export default function App() {
   const activeMemberNames = firestoreConnected
     ? [...new Set((cloudMembers[activeTrip.id] || []).filter((name): name is string => !!name && name !== "我"))]
     : [...new Set([myDisplayName, ...(cloudMembers[activeTrip.id] || [])].filter((name): name is string => !!name && name !== "我"))];
-  const expenseMemberNames = activeMemberNames;
+  const expenseMemberNames = [...new Set([
+    ...activeMemberNames,
+    ...tripExpenses.flatMap((item) => [item.payer, ...(item.splitBetween || []), ...Object.keys(item.splitShares || {})]),
+    ...expenseCustomMembers
+  ].map((name) => name.trim()).filter(Boolean))];
+  const resetExpenseDraft = () => {
+    setEditingExpenseId(null);
+    setExpenseTitle("");
+    setExpenseAmount("");
+    setExpensePayer("");
+    setExpenseCurrency(activeTrip.currency || (activeTrip.destination.includes("日本") || activeTrip.destination.includes("大分") ? "JPY" : "KRW"));
+    setExpenseParticipants([]);
+    setExpenseSplitMode("equal");
+    setExpenseShares({});
+    setExpenseNewMember("");
+    setExpenseCustomMembers([]);
+  };
   const openExpenseModal = () => {
+    resetExpenseDraft();
     setExpensePayer(expenseMemberNames[0] || "");
     setExpenseParticipants(expenseMemberNames);
     setAddingExpense(true);
+  };
+  const openExpenseEditor = (item: Expense) => {
+    const participants = item.splitBetween?.length ? item.splitBetween : Object.keys(item.splitShares || {});
+    const allNames = [...new Set([item.payer, ...participants])];
+    setEditingExpenseId(item.id);
+    setExpenseTitle(item.title);
+    setExpenseAmount(String(item.amount));
+    setExpensePayer(item.payer);
+    setExpenseCurrency(item.currency || "KRW");
+    setExpenseParticipants(participants.length ? participants : [item.payer]);
+    setExpenseSplitMode(item.splitMode === "custom" || item.splitShares ? "custom" : "equal");
+    setExpenseShares(Object.fromEntries(Object.entries(item.splitShares || {}).map(([name, amount]) => [name, String(amount)])));
+    setExpenseCustomMembers(allNames.filter((name) => !activeMemberNames.includes(name)));
+    setExpenseNewMember("");
+    setAddingExpense(true);
+  };
+  const closeExpenseModal = () => {
+    setAddingExpense(false);
+    resetExpenseDraft();
+  };
+  const addExpenseMember = () => {
+    const name = expenseNewMember.trim();
+    if (!name) return;
+    if (!expenseMemberNames.includes(name)) setExpenseCustomMembers((current) => [...current, name]);
+    setExpenseParticipants((current) => current.includes(name) ? current : [...current, name]);
+    setExpenseShares((current) => ({ ...current, [name]: current[name] || "" }));
+    if (!expensePayer) setExpensePayer(name);
+    setExpenseNewMember("");
   };
   const toggleExpenseParticipant = (name: string) => {
     setExpenseParticipants((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name]);
@@ -4445,9 +4521,16 @@ export default function App() {
       const people = participants.length ? participants : [item.payer];
       balances[currency] ??= {};
       people.forEach((name) => { balances[currency]![name] = balances[currency]![name] || 0; });
+      balances[currency]![item.payer] = balances[currency]![item.payer] || 0;
       balances[currency]![item.payer] = (balances[currency]![item.payer] || 0) + item.amount;
-      const share = item.amount / people.length;
-      people.forEach((name) => { balances[currency]![name] = (balances[currency]![name] || 0) - share; });
+      if (item.splitMode === "custom" && item.splitShares && Object.keys(item.splitShares).length) {
+        Object.entries(item.splitShares).forEach(([name, share]) => {
+          balances[currency]![name] = (balances[currency]![name] || 0) - share;
+        });
+      } else {
+        const share = item.amount / people.length;
+        people.forEach((name) => { balances[currency]![name] = (balances[currency]![name] || 0) - share; });
+      }
     });
     return Object.entries(balances).flatMap(([currency, values]) => {
       const creditors = Object.entries(values).filter(([, value]) => value > 0.005).map(([name, value]) => ({ name, value }));
@@ -4492,15 +4575,31 @@ export default function App() {
       Alert.alert("請至少選擇一位分帳成員");
       return;
     }
+    let splitShares: Record<string, number> | undefined;
+    if (expenseSplitMode === "custom") {
+      splitShares = Object.fromEntries(expenseParticipants.map((name) => [name, Number((expenseShares[name] || "").replace(/,/g, ""))]));
+      if (Object.values(splitShares).some((value) => !Number.isFinite(value) || value < 0)) {
+        Alert.alert("請輸入每位成員的正確分帳金額");
+        return;
+      }
+      const splitTotal = Object.values(splitShares).reduce((sum, value) => sum + value, 0);
+      if (Math.abs(splitTotal - amount) > 0.01) {
+        Alert.alert("分帳金額尚未平衡", `各自金額合計為 ${expenseCurrency} ${splitTotal.toLocaleString()}，應等於總額 ${expenseCurrency} ${amount.toLocaleString()}。`);
+        return;
+      }
+    }
+    const values: Omit<Expense, "id"> = {
+      title: expenseTitle.trim(), amount, payer: expensePayer.trim(), currency: expenseCurrency,
+      splitBetween: expenseParticipants, splitMode: expenseSplitMode,
+      ...(splitShares ? { splitShares } : {})
+    };
     saveExpenses({
       ...expenses,
-      [activeTrip.id]: [...tripExpenses, { id: `expense-${Date.now()}`, title: expenseTitle.trim(), amount, payer: expensePayer.trim(), currency: expenseCurrency, splitBetween: expenseParticipants }]
+      [activeTrip.id]: editingExpenseId
+        ? tripExpenses.map((item) => item.id === editingExpenseId ? { id: item.id, ...values } : item)
+        : [...tripExpenses, { id: `expense-${Date.now()}`, ...values }]
     });
-    setExpenseTitle("");
-    setExpenseAmount("");
-    setExpensePayer("");
-    setExpenseParticipants([]);
-    setAddingExpense(false);
+    closeExpenseModal();
   };
   const deleteExpense = (id: string) => {
     saveExpenses({ ...expenses, [activeTrip.id]: tripExpenses.filter((item) => item.id !== id) });
@@ -5531,7 +5630,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.10.01.2</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.10.12.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (
@@ -5605,11 +5704,14 @@ export default function App() {
             ) : tripExpenses.map((item) => (
               <View key={item.id} style={styles.expenseRow}>
                 <View style={styles.expenseBadge}><Text>🧾</Text></View>
-                <View style={styles.expenseInfo}>
+                <Pressable style={styles.expenseInfo} onPress={() => openExpenseEditor(item)}>
                   <Text style={styles.expenseName}>{item.title}</Text>
                   <Text style={styles.expensePayer}>付款人：{item.payer}</Text>
-                  <Text style={styles.expensePayer}>分帳：{(item.splitBetween?.length ? item.splitBetween : activeMemberNames).join("、") || item.payer}</Text>
-                </View>
+                  <Text style={styles.expensePayer}>{item.splitMode === "custom" && item.splitShares
+                    ? `自訂分帳：${Object.entries(item.splitShares).map(([name, amount]) => `${name} ${item.currency || "KRW"} ${amount.toLocaleString()}`).join("、")}`
+                    : `平均分帳：${(item.splitBetween?.length ? item.splitBetween : activeMemberNames).join("、") || item.payer}`}</Text>
+                  <Text style={styles.expenseEditHint}>✎ 點擊編輯</Text>
+                </Pressable>
                 <Text style={styles.expenseValue}>{item.currency || "KRW"} {item.amount.toLocaleString()}</Text>
                 <Pressable onPress={() => deleteExpense(item.id)}><Text style={styles.deleteExpense}>×</Text></Pressable>
               </View>
@@ -6414,12 +6516,13 @@ export default function App() {
           </Pressable>
         </Modal>
 
-        <Modal visible={addingExpense} animationType="slide" transparent onRequestClose={() => setAddingExpense(false)}>
+        <Modal visible={addingExpense} animationType="slide" transparent onRequestClose={closeExpenseModal}>
           <View style={styles.modalShade}>
-            <View style={styles.sheet}>
+            <View style={[styles.sheet, styles.expenseSheet]}>
               <View style={styles.sheetHandle} />
-              <Text style={styles.sheetEyebrow}>NEW EXPENSE</Text>
-              <Text style={styles.sheetTitle}>新增一筆支出</Text>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <Text style={styles.sheetEyebrow}>{editingExpenseId ? "EDIT EXPENSE" : "NEW EXPENSE"}</Text>
+              <Text style={styles.sheetTitle}>{editingExpenseId ? "編輯帳務" : "新增一筆支出"}</Text>
               <Text style={styles.fieldLabel}>品項 *</Text>
               <TextInput value={expenseTitle} onChangeText={setExpenseTitle} placeholder="例如：烤肉晚餐" placeholderTextColor="#AAA198" style={styles.fieldInput} />
               <Text style={styles.fieldLabel}>金額 *</Text>
@@ -6440,8 +6543,17 @@ export default function App() {
                   </Pressable>
                 ))}
               </View>
-              {expenseMemberNames.length === 0 && <TextInput value={expensePayer} onChangeText={setExpensePayer} placeholder="尚無成員，請先輸入付款人" placeholderTextColor="#AAA198" style={styles.fieldInput} />}
-              <Text style={styles.fieldLabel}>一起分帳的成員（平均分攤）</Text>
+              <Text style={styles.fieldLabel}>新增付款人／分帳對象</Text>
+              <View style={styles.expenseAddMemberRow}>
+                <TextInput value={expenseNewMember} onChangeText={setExpenseNewMember} onSubmitEditing={addExpenseMember} placeholder="輸入姓名，例如：同事 A" placeholderTextColor="#AAA198" style={[styles.fieldInput, styles.expenseMemberInput]} />
+                <Pressable style={styles.expenseAddMemberButton} onPress={addExpenseMember}><Text style={styles.expenseAddMemberText}>＋加入</Text></Pressable>
+              </View>
+              <Text style={styles.fieldLabel}>分帳方式</Text>
+              <View style={styles.expenseSplitModes}>
+                <Pressable onPress={() => setExpenseSplitMode("equal")} style={[styles.expenseSplitMode, expenseSplitMode === "equal" && styles.expenseSplitModeActive]}><Text style={[styles.expenseSplitModeText, expenseSplitMode === "equal" && styles.expenseSplitModeTextActive]}>多人平均分配</Text></Pressable>
+                <Pressable onPress={() => setExpenseSplitMode("custom")} style={[styles.expenseSplitMode, expenseSplitMode === "custom" && styles.expenseSplitModeActive]}><Text style={[styles.expenseSplitModeText, expenseSplitMode === "custom" && styles.expenseSplitModeTextActive]}>各自輸入金額</Text></Pressable>
+              </View>
+              <Text style={styles.fieldLabel}>一起分帳的成員</Text>
               <View style={styles.payerChoices}>
                 {expenseMemberNames.map((name) => (
                   <Pressable key={name} onPress={() => toggleExpenseParticipant(name)} style={[styles.payerChoice, expenseParticipants.includes(name) && styles.payerChoiceActive]}>
@@ -6449,8 +6561,18 @@ export default function App() {
                   </Pressable>
                 ))}
               </View>
-              <Pressable style={styles.primaryButton} onPress={createExpense}><Text style={styles.primaryButtonText}>儲存支出</Text></Pressable>
-              <Pressable style={styles.cancelButton} onPress={() => setAddingExpense(false)}><Text style={styles.cancelText}>取消</Text></Pressable>
+              {expenseSplitMode === "equal" && expenseParticipants.length > 0 && <Text style={styles.expenseSplitSummary}>每人約 {expenseCurrency} {(Number(expenseAmount.replace(/,/g, "")) / expenseParticipants.length || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</Text>}
+              {expenseSplitMode === "custom" && <View style={styles.expenseShareList}>
+                {expenseParticipants.map((name) => <View key={name} style={styles.expenseShareRow}>
+                  <Text style={styles.expenseShareName}>{name}</Text>
+                  <Text style={styles.expenseShareCurrency}>{expenseCurrency}</Text>
+                  <TextInput value={expenseShares[name] || ""} onChangeText={(value) => setExpenseShares((current) => ({ ...current, [name]: value.replace(/[^0-9.,-]/g, "") }))} keyboardType="numeric" placeholder="0" placeholderTextColor="#AAA198" style={styles.expenseShareInput} />
+                </View>)}
+                <Text style={styles.expenseSplitSummary}>已分配 {expenseCurrency} {expenseParticipants.reduce((sum, name) => sum + (Number((expenseShares[name] || "").replace(/,/g, "")) || 0), 0).toLocaleString()} ／總額 {expenseCurrency} {(Number(expenseAmount.replace(/,/g, "")) || 0).toLocaleString()}</Text>
+              </View>}
+              <Pressable style={styles.primaryButton} onPress={createExpense}><Text style={styles.primaryButtonText}>{editingExpenseId ? "儲存帳務修改" : "儲存支出"}</Text></Pressable>
+              <Pressable style={styles.cancelButton} onPress={closeExpenseModal}><Text style={styles.cancelText}>取消</Text></Pressable>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -7324,6 +7446,7 @@ const styles = createDouyouStyles({
   expenseInfo: { flex: 1 },
   expenseName: { color: "#302B27", fontSize: 14, fontWeight: "900" },
   expensePayer: { color: "#958C83", fontSize: 10, marginTop: 3 },
+  expenseEditHint: { color: "#536783", fontSize: 10, fontWeight: "900", marginTop: 6 },
   expenseValue: { color: "#536783", fontWeight: "900", fontSize: 13 },
   deleteExpense: { color: "#B8AFA7", fontSize: 22, paddingLeft: 4 },
   currencyChoices: { flexDirection: "row", gap: 8 },
@@ -7351,6 +7474,22 @@ const styles = createDouyouStyles({
   payerChoiceText: { color: "#776F67", fontSize: 12, fontWeight: "900" },
   payerChoiceTextActive: { color: "#FFF" }
   ,
+  expenseSheet: { maxHeight: "92%" },
+  expenseAddMemberRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  expenseMemberInput: { flex: 1 },
+  expenseAddMemberButton: { height: 48, paddingHorizontal: 15, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#536783" },
+  expenseAddMemberText: { color: "#FFF", fontSize: 12, fontWeight: "900" },
+  expenseSplitModes: { flexDirection: "row", gap: 8 },
+  expenseSplitMode: { flex: 1, minHeight: 44, paddingHorizontal: 10, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "#EEE9E2", borderWidth: 1, borderColor: "#E5DED5" },
+  expenseSplitModeActive: { backgroundColor: "#536783", borderColor: "#536783" },
+  expenseSplitModeText: { color: "#776F67", fontSize: 11, fontWeight: "900", textAlign: "center" },
+  expenseSplitModeTextActive: { color: "#FFF" },
+  expenseShareList: { marginBottom: 8 },
+  expenseShareRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  expenseShareName: { flex: 1, color: "#4D4842", fontSize: 13, fontWeight: "900" },
+  expenseShareCurrency: { color: "#8A8178", fontSize: 10, fontWeight: "800" },
+  expenseShareInput: { width: 125, height: 44, backgroundColor: "#FFF", borderWidth: 1, borderColor: "#E5DED5", borderRadius: 12, paddingHorizontal: 12, color: "#38332E", fontSize: 15, textAlign: "right" },
+  expenseSplitSummary: { color: "#637595", fontSize: 11, lineHeight: 18, fontWeight: "800", marginTop: 2, marginBottom: 10 },
   settlementCard: { backgroundColor: "#F2F4F8", borderRadius: 18, padding: 15, marginBottom: 18, borderWidth: 1, borderColor: "#DDE3EE" },
   settlementDone: { color: "#718099", fontSize: 12, marginTop: 8 },
   settlementRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, paddingTop: 11, marginTop: 7, borderTopWidth: 1, borderTopColor: "#DDE3EE" },
