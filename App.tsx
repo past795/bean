@@ -5646,7 +5646,7 @@ export default function App() {
               <Text style={styles.newTripTitle}>建立下一趟旅行</Text>
               <Text style={styles.newTripSub}>目的地、日期與天數都可以自己設定</Text>
             </Pressable>
-            <Text style={styles.versionLabel}>豆遊版本 2026.10.12.3</Text>
+            <Text style={styles.versionLabel}>豆遊版本 2026.10.26.1</Text>
           </ScrollView>
         )}
         {tab === "expenses" && (

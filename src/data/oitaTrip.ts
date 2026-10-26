@@ -1,119 +1,88 @@
 import { AccommodationInfo, FlightInfo, Stop, TransportMode, TripDay, TripPlan } from "../types";
 
-export const OITA_ITINERARY_VERSION = 2026091402;
+// One-time migration: later edits made on any device must remain untouched.
+export const OITA_ITINERARY_VERSION = 2026102601;
 type Row = [string, string, string, string, string, number?, number?];
-const makeStop = (day: number, row: Row, index: number): Stop => {
+
+const makeStop = (d: number, row: Row, i: number): Stop => {
   const [time, title, address, transport, note, transitMinutes = 0, durationMinutes = 0] = row;
-  const transportMode: TransportMode = transport.includes("步行") ? "步行" : transport.includes("巴士") ? "公車" : transport.includes("飛機") ? "飛機" : "其他";
-  return { id: `oita-${day}-${index + 1}`, time, title, address, transport, note, transportMode,
-    routeMode: transportMode === "步行" ? "walking" : transportMode === "公車" || transport.includes("JR") || transport.includes("纜車") ? "transit" : "driving",
+  const transportMode: TransportMode = transport.includes("步行") ? "步行" : transport.includes("計程車") ? "計程車" : transport.includes("飛機") ? "飛機" : /巴士|公車|JR|電車/.test(transport) ? "公車" : "其他";
+  return { id: `oita-${d}-${i + 1}`, time, title, address, transport, note, transportMode,
+    routeMode: transportMode === "步行" ? "walking" : transportMode === "公車" ? "transit" : "driving",
     transitMinutes, durationMinutes };
 };
 const day = (n: number, date: string, title: string, rows: Row[]): TripDay => ({ id: `oita-day-${n}`, label: `DAY ${n}`, date, title, stops: rows.map((r, i) => makeStop(n, r, i)) });
 
 export const OITA_DAYS: TripDay[] = [
-  day(1, "11/28（六）", "抵達大分・市區散策", [
-    ["15:00", "大分空港", "大分空港（Oita Airport）", "飛機抵達；入境、領行李", "班機表定 15:00 抵達，預留 20–30 分鐘入境及領行李。", 0, 30],
-    ["15:30", "大分駅前", "大分駅（Oita Station）", "大分交通 Airliner 空港特急巴士；約每 30–60 分一班", "車資約 ¥1,600；入境大廳外上車，可用交通系 IC 卡或現金。", 60],
-    ["16:30", "大分駅周邊飯店（尚未選定）", "大分駅（Oita Station）周邊", "步行", "先寄放行李；建議選大分駅步行 10 分鐘內。第 1 晚住大分市區。", 10, 20],
-    ["17:00", "大分縣立美術館 OPAM", "大分県立美術館 OPAM, 大分県大分市寿町2-1", "步行；或由大分駅搭巴士至 オアシスひろば前", "週五、六營業至 20:00（最終入場 19:30）；坂茂建築。", 15, 90],
-    ["19:00", "AMU PLAZA 大分（JR OITA CITY）", "アミュプラザおおいた, 大分県大分市要町1-14", "步行", "逛街與晚餐；可選雞湯拉麵、雞天、海鮮或りゅうきゅう丼。", 15, 90],
-    ["21:00", "大分駅周邊飯店（尚未選定）", "大分駅（Oita Station）周邊", "步行", "返回飯店休息。", 10]
+  day(1, "11/28（六）", "抵達別府・大分逛街", [
+    ["15:00", "大分機場", "大分県国東市安岐町下原13（大分空港）", "班機抵達", "抵達大分機場。", 0, 30],
+    ["15:30", "別府北濱", "大分県別府市北浜2丁目10（別府北浜バス停）", "B 公車｜大分機場 → 別府北濱", "建議搭乘 B 公車，乘車約 45–50 分鐘。", 50, 60],
+    ["16:45", "APARTMENT HOTEL YAEZAKI Check-in", "5-12 Minami matogahama, Beppu, Oita", "步行約 5 分鐘", "辦理入住。", 5, 30],
+    ["17:15", "Matogahama Park", "5 Kitamatogahamacho, Beppu, Oita", "步行約 3 分鐘", "別府灣海景與夕陽拍照。", 3, 45],
+    ["18:15", "JR Oita City AMU PLAZA 大分", "1-14 Kanamemachi, Oita", "JR 日豐本線｜約 15 分鐘", "推薦商店：URBAN RESEARCH、BEAMS、niko and...、PLAZA、LoFt。推薦晚餐：豐後茶屋（大分名物團子汁）、City Dining 三びし（在地鳥天炸雞）。", 15, 120]
   ]),
-  day(2, "11/29（日）", "大分購物・移動由布院", [
-    ["09:00", "大分縣護國神社", "大分県護国神社, 大分県大分市牧1371", "大分きゃんバス或一般路線巴士", "早上人少，適合參拜與拍照。", 15, 40],
-    ["10:00", "Park Place 大分", "パークプレイス大分, 大分県大分市公園通り西2-1", "由大分駅前搭往 Park Place 方向巴士", "大型購物中心，適合逛街與補貨。", 25, 90],
-    ["11:30", "Park Place 大分餐廳區", "パークプレイス大分 レストラン街", "百貨內步行", "午餐選豬肉、雞肉、海鮮丼或拉麵，避開牛肉。", 0, 60],
-    ["13:00", "MEGA 唐吉訶德 大分店", "MEGA Don Quijote 大分店（分店地址待確認）", "路線巴士", "藥妝、零食與伴手禮；退稅需護照。", 15, 60],
-    ["14:30", "大分駅", "大分駅（Oita Station）", "巴士", "預留時間買 JR 車票與上洗手間。", 20, 30],
-    ["15:16", "由布院駅", "由布院駅, 大分県由布市湯布院町川北8-2", "JR 久大本線特急ゆふ／各停；備選 16:01", "特急約 50 分、普通車約 70 分；旺季建議先劃位。", 50],
-    ["16:10", "由布院旅館（尚未選定）", "由布院駅周邊", "步行或飯店接駁", "辦理入住；可詢問車站接送。第 1 晚住由布院。", 15, 35],
-    ["17:00", "湯之坪街道", "湯の坪街道, 大分県由布市湯布院町川上", "步行", "黃昏散策；可吃地雞、豬肉串、海鮮丼或牛乳布丁。", 20, 50],
-    ["17:50", "金鱗湖", "金鱗湖, 大分県由布市湯布院町川上1561-1", "步行", "傍晚散步；晨霧景色更佳。", 10, 40],
-    ["19:00", "湯之坪街道周邊晚餐", "湯の坪街道, 大分県由布市湯布院町川上", "步行", "店家多在 18–19 點打烊；選雞肉、海鮮或豬肉料理。", 10, 90]
+  day(2, "11/29（日）", "大分市區・購物", [
+    ["09:00", "APARTMENT HOTEL YAEZAKI 出發", "5-12 Minami matogahama, Beppu, Oita", "飯店出發", "準備前往大分市區。", 0, 15],
+    ["09:30", "大分站", "1-1 Kanamemachi, Oita（大分駅）", "JR 日豐本線｜約 15 分鐘", "抵達大分站。", 15, 15],
+    ["10:00", "大分縣立美術館 OPAM", "2-1 Kotobukimachi, Oita", "步行約 15 分鐘", "備案行程。", 15, 45],
+    ["11:00", "Park Place 大分", "大分県大分市公園通り西2丁目1番", "大分巴士｜約 30 分鐘", "開放式戶外購物中心與美食街。推薦商店：WEGO、Global Work、ABC-MART GRAND STAGE、3COINS+plus。推薦午餐：商場內人氣蛋包飯或在地拉麵。", 30, 195],
+    ["14:30", "大分縣護國神社", "1371 Maki, Oita", "大分巴士｜約 15 分鐘", "清幽神社與花手水拍照。", 15, 75],
+    ["16:00", "驚安殿堂 唐吉訶德 大分店", "大分県大分市新川西1丁目1-1（MEGAドン・キホーテ大分店）", "公車｜約 15 分鐘", "採買藥妝、零食。", 15, 105],
+    ["18:00", "別府市區", "大分県別府市駅前町（別府駅周邊）", "JR 日豐本線｜約 15 分鐘", "享用別府冷麵或地雞料理、溫泉街散步。", 15, 120]
   ]),
-  day(3, "11/30（一）", "九重夢大吊橋一日遊", [
-    ["08:00", "由布院旅館（尚未選定）", "由布院駅周邊", "步行前往由布院駅", "早餐後出發；山區班次少。", 15, 45],
-    ["09:00", "豊後中村駅", "豊後中村駅, 大分県玖珠郡九重町右田", "JR 久大本線普通車（久留米／日田方向）", "每小時約 1 班，先查 JR 九州當日時刻。", 30],
-    ["09:30", "九重夢大吊橋", "九重夢大吊橋, 大分県玖珠郡九重町田野1208", "九重町コミュニティバス 縦断線；部分時段需預約", "一天約 4–6 班；出發前 1–2 週向九重町役場確認（0973-73-3800），並記下回程班次。", 20, 120],
-    ["12:30", "九重夢大吊橋周邊午餐", "九重夢大吊橋 中村側入口周邊", "步行", "地雞定食、山菜蕎麥麵或烏龍麵；山區選擇較少。", 0, 60],
-    ["13:30", "豊後中村駅", "豊後中村駅, 大分県玖珠郡九重町右田", "九重町コミュニティバス 縦断線", "依早上確認的回程班次；錯過可能等兩小時以上。", 20, 10],
-    ["14:00", "由布院駅", "由布院駅, 大分県由布市湯布院町川北8-2", "JR 久大本線普通車", "另留 30–60 分鐘轉乘緩衝。", 30],
-    ["15:00", "由布院旅館（尚未選定）", "由布院駅周邊", "步行", "自由活動、泡湯休息。", 15, 150],
-    ["18:00", "由布院旅館周邊晚餐", "由布院駅周邊", "步行", "豬肉涮涮鍋、雞肉鍋或海鮮鍋。第 2 晚住由布院。", 5, 90]
+  day(3, "11/30（一）", "九重夢大吊橋・巴士接駁", [
+    ["07:00", "飯店早餐與出發", "5-12 Minami matogahama, Beppu, Oita", "步行前往別府站", "早餐後出發。", 0, 50],
+    ["07:50", "別府站", "大分県別府市駅前町12-13（別府駅）", "步行抵達車站", "準備搭乘 JR 日豐本線／久大本線。", 10, 5],
+    ["08:45", "由布院站前", "大分県由布市湯布院町川北8-2（由布院駅）", "JR 日豐本線／久大本線｜約 50 分鐘", "抵達由布院，準備轉乘巴士。", 50, 20],
+    ["09:10", "由布院站前公交中心（去程乘車）", "大分県由布市湯布院町川北3-1（Yufuin Bus Terminal）", "九州橫斷巴士 2 號｜09:10 發車", "去程座位已購買完成；請依票券指定位置候車。", 5],
+    ["10:02", "久住登山入口［長者原］", "大分県玖珠郡九重町田野（Kuju Tozan Road／長者原）", "九州橫斷巴士 2 號｜52 分鐘", "10:02 抵達；現場轉乘候車 18 分鐘。", 52, 18],
+    ["10:20", "九重登山口花山醉（社區巴士乘車）", "大分県玖珠郡九重町田野260-1（花山酔前站牌）", "步行／候車", "九重町社區巴士 10:20 發車；免預約，準備現金零錢。"],
+    ["11:09", "九重夢大吊橋", "大分県玖珠郡九重町田野1208", "九重町社區巴士｜49 分鐘", "由大吊橋中村口進入園區；停留約 3.5 小時，漫步吊橋、展望台並享用九重夢漢堡。", 49, 212],
+    ["14:41", "大吊橋中村口（回程乘車）", "大分県玖珠郡九重町田野1215（大吊橋中村口站牌）", "步行至站牌／候車", "九重町社區巴士 14:41 發車。"],
+    ["15:30", "久住登山入口［長者原］", "大分県玖珠郡九重町田野（Kuju Tozan Road／長者原）", "九重町社區巴士｜49 分鐘", "15:30 抵達；現場轉乘候車 11 分鐘。", 49, 11],
+    ["15:41", "久住登山入口［長者原］（回程乘車）", "大分県玖珠郡九重町田野（Kuju Tozan Road／長者原）", "九州橫斷巴士 6 號｜15:41 發車", "回程座位已購買完成；請依票券指定位置候車。"],
+    ["16:33", "由布院站前公交中心", "大分県由布市湯布院町川北3-1（Yufuin Bus Terminal）", "九州橫斷巴士 6 號｜52 分鐘", "順利返回由布院，車站周邊小逛。", 52, 27],
+    ["17:00", "由布院站", "大分県由布市湯布院町川北8-2（由布院駅）", "步行前往車站", "準備搭乘 JR 或高速巴士返回別府。", 5, 10],
+    ["18:00", "別府市區", "大分県別府市駅前町（別府駅周邊）", "JR 或高速巴士｜約 50 分鐘", "返回飯店稍作休息，享用晚餐與溫泉放鬆。", 50, 120]
   ]),
-  day(4, "12/01（二）", "別府地獄・鶴見岳", [
-    ["08:30", "由布院駅前巴士中心", "由布院駅前バスセンター", "亀の井巴士 36 系統至海地獄前", "表格預計 08:30 出發；車資約 ¥1,100，搭乘前查證當日時刻。", 0],
-    ["09:20", "海地獄", "海地獄, 大分県別府市鉄輪559-1", "亀の井巴士 36 系統", "別府地獄巡禮第一站。", 50, 45],
-    ["10:05", "鬼石坊主地獄", "鬼石坊主地獄, 大分県別府市鉄輪559-1", "步行", "別府地獄巡禮精華，可依時間取捨。", 5, 20],
-    ["10:30", "かまど地獄", "かまど地獄, 大分県別府市鉄輪621", "步行", "地獄巡禮；可評估購買套票。", 10, 20],
-    ["10:55", "鬼山地獄", "鬼山地獄, 大分県別府市鉄輪625", "步行", "地獄巡禮最後一站。", 5, 20],
-    ["11:15", "地獄蒸工房 鉄輪", "〒874-0044 大分県別府市風呂本5組", "步行", "午餐體驗溫泉蒸氣料理；選蔬菜、海鮮、雞肉與溫泉蛋。", 10, 75],
-    ["13:30", "別府ロープウェイ", "別府ロープウェイ, 大分県別府市南立石字寒原10-7", "由鉄輪搭亀の井巴士往纜車方向", "上山約 10 分；強風時可能停駛。", 20, 60],
-    ["15:00", "別府駅西口", "別府駅西口, 大分県別府市駅前町", "巴士", "可在車站附近短暫採買。", 25],
-    ["15:30", "由布院駅前巴士中心", "由布院駅前バスセンター", "亀の井巴士 36 系統", "由別府返回由布院。", 50],
-    ["16:30", "湯之坪街道", "湯の坪街道, 大分県由布市湯布院町川上", "步行", "自由活動、補買伴手禮。", 10, 45],
-    ["17:20", "金鱗湖", "金鱗湖, 大分県由布市湯布院町川上1561-1", "步行", "補拍照與散步。", 10, 40],
-    ["18:30", "由布院旅館周邊晚餐", "由布院駅周邊", "步行", "地雞炭火燒、海鮮鍋或豚しゃぶ。第 3 晚住由布院。", 15, 90]
+  day(4, "12/01（二）", "由布院散策・美術館", [
+    ["08:30", "飯店出發", "5-12 Minami matogahama, Beppu, Oita", "前往由布院", "由別府出發。", 0, 10],
+    ["09:30", "由布院駅前", "大分県由布市湯布院町川北8-2（由布院駅）", "JR 久大本線或龜之井巴士｜約 50 分鐘", "抵達由布院。", 50],
+    ["09:30", "金鱗湖", "大分県由布市湯布院町川上1561-1", "步行約 20 分鐘", "湖面晨霧與湖畔神社。", 20, 40],
+    ["10:30", "Yufuin Floral Village", "1503-3 Yufuinchō Kawakami, Yufu", "步行約 3 分鐘", "歐風童話村與吉卜力小店。", 3, 47],
+    ["11:20", "COMICO ART MUSEUM YUFUIN", "2995-1 Yufuinchō Kawakami, Yufu", "步行約 5 分鐘", "隈研吾設計美術館，需預約。", 5, 50],
+    ["12:15", "湯之坪街道", "大分県由布市湯布院町川上（湯の坪街道）", "步行可達", "B-Speak 瑞士捲、可樂餅、午餐。", 5, 75],
+    ["13:30", "由布院田園區／質感咖啡廳", "大分県由布市湯布院町川上", "步行隨性漫步", "欣賞由布岳山景。", 0, 140],
+    ["16:00", "別府市區", "大分県別府市駅前町（別府駅周邊）", "JR 久大本線或龜之井巴士｜約 50 分鐘", "返回別府市區。", 50, 60],
+    ["17:00", "別府市區晚餐", "大分県別府市駅前町（別府站周邊）", "步行覓食", "在地黑毛和牛或溫泉蒸氣料理。", 0, 120]
   ]),
-  day(5, "12/02（三）", "由布院藝術・返程", [
-    ["08:00", "由布院旅館（尚未選定）", "由布院駅周邊", "步行", "早餐、退房並寄放行李。", 0, 60],
-    ["09:15", "Yufuin Floral Village", "湯布院フローラルヴィレッジ, 大分県由布市湯布院町川上1503-3", "步行", "英倫童話風商店街，適合拍照。", 15, 45],
-    ["10:10", "COMICO ART MUSEUM YUFUIN", "COMICO ART MUSEUM YUFUIN, 大分県由布市湯布院町川上2995-1", "步行", "建議事先線上預約；有人數管制。", 5, 60],
-    ["11:15", "湯之坪街道", "湯の坪街道, 大分県由布市湯布院町川上", "步行", "最後採買與早午餐；烏龍麵、地雞或豬肉小吃，B-speak 可外帶。", 5, 75],
-    ["12:45", "由布院旅館（尚未選定）", "由布院駅周邊", "步行", "返回旅館取行李。", 15, 25],
-    ["13:40", "大分空港", "大分空港（Oita Airport）", "大分交通 湯布院ライナー空港直達巴士", "約 14:35 抵達、車資約 ¥2,000；亦可回大分駅轉 Airliner。", 55, 115],
-    ["16:30", "大分空港・班機起飛", "大分空港（Oita Airport）", "飛機", "辦理登機、退稅與最後採買；行程結束。"]
+  day(5, "12/02（三）", "別府地獄巡禮・返程", [
+    ["08:00", "APARTMENT HOTEL YAEZAKI", "5-12 Minami matogahama, Beppu, Oita", "辦理退房", "行李寄放飯店櫃台。", 0, 40],
+    ["09:00", "海地獄前／鐵輪溫泉區", "大分県別府市鉄輪559-1（海地獄前）", "龜之井巴士｜約 20 分鐘", "抵達鐵輪溫泉區。", 20, 30],
+    ["09:30", "別府地獄巡禮", "559-1 Kannawa, Beppu", "步行漫步", "參觀蔚藍海地獄。", 0, 105],
+    ["11:15", "地獄蒸し工房 鉄輪", "大分県別府市風呂本5組", "步行可達", "午餐體驗天然溫泉蒸氣料理。", 5, 60],
+    ["12:30", "APARTMENT HOTEL YAEZAKI", "5-12 Minami matogahama, Beppu, Oita", "公車｜約 15 分鐘", "取回寄放行李。", 15, 50],
+    ["13:40", "別府北濱", "大分県別府市北浜2丁目10（別府北浜バス停）", "前往別府北濱站牌", "務必搭乘 13:40 的 K 公車。", 10],
+    ["14:48", "大分機場", "大分県国東市安岐町下原13（大分空港）", "K 公車｜48 分鐘", "提前 1 小時 42 分鐘抵達機場。", 48, 102],
+    ["16:30", "班機 IT751 起飛返台", "大分県国東市安岐町下原13（大分空港）", "台灣虎航 IT751", "辦理登機後返台。"]
   ])
 ];
 
-export const OITA_FLIGHTS: FlightInfo[] = [
-  { id: "oita-flight-in", route: "抵達大分空港", flightNumber: "尚未填寫", departure: "", arrival: "2026-11-28 15:00", note: "依行程表建立；確認後可編輯航班資訊。" },
-  { id: "oita-flight-out", route: "大分空港返程", flightNumber: "尚未填寫", departure: "2026-12-02 16:30", arrival: "", note: "建議 14:35 前抵達機場。" }
-];
-export const OITA_ACCOMMODATIONS: AccommodationInfo[] = [
-  { id: "oita-hotel-oita", name: "大分駅周邊飯店（尚未選定）", period: "2026-11-28～2026-11-29", address: "大分駅周邊", checkIn: "2026-11-28 16:30", note: "第 1 晚；建議選車站步行 10 分鐘內。" },
-  { id: "oita-hotel-yufuin", name: "由布院旅館（尚未選定）", period: "2026-11-29～2026-12-02", address: "由布院駅周邊", checkIn: "2026-11-29 16:10", checkOut: "2026-12-02 08:00", note: "第 2–4 晚；訂房後再改成實際名稱與地址。" }
-];
+const outbound = OITA_DAYS[2]!.stops[3]!;
+Object.assign(outbound, { reservationRequired: true, reservationCompleted: true, reservationNote: "已購買完成｜九州橫斷巴士 2 號：由布院站前公交中心 09:10 → 久住登山入口［長者原］10:02。" });
+const inbound = OITA_DAYS[2]!.stops[9]!;
+Object.assign(inbound, { reservationRequired: true, reservationCompleted: true, reservationNote: "已購買完成｜九州橫斷巴士 6 號：久住登山入口［長者原］15:41 → 由布院站前公交中心 16:33。" });
+const comico = OITA_DAYS[3]!.stops[4]!;
+Object.assign(comico, { reservationRequired: true, reservationCompleted: false, reservationNote: "COMICO ART MUSEUM YUFUIN 需事先預約；完成後可在豆遊勾選。" });
 
-// The user's supplied 11/30 timetable supersedes the tentative rail itinerary.
-OITA_DAYS[2]!.title = "九重夢大吊橋・巴士接駁";
-OITA_DAYS[2]!.stops = [
-  { ...makeStop(3, ["09:10", "九州橫斷巴士 1號｜由布院出發", "大分県由布市湯布院町川北3-1（Yufuin Bus Terminal）", "九州橫斷巴士 1號｜由布院→九重登山口", "09:10–10:02；車程 52 分鐘，需預約。", 52], 0), reservationRequired: true, reservationSuggestedDate: "2026-11-02", reservationNote: "九州橫斷巴士 1號去程需預約；請確認 11/30 09:10 由布院出發的座位。", openingHours: "09:10-10:02" },
-  { ...makeStop(3, ["10:02", "九重登山口站牌｜轉乘", "大分県玖珠郡九重町田野（Kuju Tozan Road 站牌）", "步行／候車", "兩線站牌在長者原花山醉周邊同一區域；等候 18 分鐘。", 0, 18], 1), openingHours: "10:02-10:20" },
-  { ...makeStop(3, ["10:20", "九重町社區巴士｜前往大吊橋", "大分県玖珠郡九重町田野260-1（九重登山口 花山醉前站牌）", "九重町社區巴士｜九重登山口花山醉→大吊橋中村口", "10:20–11:09；免預約，車程 49 分鐘。", 49], 2), openingHours: "10:20-11:09" },
-  { ...makeStop(3, ["11:09", "九重夢大吊橋", "大分県玖珠郡九重町田野1228", "園區內步行", "參觀吊橋、展望台並在周邊用餐；停留至 14:30，門票參考 ¥500。", 0, 201], 3), openingHours: "11:09-14:30" },
-  { ...makeStop(3, ["14:41", "九重町社區巴士｜返回九重登山口", "大分県玖珠郡九重町田野1215（大吊橋中村口站牌／停車場旁）", "九重町社區巴士｜大吊橋中村口→九重登山口花山醉", "14:41–15:30；免預約，車程 49 分鐘。", 49], 4), openingHours: "14:41-15:30" },
-  { ...makeStop(3, ["15:30", "九重登山口站牌｜回程轉乘", "大分県玖珠郡九重町田野（Kuju Tozan Road 站牌）", "步行／候車", "轉乘等候 11 分鐘；留意 15:41 發車。", 0, 11], 5), openingHours: "15:30-15:41" },
-  { ...makeStop(3, ["15:41", "九州橫斷巴士 6號｜返回由布院", "大分県玖珠郡九重町田野（Kuju Tozan Road 站牌）", "九州橫斷巴士 6號｜九重登山口→由布院", "15:41–16:33；車程 52 分鐘，需預約。", 52], 6), reservationRequired: true, reservationSuggestedDate: "2026-11-02", reservationNote: "九州橫斷巴士 6號回程需預約；請與去程一併確認 11/30 15:41 座位。", openingHours: "15:41-16:33" },
-  makeStop(3, ["16:33", "由布院駅前巴士中心", "大分県由布市湯布院町川北3-1（Yufuin Bus Terminal）", "步行返回旅館", "抵達由布院；視體力自由活動或泡湯。", 15], 7),
-  makeStop(3, ["18:00", "由布院旅館周邊晚餐", "由布院駅周邊", "步行", "豬肉涮涮鍋、雞肉鍋或海鮮鍋。第 2 晚住由布院。", 5, 90], 8)
+export const OITA_FLIGHTS: FlightInfo[] = [
+  { id: "oita-flight-in", route: "抵達大分機場", flightNumber: "尚未填寫", departure: "", arrival: "2026-11-28 15:00", note: "抵達後搭 B 公車前往別府北濱。" },
+  { id: "oita-flight-out", route: "大分機場返台", flightNumber: "IT751", departure: "2026-12-02 16:30", arrival: "", note: "14:48 抵達大分機場。" }
 ];
+export const OITA_ACCOMMODATIONS: AccommodationInfo[] = [{ id: "oita-hotel-yaezaki", name: "APARTMENT HOTEL YAEZAKI", period: "2026-11-28～2026-12-02", address: "5-12 Minami matogahama, Beppu, Oita", checkIn: "2026-11-28 16:45", checkOut: "2026-12-02 08:00", note: "12/02 退房後先寄放行李，12:30 回飯店取回。" }];
 
 export const upgradeOitaItinerary = (trip: TripPlan): TripPlan => {
-  const isKnownTrip = trip.id === "trip-1786446683379";
-  const isMatchingOitaPlan = /大分|Oita/i.test(`${trip.title} ${trip.destination}`)
-    && trip.days.length === 5
-    && /11[/-]28/.test(`${trip.startDate || ""} ${trip.days[0]?.date || ""}`);
-  if (!isKnownTrip && !isMatchingOitaPlan) return trip;
-  const hasEmptyDay = trip.days.some((day) => day.stops.length === 0);
-  if (!hasEmptyDay && (trip.oitaItineraryVersion || 0) >= OITA_ITINERARY_VERSION) return trip;
-  const days = trip.days.length === 5
-    ? trip.days.map((existingDay, index) => {
-        const template = OITA_DAYS[index]!;
-        return existingDay.stops.length ? existingDay : { ...existingDay, title: template.title, stops: template.stops };
-      })
-    : OITA_DAYS;
-  return {
-    ...trip,
-    title: trip.title || "大分旅行",
-    destination: trip.destination || "大分・由布院・別府・九重",
-    period: trip.period || "2026/11/28－12/02",
-    startDate: trip.startDate || "2026-11-28",
-    endDate: trip.endDate || "2026-12-02",
-    days,
-    flights: trip.flights?.length ? trip.flights : OITA_FLIGHTS,
-    accommodations: trip.accommodations?.length ? trip.accommodations : OITA_ACCOMMODATIONS,
-    oitaItineraryVersion: OITA_ITINERARY_VERSION
-  };
+  const target = trip.id === "trip-1786446683379" || (/大分|Oita/i.test(`${trip.title} ${trip.destination}`) && /11[/-]28/.test(`${trip.startDate || ""} ${trip.days[0]?.date || ""}`));
+  if (!target || (trip.oitaItineraryVersion || 0) >= OITA_ITINERARY_VERSION) return trip;
+  return { ...trip, destination: "大分・別府・由布院・九重", period: "2026/11/28－12/02", startDate: "2026-11-28", endDate: "2026-12-02", currency: "JPY", days: OITA_DAYS, flights: OITA_FLIGHTS, accommodations: OITA_ACCOMMODATIONS, oitaItineraryVersion: OITA_ITINERARY_VERSION };
 };
