@@ -1,7 +1,7 @@
 import { AccommodationInfo, FlightInfo, Stop, TransportMode, TripDay, TripPlan } from "../types";
 
 // One-time migration: later edits made on any device must remain untouched.
-export const OITA_ITINERARY_VERSION = 2026102601;
+export const OITA_ITINERARY_VERSION = 2026102602;
 type Row = [string, string, string, string, string, number?, number?];
 
 const makeStop = (d: number, row: Row, i: number): Stop => {
@@ -67,6 +67,45 @@ export const OITA_DAYS: TripDay[] = [
     ["16:30", "班機 IT751 起飛返台", "大分県国東市安岐町下原13（大分空港）", "台灣虎航 IT751", "辦理登機後返台。"]
   ])
 ];
+
+// Verified map points for every itinerary row.  Do not rely on browser-side
+// geocoding here: Japanese station/area names can otherwise resolve to the
+// municipality centre (the previous Oita Station bug).
+const OITA_COORDINATES: Array<Array<[number, number]>> = [
+  [
+    [33.479444, 131.737222], [33.280392, 131.506424], [33.283195, 131.504456],
+    [33.284519, 131.504288], [33.232018, 131.606559]
+  ],
+  [
+    [33.283195, 131.504456], [33.232018, 131.606559], [33.239140, 131.601974],
+    [33.195293, 131.658203], [33.235139, 131.642028], [33.245670, 131.606796],
+    [33.279415, 131.500992]
+  ],
+  [
+    [33.283195, 131.504456], [33.279415, 131.500992], [33.262781, 131.355782],
+    [33.262676, 131.355901], [33.116820, 131.232310], [33.117420, 131.231250],
+    [33.173899, 131.226751], [33.173539, 131.226388], [33.116820, 131.232310],
+    [33.116820, 131.232310], [33.262676, 131.355901], [33.262781, 131.355782],
+    [33.279415, 131.500992]
+  ],
+  [
+    [33.283195, 131.504456], [33.262781, 131.355782], [33.265785, 131.368439],
+    [33.266160, 131.365020], [33.263740, 131.361200], [33.265010, 131.363030],
+    [33.270150, 131.359430], [33.279415, 131.500992], [33.279415, 131.500992]
+  ],
+  [
+    [33.283195, 131.504456], [33.316350, 131.470540], [33.316350, 131.470540],
+    [33.315429, 131.476232], [33.283195, 131.504456], [33.280392, 131.506424],
+    [33.479444, 131.737222], [33.479444, 131.737222]
+  ]
+];
+OITA_DAYS.forEach((tripDay, dayIndex) => tripDay.stops.forEach((stop, stopIndex) => {
+  const point = OITA_COORDINATES[dayIndex]?.[stopIndex];
+  if (point) {
+    stop.latitude = point[0];
+    stop.longitude = point[1];
+  }
+}));
 
 const outbound = OITA_DAYS[2]!.stops[3]!;
 Object.assign(outbound, { reservationRequired: true, reservationCompleted: true, reservationNote: "已購買完成｜九州橫斷巴士 2 號：由布院站前公交中心 09:10 → 久住登山入口［長者原］10:02。" });
